@@ -16,9 +16,14 @@ use tokio::sync::{Mutex, mpsc};
 use crate::{MailAction, Pigeon};
 
 const SYNC_EVERY: Duration = Duration::from_secs(30);
-const LIST_LIMIT: u32 = 300;
+/// First screenful: what's visible plus a little, so a cold launch touches
+/// few pages. The UI asks for more (`Cmd::LoadMore`) as you scroll.
+const LIST_FIRST_PAGE: u32 = 60;
+const LIST_PAGE: u32 = 200;
+const LIST_MAX: u32 = 20_000;
 const NEXT_UP_HOURS: i64 = 12;
 const SEARCH_LIMIT: u32 = 200;
+const SYNC_PROGRESS_EVERY: Duration = Duration::from_millis(1500);
 
 /// A password that never shows up in `Debug` output (commands get logged).
 #[derive(Clone)]
@@ -42,13 +47,13 @@ pub enum Mailbox {
 }
 
 impl Mailbox {
-    fn query(&self) -> ListQuery {
+    fn query(&self, limit: u32) -> ListQuery {
         match self {
-            Mailbox::Unified(role) => ListQuery::unified(*role, LIST_LIMIT),
+            Mailbox::Unified(role) => ListQuery::unified(*role, limit),
             Mailbox::Folder { account_id, folder_id } => ListQuery {
                 account_id: Some(account_id.clone()),
                 folder: FolderSel::Id(folder_id.clone()),
-                limit: LIST_LIMIT,
+                limit,
                 before: None,
             },
         }
@@ -75,6 +80,11 @@ pub enum Cmd {
     /// Cancel a scheduled send; the draft reopens in the composer.
     CancelScheduled {
         draft_id: String,
+    },
+    /// The user scrolled near the end of the list; `have` is how many rows
+    /// the UI currently shows.
+    LoadMore {
+        have: u32,
     },
     /// Recipient autocomplete; `token` lets the UI drop stale results.
     SuggestContacts {
@@ -384,6 +394,8 @@ struct View {
     mailbox: Mailbox,
     threaded: bool,
     calendar: Option<(i64, i64)>,
+    /// Rows to list; grows with `Cmd::LoadMore`, resets on a new mailbox.
+    limit: u32,
 }
 
 struct Service {
@@ -486,13 +498,22 @@ impl Service {
     }
 
     async fn publish_inner(&self) -> Result<()> {
-        let (mailbox, threaded, calendar) = {
+        let started = std::time::Instant::now();
+        let r = self.publish_snapshot().await;
+        tracing::debug!(ms = started.elapsed().as_secs_f64() * 1000.0, "publish");
+        r
+    }
+
+    async fn publish_snapshot(&self) -> Result<()> {
+        let (mailbox, threaded, calendar, limit) = {
             let v = self.view.lock().await;
-            (v.mailbox.clone(), v.threaded, v.calendar)
+            (v.mailbox.clone(), v.threaded, v.calendar, v.limit)
         };
         let now = now_ms();
         let (accounts, items, next_up, cal) = {
+            let t = std::time::Instant::now();
             let store = self.app.store();
+            let lock_ms = t.elapsed().as_secs_f64() * 1000.0;
             let mut accounts = Vec::new();
             for a in store.accounts()? {
                 accounts.push(AccountNav {
@@ -502,12 +523,15 @@ impl Service {
                     account: a,
                 });
             }
-            let q = mailbox.query();
+            let accounts_ms = t.elapsed().as_secs_f64() * 1000.0 - lock_ms;
+            let q = mailbox.query(limit);
             let items = if threaded {
                 store.list_threads(&q)?.into_iter().map(ListItem::Thread).collect()
             } else {
                 store.list_messages(&q)?.into_iter().map(ListItem::Message).collect()
             };
+            let list_ms = t.elapsed().as_secs_f64() * 1000.0 - lock_ms - accounts_ms;
+            tracing::debug!(lock_ms, accounts_ms, list_ms, "publish steps");
             let next_up = store.events_between(now, now + NEXT_UP_HOURS * 3_600_000)?;
             let cal = match calendar {
                 Some((from, to)) => {
@@ -559,7 +583,21 @@ impl Service {
             return;
         }
         self.set_sync(|s| s.syncing = true).await;
+        // Show mail as it lands during a long (first) sync instead of only
+        // at the end; a publish costs ~10 ms even at 100k messages.
+        let progress = {
+            let svc = self.clone();
+            tokio::spawn(async move {
+                let mut every = tokio::time::interval(SYNC_PROGRESS_EVERY);
+                every.tick().await;
+                loop {
+                    every.tick().await;
+                    svc.publish().await;
+                }
+            })
+        };
         let reports = self.app.sync_all().await;
+        progress.abort();
         let mut errors = Vec::new();
         let (mut failures, mut network_failures) = (0, 0);
         let mut needs_sign_in = Vec::new();
@@ -638,8 +676,22 @@ impl Service {
             Cmd::ShowMailbox { mailbox, threaded } => {
                 {
                     let mut v = self.view.lock().await;
+                    if v.mailbox != mailbox || v.threaded != threaded {
+                        v.limit = LIST_FIRST_PAGE;
+                    }
                     v.mailbox = mailbox;
                     v.threaded = threaded;
+                }
+                self.publish().await;
+            }
+            Cmd::LoadMore { have } => {
+                {
+                    let mut v = self.view.lock().await;
+                    // Ignore stale requests (already grown past what the UI saw).
+                    if have < v.limit {
+                        return Ok(());
+                    }
+                    v.limit = (v.limit + LIST_PAGE).min(LIST_MAX);
                 }
                 self.publish().await;
             }
@@ -950,7 +1002,12 @@ pub async fn run(app: Arc<Pigeon>, mut rx: mpsc::UnboundedReceiver<Cmd>, tx: mps
     let svc = Arc::new(Service {
         app,
         tx,
-        view: Mutex::new(View { mailbox: Mailbox::Unified(FolderRole::Inbox), threaded: true, calendar: None }),
+        view: Mutex::new(View {
+            mailbox: Mailbox::Unified(FolderRole::Inbox),
+            threaded: true,
+            calendar: None,
+            limit: LIST_FIRST_PAGE,
+        }),
         syncing: AtomicBool::new(false),
         sync_state: Mutex::new(SyncState::default()),
         toast_seq: Default::default(),

@@ -16,6 +16,7 @@ mod settings;
 mod settings_sections;
 mod sidebar;
 mod toasts;
+pub mod vlist;
 pub mod zoom;
 
 use dioxus::prelude::*;
@@ -84,6 +85,15 @@ pub fn App() -> Element {
                         "month" => v.set(crate::state::CalView::Month),
                         _ => {}
                     }
+                }
+                // scroll:<row> — scroll the message list to roughly that row.
+                "scroll" => {
+                    let y = arg.parse::<f64>().unwrap_or(0.0) * vlist::ROW_H;
+                    // Retry until the list exists and is tall enough (pages load as it scrolls).
+                    document::eval(&format!(
+                        "let n=0; const t=setInterval(()=>{{const l=document.querySelector('.pane--list .list[role=listbox]'); \
+                         if(l){{l.scrollTop={y}; if(Math.abs(l.scrollTop-{y})<2||++n>40) clearInterval(t);}}}},250)"
+                    ));
                 }
                 // move:<account_id>|<thread_id>[|label] — open the thread, then the picker
                 "move" => {
@@ -186,7 +196,14 @@ pub fn App() -> Element {
     use_effect(move || {
         let mailbox = s.mailbox.read().clone();
         let threaded = *s.threaded.read();
+        crate::perf::mark_show_sent();
         send_cmd(Cmd::ShowMailbox { mailbox, threaded });
+    });
+
+    // Timing: log when a new list has rendered (debug level).
+    use_effect(move || {
+        let rows = s.list.read().len();
+        crate::perf::mark_list_rendered(rows);
     });
 
     use_effect(move || {

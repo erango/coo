@@ -321,8 +321,24 @@ fn debug_patch(s: &AppState, delta: Delta) -> Delta {
 /// Apply engine deltas to the signals, forever.
 pub async fn pump(mut s: AppState) {
     let Some(mut rx) = RX.lock().unwrap().take() else { return };
-    while let Some(delta) = rx.recv().await {
-        let delta = debug_patch(&s, delta);
+    // Coalesce bursts: apply everything already queued without awaiting in
+    // between, so Dioxus re-renders once per batch, not once per delta.
+    while let Some(first) = rx.recv().await {
+        let mut batch = vec![first];
+        while batch.len() < 64
+            && let Ok(more) = rx.try_recv()
+        {
+            batch.push(more);
+        }
+        for delta in batch {
+            apply(&mut s, delta);
+        }
+    }
+}
+
+fn apply(s: &mut AppState, delta: Delta) {
+    {
+        let delta = debug_patch(s, delta);
         match delta {
             Delta::NewMail(rows) => {
                 // Someone looking at the window sees it arrive.
@@ -340,6 +356,7 @@ pub async fn pump(mut s: AppState) {
             }
             Delta::List { mailbox, threaded, items } => {
                 if mailbox == *s.mailbox.peek() && threaded == *s.threaded.peek() {
+                    crate::perf::mark_list_arrived();
                     s.list.set(items);
                 }
             }

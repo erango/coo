@@ -6,7 +6,7 @@ use pigeon_engine::service::{ListItem, Mailbox};
 use pigeon_core::model::ProviderKind;
 use pigeon_engine::service::Cmd;
 
-use super::{Icon, act, select};
+use super::{Icon, act, select, vlist};
 use crate::format;
 use crate::send_cmd;
 use crate::state::{AppState, OutState, Outgoing};
@@ -95,16 +95,54 @@ pub fn MailList() -> Element {
         .cloned()
         .collect();
 
-    let mut last_group = "";
-    let mut rows = Vec::with_capacity(items.len() * 2);
-    for item in &items {
-        let g = format::group(item.header().received_at, now);
-        if g != last_group {
-            rows.push(rsx! { div { class: "list-group", key: "g-{g}", "{g}" } });
-            last_group = g;
+    // Virtualized: only the slots in (and near) the viewport are rendered,
+    // between spacers that keep the scroll height exact.
+    let mut scroll_top = use_signal(|| 0.0f64);
+    let mut viewport = use_signal(|| 1200.0f64);
+    let mut asked_for = use_signal(|| 0usize);
+    let layout = vlist::layout(items.iter().map(|i| format::group(i.header().received_at, now)));
+    // Outgoing (sending/failed) rows sit above the virtualized rows.
+    let out_h = outgoing.len() as f64 * vlist::ROW_H;
+    let (start, end, top_pad, bottom_pad) =
+        vlist::window(&layout, (*scroll_top.read() - out_h).max(0.0), *viewport.read());
+    let rows: Vec<Element> = layout.slots[start..end]
+        .iter()
+        .map(|(slot, _)| match *slot {
+            vlist::Slot::Group(g) => rsx! { div { class: "list-group", key: "g-{g}", "{g}" } },
+            vlist::Slot::Item(i) => {
+                let item = &items[i];
+                rsx! { Row { key: "{AppState::key(item)}", item: item.clone(), many } }
+            }
+        })
+        .collect();
+    let total = layout.total + out_h;
+    let count = items.len();
+
+    // Keep the keyboard selection visible (it may not be rendered at all).
+    let selected_index = s.selected.read().as_ref().and_then(|k| items.iter().position(|i| AppState::key(i) == *k));
+    let span = selected_index.and_then(|i| vlist::item_span(&layout, i)).map(|(t, b)| (t + out_h, b + out_h));
+    use_effect(use_reactive!(|span| {
+        if let Some((top, bottom)) = span
+            && let Some(y) = vlist::scroll_into_view(*scroll_top.peek(), *viewport.peek(), top, bottom)
+        {
+            document::eval(&format!(
+                "const l=document.querySelector('.pane--list .list[role=listbox]'); if(l) l.scrollTop={y};"
+            ));
         }
-        rows.push(rsx! { Row { key: "{AppState::key(item)}", item: item.clone(), many } });
-    }
+    }));
+    let on_scroll = move |e: Event<ScrollData>| {
+        let (top, h) = (e.data().scroll_top(), e.data().client_height() as f64);
+        scroll_top.set(top);
+        if h > 0.0 {
+            viewport.set(h);
+        }
+        // Near the end of what's loaded: ask the engine for the next page,
+        // once per list length.
+        if top + h > total - vlist::LOAD_AHEAD && count != *asked_for.peek() {
+            asked_for.set(count);
+            crate::send_cmd(pigeon_engine::service::Cmd::LoadMore { have: count as u32 });
+        }
+    };
 
     rsx! {
         section { class: "pane pane--list", "aria-label": "{heading}",
@@ -131,10 +169,13 @@ pub fn MailList() -> Element {
                 Empty { syncing: s.sync.read().syncing || s.sync.read().last_ok.is_none() }
             } else {
                 div { class: "list", role: "listbox", "data-auth": (!expired.is_empty()).then_some("expired"),
+                    onscroll: on_scroll,
                     for o in outgoing.iter() {
                         OutgoingRow { key: "out-{o.draft.id}", out: o.clone(), many }
                     }
+                    div { style: "height:{top_pad}px", "aria-hidden": "true" }
                     {rows.into_iter()}
+                    div { style: "height:{bottom_pad}px", "aria-hidden": "true" }
                 }
             }
             if let Some(acct) = expired.first() {

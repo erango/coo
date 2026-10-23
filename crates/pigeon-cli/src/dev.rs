@@ -282,6 +282,31 @@ fn time(name: &str, runs: usize, mut f: impl FnMut() -> Result<usize>) -> Result
 
 /// Time the store's hot paths. Prints a table (ms).
 pub fn bench(path: &std::path::Path, runs: usize) -> Result<()> {
+    // Cold: what the app pays once at launch (fresh connection, empty
+    // statement cache), split by step.
+    {
+        let t = Instant::now();
+        let store = Store::open(path)?;
+        let open = t.elapsed();
+        let mut steps = vec![("open", open)];
+        let t = Instant::now();
+        let accts = store.accounts()?;
+        steps.push(("accounts", t.elapsed()));
+        let t = Instant::now();
+        for a in &accts {
+            store.folders(&a.id)?;
+        }
+        steps.push(("folders", t.elapsed()));
+        let t = Instant::now();
+        store.list_threads(&ListQuery::unified(FolderRole::Inbox, 300))?;
+        steps.push(("list_threads 300", t.elapsed()));
+        let t = Instant::now();
+        let now = pigeon_core::now_ms();
+        store.events_between(now, now + 7 * 86_400_000)?;
+        steps.push(("events week", t.elapsed()));
+        let line: Vec<String> = steps.iter().map(|(n, d)| format!("{n} {:.1} ms", d.as_secs_f64() * 1000.0)).collect();
+        println!("cold first publish: {}", line.join(", "));
+    }
     let mut out = Vec::new();
     out.push(time("Store::open (existing db)", runs.min(20), || {
         Store::open(path)?;

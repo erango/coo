@@ -7,6 +7,7 @@ mod format;
 mod meeting;
 mod menu;
 mod notify;
+mod perf;
 mod prefs;
 mod state;
 mod themes;
@@ -48,6 +49,7 @@ pub fn send_cmd(cmd: Cmd) {
 }
 
 fn main() {
+    perf::mark_start();
     // Keep the guard for the whole process so queued reports flush on exit.
     let _telemetry = pigeon_engine::telemetry::init(
         concat!("coo-app@", env!("CARGO_PKG_VERSION")),
