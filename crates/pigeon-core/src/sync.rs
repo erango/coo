@@ -19,6 +19,7 @@ pub async fn sync_mail<P: MailProvider>(p: &P, account_id: &str, store: &Mutex<S
     let folders = p.folders().await?;
     lock(store).replace_folders(account_id, &folders)?;
     let mut stats = MailStats { folders: folders.len(), ..Default::default() };
+    tracing::info!(account_id, folders = folders.len(), "mail sync");
 
     for scope in p.mail_scopes(&folders) {
         let mut cursor = lock(store).cursor(account_id, &scope)?;
@@ -33,6 +34,7 @@ pub async fn sync_mail<P: MailProvider>(p: &P, account_id: &str, store: &Mutex<S
                 page => page?,
             };
             stats.pages += 1;
+            tracing::info!(account_id, scope, changes = page.changes.len(), more = page.more, "mail page");
             stats.changes += page.changes.len();
             lock(store).apply_mail(account_id, &scope, &page.changes, &page.cursor)?;
             if !page.more {
@@ -62,7 +64,9 @@ pub async fn sync_calendars<P: CalendarProvider>(
     let calendars = p.calendars().await?;
     lock(store).replace_calendars(account_id, &calendars)?;
     let mut stats = CalendarStats { calendars: calendars.len(), events: 0 };
+    tracing::info!(account_id, calendars = calendars.len(), "calendar sync");
     for cal in &calendars {
+        tracing::info!(account_id, calendar = cal.name, "syncing calendar");
         match sync_calendar(p, account_id, cal, store, from, to).await {
             Ok(n) => stats.events += n,
             // Shared calendars can be listed but not readable (free/busy only).

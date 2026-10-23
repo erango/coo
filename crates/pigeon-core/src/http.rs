@@ -32,7 +32,21 @@ pub async fn send(mut make: impl FnMut() -> RequestBuilder) -> Result<Response> 
     let mut backoff = Duration::from_millis(500);
     for attempt in 1..=MAX_ATTEMPTS {
         let last = attempt == MAX_ATTEMPTS;
-        let wait = match make().send().await {
+        let started = std::time::Instant::now();
+        let req = make();
+        let target = req.try_clone().and_then(|r| r.build().ok()).map(|r| {
+            let u = r.url();
+            format!("{} {}{}", r.method(), u.host_str().unwrap_or_default(), u.path())
+        });
+        let sent = req.send().await;
+        tracing::debug!(
+            request = target.as_deref().unwrap_or("?"),
+            status = sent.as_ref().map(|r| r.status().as_u16()).unwrap_or(0),
+            ms = started.elapsed().as_millis() as u64,
+            attempt,
+            "http"
+        );
+        let wait = match sent {
             Ok(resp) if resp.status().is_success() => return Ok(resp),
             Ok(resp) => {
                 let status = resp.status();
@@ -43,8 +57,9 @@ pub async fn send(mut make: impl FnMut() -> RequestBuilder) -> Result<Response> 
                     body.truncate(MAX_BODY_IN_ERROR);
                     return Err(Error::Api { status: status.as_u16(), url, body });
                 }
-                tracing::debug!(%status, %url, attempt, "retrying");
-                retry_after.unwrap_or(backoff)
+                let wait = retry_after.unwrap_or(backoff);
+                tracing::info!(%status, attempt, wait_s = wait.as_secs(), "throttled or transient error; retrying");
+                wait
             }
             Err(e) if !last && (e.is_timeout() || e.is_connect()) => {
                 tracing::debug!(error = %e, attempt, "retrying");
