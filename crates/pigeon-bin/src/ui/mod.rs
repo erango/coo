@@ -119,9 +119,16 @@ pub fn App() -> Element {
                         });
                     }
                 }
+                // settings[:<section title>] — open, optionally scrolled to a section
                 "settings" => {
                     let mut o = s.settings_open;
                     o.set(true);
+                    if !arg.is_empty() {
+                        let js = format!(
+                            "setTimeout(() => {{ const h = [...document.querySelectorAll('.settings__title')].find(e => e.textContent.trim() === {arg:?}); h && h.scrollIntoView(); }}, 400);"
+                        );
+                        document::eval(&js);
+                    }
                 }
                 "agent-setup" => {
                     let mut o = s.agent_setup_open;
@@ -269,7 +276,11 @@ async fn reminder_loop(s: AppState) {
         let events = s.next_up.peek().clone();
         let now = pigeon_core::now_ms();
         let prefs = crate::prefs::get();
-        for e in crate::notify::due_reminders(&events, now, &prefs, &reminded) {
+        let due = crate::notify::due_reminders(&events, now, &prefs, &reminded);
+        if !due.is_empty() {
+            crate::sound::play(&prefs.sound_theme, crate::sound::Kind::Meeting, prefs.sound_volume);
+        }
+        for e in due {
             crate::notify::post(&crate::notify::event_note(e, now));
             reminded.insert(crate::notify::reminder_key(e));
         }

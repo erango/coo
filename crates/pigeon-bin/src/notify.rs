@@ -211,8 +211,8 @@ mod mac {
     use objc2_user_notifications::{
         UNAuthorizationOptions, UNMutableNotificationContent, UNNotification, UNNotificationAction,
         UNNotificationActionOptions, UNNotificationCategory, UNNotificationCategoryOptions,
-        UNNotificationPresentationOptions, UNNotificationRequest, UNNotificationResponse, UNNotificationSound,
-        UNUserNotificationCenter, UNUserNotificationCenterDelegate,
+        UNNotificationPresentationOptions, UNNotificationRequest, UNNotificationResponse, UNUserNotificationCenter,
+        UNUserNotificationCenterDelegate,
     };
 
     use super::{EVENT_CATEGORY, JOIN_ACTION, Note, on_click};
@@ -319,7 +319,8 @@ mod mac {
         let content = UNMutableNotificationContent::new();
         content.setTitle(&NSString::from_str(&note.title));
         content.setBody(&NSString::from_str(&note.body));
-        content.setSound(Some(&UNNotificationSound::defaultSound()));
+        // Banners are silent: Coo plays its own theme sound for mail and
+        // reminders (sound.rs).
         if note.join_url.is_some() {
             content.setCategoryIdentifier(&NSString::from_str(EVENT_CATEGORY));
         }

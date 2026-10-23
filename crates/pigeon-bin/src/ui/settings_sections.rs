@@ -152,6 +152,48 @@ pub fn Notifications() -> Element {
                     onchange: move |_| set(|p| p.notify_events = !p.notify_events) }
                 span { class: "settings-field__hint", "A reminder before meetings start, with Join." }
             }
+            div { class: "settings-field settings-field--top",
+                span { class: "settings-field__label", "Sounds" }
+                div { style: "display:flex;flex-direction:column;gap:8px",
+                    div { class: "segmented", role: "radiogroup", "aria-label": "Sound theme",
+                        {
+                            let choices = std::iter::once((crate::sound::NONE, "None")).chain(crate::sound::THEMES.iter().map(|t| (t.id, t.label)));
+                            rsx! {
+                                for (id, label) in choices {
+                                    button { role: "radio", key: "{id}",
+                                        "aria-checked": "{cur.sound_theme == id}", "aria-selected": "{cur.sound_theme == id}",
+                                        title: "Click to hear the new-mail sound",
+                                        onclick: move |_| {
+                                            prefs::update(move |x| x.sound_theme = id.to_string());
+                                            crate::sound::play(id, crate::sound::Kind::Mail, prefs::get().sound_volume);
+                                            p.set(prefs::get());
+                                        },
+                                        "{label}"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    div { style: "display:flex;gap:8px;align-items:center",
+                        button { class: "btn btn--ghost btn--sm", disabled: cur.sound_theme == crate::sound::NONE,
+                            onclick: move |_| { let p = prefs::get(); crate::sound::play(&p.sound_theme, crate::sound::Kind::Mail, p.sound_volume); },
+                            Icon { name: "mail", class: "icon--sm" } "New mail" }
+                        button { class: "btn btn--ghost btn--sm", disabled: cur.sound_theme == crate::sound::NONE,
+                            onclick: move |_| { let p = prefs::get(); crate::sound::play(&p.sound_theme, crate::sound::Kind::Meeting, p.sound_volume); },
+                            Icon { name: "cal", class: "icon--sm" } "Meeting reminder" }
+                        input { r#type: "range", min: "10", max: "100", step: "5", class: "settings-range", "aria-label": "Volume",
+                            value: "{cur.sound_volume}", disabled: cur.sound_theme == crate::sound::NONE,
+                            onchange: move |e| {
+                                let v: u8 = e.value().parse().unwrap_or(60);
+                                prefs::update(move |x| x.sound_volume = v);
+                                crate::sound::play(&prefs::get().sound_theme, crate::sound::Kind::Mail, v);
+                                p.set(prefs::get());
+                            }
+                        }
+                    }
+                    span { class: "settings-field__hint", "Each theme pairs a new-mail sound with a matching meeting reminder. Plays once per batch, only for the alerts turned on here." }
+                }
+            }
             div { class: "settings-field",
                 span { class: "settings-field__label", "Remind me" }
                 div { class: "segmented", role: "radiogroup", "aria-label": "Event reminder",

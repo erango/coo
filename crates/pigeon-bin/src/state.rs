@@ -367,9 +367,14 @@ fn apply(s: &mut AppState, delta: Delta) {
         let delta = debug_patch(s, delta);
         match delta {
             Delta::NewMail(rows) => {
+                let prefs = crate::prefs::get();
+                // One soft sound per batch, even with the window in front.
+                if prefs.notify_new_mail && rows.iter().any(|r| !prefs.notify_accounts_muted.contains(&r.account_id)) {
+                    crate::sound::play(&prefs.sound_theme, crate::sound::Kind::Mail, prefs.sound_volume);
+                }
                 // Someone looking at the window sees it arrive.
                 if !*s.window_focused.peek() {
-                    for note in crate::notify::mail_notes(&rows, &crate::prefs::get()) {
+                    for note in crate::notify::mail_notes(&rows, &prefs) {
                         crate::notify::post(&note);
                     }
                 }

@@ -11,6 +11,7 @@ mod notify;
 mod perf;
 mod prefs;
 mod shortcuts;
+mod sound;
 mod state;
 mod themes;
 mod ui;

@@ -169,3 +169,6 @@ body[data-resizing] iframe { pointer-events: none; }
 
 /* 5. Email bodies use the whole reading pane. */
 .mail-body, .images-banner, .plain-body { max-width: none; }
+
+/* Settings range input (sound volume). */
+.settings-range { width: 200px; accent-color: var(--accent); }
