@@ -175,3 +175,9 @@ body[data-resizing] iframe { pointer-events: none; }
 
 /* Settings open: its footer button reads as the current place. */
 .sidebar__footer .icon-btn[aria-pressed="true"] { background: var(--selection); color: var(--accent); }
+
+/* Settings › signature editor (rich, contenteditable). */
+.sig-editor { min-height: 72px; height: auto; padding: 8px 10px; line-height: 1.45; overflow-wrap: anywhere; cursor: text; white-space: normal; }
+.sig-editor:empty::before { content: attr(data-placeholder); color: var(--text-3); pointer-events: none; }
+.sig-editor img { max-width: 100%; height: auto; }
+.composer__signature img { max-width: 100%; height: auto; }

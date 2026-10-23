@@ -106,6 +106,92 @@ pub fn sanitize(html: &str) -> Sanitized {
     Sanitized { html: clean, has_remote_content: remote.load(Ordering::Relaxed) }
 }
 
+/// Clean HTML for a signature, typed in the rich editor or pasted from a
+/// browser. Keeps what signatures are made of (formatting, inline styles,
+/// links, images, simple tables) and drops everything a page brings along:
+/// scripts, `<style>`/`<meta>` blocks, classes and ids, event handlers,
+/// comments, and positioning that could escape the message layout.
+pub fn sanitize_signature(html: &str) -> String {
+    const TAGS: &[&str] = &[
+        "a",
+        "b",
+        "strong",
+        "i",
+        "em",
+        "u",
+        "s",
+        "strike",
+        "br",
+        "div",
+        "p",
+        "span",
+        "font",
+        "img",
+        "table",
+        "thead",
+        "tbody",
+        "tr",
+        "td",
+        "th",
+        "ul",
+        "ol",
+        "li",
+        "blockquote",
+        "hr",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "small",
+        "sup",
+        "sub",
+        "center",
+    ];
+    let clean = ammonia::Builder::empty()
+        .add_tags(TAGS)
+        .clean_content_tags(HashSet::from([
+            "script", "style", "title", "noscript", "template", "head", "iframe", "object",
+        ]))
+        .add_generic_attributes(&[
+            "style", "dir", "align", "valign", "width", "height", "bgcolor", "color", "face", "size", "title",
+        ])
+        .add_tag_attributes("a", &["href"])
+        .add_tag_attributes("img", &["src", "alt", "border"])
+        .add_tag_attributes("table", &["cellpadding", "cellspacing", "border"])
+        .add_tag_attributes("td", &["colspan", "rowspan", "nowrap"])
+        .add_tag_attributes("th", &["colspan", "rowspan"])
+        .url_schemes(HashSet::from(["http", "https", "mailto", "tel", "data"]))
+        .link_rel(Some("noopener noreferrer"))
+        .strip_comments(true)
+        .attribute_filter(|element, attribute, value| {
+            let v = value.trim_start().to_ascii_lowercase();
+            if v.starts_with("data:") && !(element == "img" && attribute == "src" && v.starts_with("data:image/")) {
+                return None;
+            }
+            if attribute == "style" {
+                let kept: Vec<&str> = value
+                    .split(';')
+                    .map(str::trim)
+                    .filter(|d| {
+                        let prop = d.split(':').next().unwrap_or_default().trim().to_ascii_lowercase();
+                        !d.is_empty()
+                            && !matches!(
+                                prop.as_str(),
+                                "position" | "top" | "left" | "right" | "bottom" | "z-index" | "transform"
+                            )
+                            && !d.to_ascii_lowercase().contains("expression(")
+                            && !d.to_ascii_lowercase().contains("url(")
+                    })
+                    .collect();
+                return if kept.is_empty() { None } else { Some(Cow::Owned(kept.join("; "))) };
+            }
+            Some(Cow::Borrowed(value))
+        })
+        .clean(html)
+        .to_string();
+    clean.trim().to_string()
+}
+
 /// `url(http…)` / `@import` in inline or embedded CSS.
 fn css_loads_remote(css: &str) -> bool {
     let lower = css.to_ascii_lowercase();
@@ -120,6 +206,21 @@ fn css_loads_remote(css: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn signature_paste_keeps_formatting_drops_page_baggage() {
+        let pasted = r##"<meta charset="utf-8"><style>.x{color:red}</style><!-- c -->
+            <div class="gmail_signature" id="s" style="position:absolute;color:#333;font-family:Arial"><b>Dana Cohen</b> | <a href="https://acme.io" onclick="x()">Acme</a>
+            <img src="https://acme.io/logo.png" width="80" style="background:url(https://t.co/p)"><span dir="rtl">שלום</span>
+            <a href="javascript:alert(1)">x</a><script>alert(1)</script></div>"##;
+        let h = sanitize_signature(pasted);
+        assert!(h.contains("<b>Dana Cohen</b>") && h.contains(r#"href="https://acme.io""#), "{h}");
+        assert!(h.contains(r#"style="color:#333; font-family:Arial""#), "{h}");
+        assert!(h.contains(r#"src="https://acme.io/logo.png""#) && h.contains(r#"dir="rtl""#), "{h}");
+        for bad in ["<meta", "<style", "class=", "id=", "onclick", "javascript", "script", "position", "url(", "<!--"] {
+            assert!(!h.contains(bad), "{bad} survived: {h}");
+        }
+    }
 
     #[test]
     fn strips_active_content_keeps_layout() {

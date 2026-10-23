@@ -352,6 +352,19 @@ async fn bridge_loop(s: AppState) {
             }
             "key" => on_key(s, &msg.v),
             "draft-input" => compose::autosave(s, &msg.v),
+            "sig-input" => {
+                if let Ok((email, html)) = serde_json::from_str::<(String, String)>(&msg.v) {
+                    let clean = pigeon_core::html::sanitize_signature(&html);
+                    let empty = pigeon_core::text::html_to_text(&clean).trim().is_empty() && !clean.contains("<img");
+                    crate::prefs::update(move |p| {
+                        if empty {
+                            p.signatures.remove(&email);
+                        } else {
+                            p.signatures.insert(email, clean);
+                        }
+                    });
+                }
+            }
             "cal-create" | "cal-move" | "cal-resize" => calendar::on_drag(s, &msg.k, &msg.v),
             "focus" => {
                 let mut f = s.window_focused;

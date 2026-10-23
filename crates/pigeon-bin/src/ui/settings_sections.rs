@@ -104,23 +104,17 @@ pub fn Composing() -> Element {
 #[component]
 fn SignatureField(email: String) -> Element {
     let key = email.to_lowercase();
-    let initial = prefs::get().signatures.get(&key).cloned().unwrap_or_default();
-    let mut text = use_signal(|| initial);
+    // Rendered once; the editor owns its content afterwards and reports edits
+    // through the bridge ("sig-input"), sanitized before saving.
+    let initial =
+        use_hook(|| super::compose::signature_body(&prefs::get().signatures.get(&key).cloned().unwrap_or_default()));
     rsx! {
-        label { style: "display:flex;flex-direction:column;gap:4px",
+        div { style: "display:flex;flex-direction:column;gap:4px",
             span { class: "settings-field__hint", style: "margin:0", "{email}" }
-            textarea { class: "input", dir: "auto", rows: "3", style: "min-height:64px;resize:vertical",
-                placeholder: "Signature for {email} (plain text; each line keeps its own direction)",
-                value: "{text}",
-                oninput: move |e| {
-                    let v = e.value();
-                    text.set(v.clone());
-                    let k = key.clone();
-                    prefs::update(move |p| {
-                        if v.trim().is_empty() { p.signatures.remove(&k); } else { p.signatures.insert(k, v); }
-                    });
-                }
-            }
+            div { class: "input sig-editor", contenteditable: "true", dir: "auto",
+                "data-editor": "", "data-sig-editor": "{key}",
+                "data-placeholder": "Signature for {email}. Select text to format, or paste one from a web page.",
+                dangerous_inner_html: "{initial}" }
         }
     }
 }

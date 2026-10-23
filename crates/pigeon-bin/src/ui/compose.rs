@@ -24,24 +24,56 @@ fn editor_id(d: &Draft) -> String {
 
 const SIGNATURE_MARK: &str = "<div data-coo-signature";
 
-/// A plain-text signature as one auto-direction block (lines joined by
-/// <br>, so it can be found and stripped again).
-pub fn signature_html(text: &str) -> String {
-    let t = text.trim();
+/// A stored signature's body as clean HTML. Signatures are HTML now (rich
+/// editor, browser paste); older plain-text ones become one line per row.
+pub fn signature_body(sig: &str) -> String {
+    let t = sig.trim();
     if t.is_empty() {
-        return String::new();
+        String::new()
+    } else if t.contains('<') {
+        pigeon_core::html::sanitize_signature(t)
+    } else {
+        t.lines().map(pigeon_core::text::escape_html).collect::<Vec<_>>().join("<br>")
     }
-    let lines: Vec<String> = t.lines().map(pigeon_core::text::escape_html).collect();
-    format!("{SIGNATURE_MARK} dir=\"auto\"><br>{}</div>", lines.join("<br>"))
 }
 
-/// Remove a signature block added by `signature_html`.
+/// The signature as one marked auto-direction block, so it can be found and
+/// swapped (From changes, undo send) without stacking.
+pub fn signature_html(sig: &str) -> String {
+    let body = signature_body(sig);
+    if body.is_empty() {
+        return String::new();
+    }
+    format!("{SIGNATURE_MARK} dir=\"auto\"><br>{body}</div>")
+}
+
+/// Remove a signature block added by `signature_html` (rich signatures nest
+/// their own divs, so match the closing tag by depth).
 pub fn strip_signature(html: &str) -> String {
     let Some(start) = html.find(SIGNATURE_MARK) else { return html.to_string() };
-    match html[start..].find("</div>") {
-        Some(end) => format!("{}{}", &html[..start], &html[start + end + "</div>".len()..]),
-        None => html[..start].to_string(),
+    let rest = &html[start..];
+    let lower = rest.to_ascii_lowercase();
+    let (mut depth, mut i) = (0usize, 0usize);
+    while i < lower.len() {
+        let open = lower[i..].find("<div");
+        let close = lower[i..].find("</div");
+        match (open, close) {
+            (Some(o), Some(c)) if o < c => {
+                depth += 1;
+                i += o + 4;
+            }
+            (_, Some(c)) => {
+                depth = depth.saturating_sub(1);
+                i += c + 5;
+                if depth == 0 {
+                    let end = lower[i..].find('>').map_or(lower.len(), |g| i + g + 1);
+                    return format!("{}{}", &html[..start], &rest[end..]);
+                }
+            }
+            _ => break,
+        }
     }
+    html[..start].to_string()
 }
 
 /// What goes out: typed text, then the sender's signature, then the quote.
@@ -414,7 +446,8 @@ fn SignaturePreview() -> Element {
     if sig.trim().is_empty() {
         return rsx! {};
     }
-    rsx! { div { class: "composer__signature", dir: "auto", style: "white-space:pre-wrap", "{sig}" } }
+    let body = signature_body(&sig);
+    rsx! { div { class: "composer__signature", dir: "auto", dangerous_inner_html: "{body}" } }
 }
 
 /// Drop target: files dragged over the composer show the design's drop zone.
@@ -649,6 +682,15 @@ fn Composer(draft: Draft) -> Element {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rich_signature_swaps_cleanly() {
+        let rich = r#"<div><b>Dana</b></div><div style="color:#555">Acme <div>inner</div></div><script>x()</script>"#;
+        let html = compose_html("<div>Hi</div>", rich, "<blockquote>q</blockquote>");
+        assert!(html.contains("<b>Dana</b>") && !html.contains("script"), "{html}");
+        let stripped = strip_signature(&html);
+        assert_eq!(stripped, "<div>Hi</div><blockquote>q</blockquote>");
+    }
 
     #[test]
     fn signature_round_trip_and_swap() {

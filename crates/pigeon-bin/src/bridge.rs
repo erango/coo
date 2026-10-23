@@ -84,6 +84,10 @@ pub const JS: &str = r#"
     for (const c of ed.children) if (!c.hasAttribute('dir')) c.setAttribute('dir', 'auto');
     // Autosave: tell Rust once typing pauses.
     clearTimeout(ed._pgSave);
+    if (ed.dataset.sigEditor !== undefined) { // Settings → signature editor
+      ed._pgSave = setTimeout(() => send('sig-input', JSON.stringify([ed.dataset.sigEditor, ed.innerHTML])), 400);
+      return;
+    }
     ed._pgSave = setTimeout(() => send('draft-input', ed.id), 1500);
   }, true);
 
