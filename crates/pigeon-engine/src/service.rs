@@ -141,6 +141,12 @@ pub enum Cmd {
         account_id: String,
     },
     LoadSenders,
+    /// How many messages from `email` this account already has (sender
+    /// card's "first time" check). Answered with `Delta::SenderSeen`.
+    SenderSeen {
+        account_id: String,
+        email: String,
+    },
     StartReply {
         account_id: String,
         message_id: String,
@@ -303,6 +309,11 @@ pub enum Delta {
         calendars: Vec<(String, Calendar)>,
     },
     Senders(Vec<Sender>),
+    SenderSeen {
+        account_id: String,
+        email: String,
+        count: u32,
+    },
     Draft(Draft),
     Sent {
         draft_id: String,
@@ -788,6 +799,10 @@ impl Service {
                 self.publish().await;
             }
             Cmd::LoadSenders => self.send(Delta::Senders(self.app.senders().await?)),
+            Cmd::SenderSeen { account_id, email } => {
+                let count = self.app.store().messages_from(&account_id, &email)?;
+                self.send(Delta::SenderSeen { account_id, email, count });
+            }
             Cmd::StartReply { account_id, message_id, kind } => {
                 let account = self.app.account(&account_id)?;
                 let draft = self.app.reply(&account, &message_id, kind, None).await?;

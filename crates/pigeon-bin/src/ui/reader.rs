@@ -228,9 +228,13 @@ fn Message(account_id: String, header: MessageHeader) -> Element {
             div { class: "msg-head",
                 span { class: "avatar avatar--32 avatar--ring", "data-hue": "{hue}", "{format::initials(from.display())}" }
                 div {
-                    div { class: "msg-head__from", dir: "auto", "{from.display()} " span { class: "msg-head__addr", "{from.email}" } }
-                    Recipients { label: "to", list: header.to.clone() }
-                    if !header.cc.is_empty() { Recipients { label: "cc", list: header.cc.clone() } }
+                    div { class: "msg-head__from", dir: "auto",
+                        super::sender_card::Person { account_id: account_id.clone(), message_id: Some(header.id.clone()), addr: from.clone(), sender: true,
+                            "{from.display()} " span { class: "msg-head__addr", "{from.email}" }
+                        }
+                    }
+                    Recipients { label: "to", list: header.to.clone(), account_id: account_id.clone(), message_id: header.id.clone() }
+                    if !header.cc.is_empty() { Recipients { label: "cc", list: header.cc.clone(), account_id: account_id.clone(), message_id: header.id.clone() } }
                 }
                 if header.is_draft {
                     {
@@ -261,7 +265,12 @@ fn Message(account_id: String, header: MessageHeader) -> Element {
 /// "to Dana Cohen <dana@x.io>, … +4 more" — every name with its real
 /// address; long lists collapse until clicked.
 #[component]
-fn Recipients(label: &'static str, list: Vec<pigeon_core::model::Address>) -> Element {
+fn Recipients(
+    label: &'static str,
+    list: Vec<pigeon_core::model::Address>,
+    account_id: String,
+    message_id: String,
+) -> Element {
     let mut open = use_signal(|| false);
     let shown = if *open.read() { list.len() } else { format::recipients_shown(list.len(), 3) };
     let more = list.len() - shown;
@@ -269,9 +278,11 @@ fn Recipients(label: &'static str, list: Vec<pigeon_core::model::Address>) -> El
         div { class: "msg-head__to", dir: "auto",
             span { class: "msg-head__label", "{label} " }
             for (i, a) in list.iter().take(shown).enumerate() {
-                span { key: "{i}", class: "msg-head__rcpt", "data-email": "{a.email}",
+                span { key: "{i}",
                     if i > 0 { ", " }
-                    "{format::with_address(a)}"
+                    super::sender_card::Person { account_id: account_id.clone(), message_id: Some(message_id.clone()), addr: a.clone(),
+                        class: "msg-head__rcpt", "{format::with_address(a)}"
+                    }
                 }
             }
             if more > 0 {

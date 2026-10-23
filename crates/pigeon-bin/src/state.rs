@@ -146,6 +146,11 @@ pub struct AppState {
     pub sync: Signal<SyncState>,
     pub next_up: Signal<Vec<EventRow>>,
     pub senders: Signal<Vec<Sender>>,
+    /// Messages already received from (account id, lowercased address),
+    /// for the sender card's "first time" warning.
+    pub sender_seen: Signal<HashMap<(String, String), u32>>,
+    /// Sender card open on hover: (anchor key, card data).
+    pub sender_card: Signal<Option<crate::ui::sender_card::CardState>>,
     pub draft: Signal<Option<Draft>>,
     pub sending: Signal<bool>,
     /// Problem shown in the main window's composer (e.g. no recipients).
@@ -206,6 +211,8 @@ impl AppState {
             sync: Signal::new(SyncState::default()),
             next_up: Signal::new(Vec::new()),
             senders: Signal::new(Vec::new()),
+            sender_seen: Signal::new(HashMap::new()),
+            sender_card: Signal::new(None),
             draft: Signal::new(None),
             sending: Signal::new(false),
             compose_notice: Signal::new(None),
@@ -446,6 +453,9 @@ fn apply(s: &mut AppState, delta: Delta) {
                 s.calendar.set(CalendarData { from, to, events, calendars })
             }
             Delta::Senders(v) => s.senders.set(v),
+            Delta::SenderSeen { account_id, email, count } => {
+                s.sender_seen.write().insert((account_id, email.to_lowercase()), count);
+            }
             Delta::Draft(mut d) => {
                 // An undone send comes back with its signature in body_html;
                 // drop it (the composer shows it separately and re-adds it).

@@ -14,6 +14,7 @@ mod palette;
 mod reader;
 mod recipients;
 pub mod search;
+pub mod sender_card;
 mod settings;
 mod settings_sections;
 mod sidebar;
@@ -121,6 +122,29 @@ pub fn App() -> Element {
                         let mut sel = s.selected;
                         sel.set(Some(format!("{account_id}|{thread_id}")));
                         send_cmd(Cmd::OpenThread { account_id: account_id.into(), thread_id: thread_id.into() });
+                    }
+                }
+                // card:<account_id>|<thread_id>|<message_id>|<name>|<email> — open a
+                // thread and pin its sender card open (screenshots)
+                "card" => {
+                    let p: Vec<&str> = arg.split('|').collect();
+                    if let [account_id, thread_id, message_id, name, email] = p[..] {
+                        let mut sel = s.selected;
+                        sel.set(Some(format!("{account_id}|{thread_id}")));
+                        send_cmd(Cmd::OpenThread { account_id: account_id.into(), thread_id: thread_id.into() });
+                        send_cmd(Cmd::SenderSeen { account_id: account_id.into(), email: email.into() });
+                        let mut c = s.sender_card;
+                        c.set(Some(sender_card::CardState {
+                            account_id: account_id.into(),
+                            message_id: Some(message_id.into()),
+                            addr: pigeon_core::model::Address {
+                                name: (!name.is_empty()).then(|| name.to_string()),
+                                email: email.into(),
+                            },
+                            sender: true,
+                            x: 770.0,
+                            y: 200.0,
+                        }));
                     }
                 }
                 // reply:<account_id>|<thread_id>|<message_id> — open a thread and start a reply
@@ -333,6 +357,7 @@ pub fn App() -> Element {
                 }
             }
             compose::ComposerOverlay {}
+            sender_card::SenderCard {}
             if s.editor.read().is_some() { event_editor::EventEditor {} }
             if *s.palette_open.read() { palette::Palette {} }
             if s.move_picker.read().is_some() { move_picker::MovePickerView {} }

@@ -169,6 +169,9 @@ impl BodyProvider for Graph {
             in_reply_to: header(headers, "In-Reply-To").and_then(|v| message_ids(v).into_iter().next()),
             references: header(headers, "References").map(message_ids).unwrap_or_default(),
             invite,
+            origin: Some(pigeon_core::identity::origin_from_headers(
+                headers.iter().map(|h| (h.name.as_str(), h.value.as_str())),
+            )),
         })
     }
 

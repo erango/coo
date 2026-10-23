@@ -323,6 +323,8 @@ pub struct MessageBody {
     pub references: Vec<String>,
     /// The meeting this message invites to / updates / cancels.
     pub invite: Option<Invite>,
+    /// Reply-To, Delivered-To and authentication results from the headers.
+    pub origin: Option<crate::identity::Origin>,
 }
 
 /// Body as kept in the store and handed to the UI.
@@ -338,6 +340,8 @@ pub struct StoredBody {
     pub attachments: Vec<StoredAttachment>,
     pub fetched_at: i64,
     pub invite: Option<Invite>,
+    /// Delivery facts (Reply-To, Delivered-To, SPF/DKIM/DMARC).
+    pub origin: Option<crate::identity::Origin>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

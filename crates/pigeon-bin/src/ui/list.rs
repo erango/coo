@@ -440,7 +440,15 @@ pub fn Row(item: ListItem, many: bool, #[props(default)] motion: Option<&'static
             onclick: move |_| select(s, &i1),
             div { class: "row__line",
                 if many { span { class: "pip", "{letter}" } } else { span { class: "dot" } }
-                span { class: "row__who", dir: "auto", "{who}" }
+                match h.from.clone().filter(|_| !h.is_draft) {
+                    Some(from) => rsx! {
+                        super::sender_card::Person { account_id: item.account_id().to_string(), message_id: Some(h.id.clone()),
+                            addr: from, sender: true, click_through: true, class: "row__who",
+                            span { dir: "auto", "{who}" }
+                        }
+                    },
+                    None => rsx! { span { class: "row__who", dir: "auto", "{who}" } },
+                }
                 if let Some(n) = count { span { class: "row__count", "{n}" } }
                 span { class: "row__meta",
                     if flagged { Icon { name: "flag", class: "row__flag" } }

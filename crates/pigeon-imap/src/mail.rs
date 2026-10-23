@@ -302,6 +302,7 @@ pub fn body_from_raw(raw: &[u8]) -> Result<MessageBody> {
         in_reply_to: ids(m.in_reply_to()).into_iter().next(),
         references: ids(m.references()),
         invite: None,
+        origin: Some(pigeon_core::identity::origin_from_headers(m.headers_raw().map(|(n, v)| (n, v.trim())))),
     })
 }
 

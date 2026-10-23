@@ -42,6 +42,7 @@ pub async fn load_body<P: BodyProvider>(
         attachments,
         fetched_at: now_ms(),
         invite: raw.invite,
+        origin: raw.origin,
     };
     lock(store).save_body(account_id, message_id, &body)?;
     Ok(body)
@@ -135,6 +136,7 @@ mod tests {
                 in_reply_to: Some("<a@x>".into()),
                 references: vec!["<a@x>".into()],
                 invite: None,
+                origin: None,
             })
         }
 

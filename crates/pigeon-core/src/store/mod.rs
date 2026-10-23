@@ -23,6 +23,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("005_invites.sql"),
     include_str!("006_folder_counts.sql"),
     include_str!("007_server_drafts.sql"),
+    include_str!("008_body_origin.sql"),
 ];
 
 /// Which folder a list query reads.
@@ -417,8 +418,8 @@ impl Store {
         let Some(pk) = message_pk(&tx, account_id, message_id)? else { return Ok(false) };
         tx.prepare_cached(
             "INSERT OR REPLACE INTO bodies (message_pk, html, text, fetched_at, has_remote, in_reply_to, references_json,
-                 invite_json)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                 invite_json, origin_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         )?
         .execute(params![
             pk,
@@ -428,7 +429,8 @@ impl Store {
             body.has_remote_content,
             body.in_reply_to,
             serde_json::to_string(&body.references)?,
-            body.invite.as_ref().map(serde_json::to_string).transpose()?
+            body.invite.as_ref().map(serde_json::to_string).transpose()?,
+            body.origin.as_ref().map(serde_json::to_string).transpose()?
         ])?;
         tx.prepare_cached("DELETE FROM attachments WHERE message_pk = ?1")?.execute([pk])?;
         {
@@ -461,7 +463,7 @@ impl Store {
         let body = self
             .conn
             .prepare_cached(
-                "SELECT html, text, has_remote, in_reply_to, references_json, fetched_at, invite_json
+                "SELECT html, text, has_remote, in_reply_to, references_json, fetched_at, invite_json, origin_json
                  FROM bodies WHERE message_pk = ?1",
             )?
             .query_row([pk], |r| {
@@ -474,12 +476,22 @@ impl Store {
                     fetched_at: r.get(5)?,
                     attachments: Vec::new(),
                     invite: r.get::<_, Option<String>>(6)?.and_then(|j| serde_json::from_str(&j).ok()),
+                    origin: r.get::<_, Option<String>>(7)?.and_then(|j| serde_json::from_str(&j).ok()),
                 })
             })
             .optional()?;
         let Some(mut body) = body else { return Ok(None) };
         body.attachments = self.attachments_of(pk)?;
         Ok(Some(body))
+    }
+
+    /// Messages from `email` already in this account (sender-card "first
+    /// time" check). Uses the messages(account_id, …) index prefix.
+    pub fn messages_from(&self, account_id: &str, email: &str) -> Result<u32> {
+        Ok(self
+            .conn
+            .prepare_cached("SELECT count(*) FROM messages WHERE account_id = ?1 AND from_addr = ?2 COLLATE NOCASE")?
+            .query_row(params![account_id, email], |r| r.get::<_, i64>(0))? as u32)
     }
 
     pub fn attachments(&self, account_id: &str, message_id: &str) -> Result<Vec<StoredAttachment>> {

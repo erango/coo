@@ -212,6 +212,11 @@ fn bodies_roundtrip_and_cascade() {
         html: Some("<p>hi</p>".into()),
         text: None,
         has_remote_content: true,
+        origin: Some(crate::identity::Origin {
+            delivered_to: Some("ms@example.com".into()),
+            auth: Some(crate::identity::Auth { spf: Some("pass".into()), ..Default::default() }),
+            ..Default::default()
+        }),
         in_reply_to: Some("<x@y>".into()),
         references: vec!["<w@y>".into(), "<x@y>".into()],
         attachments: vec![

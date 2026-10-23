@@ -203,6 +203,9 @@ impl BodyProvider for Google {
             in_reply_to: root.header("In-Reply-To").and_then(|v| message_ids(v).into_iter().next()),
             references: root.header("References").map(message_ids).unwrap_or_default(),
             invite,
+            origin: Some(pigeon_core::identity::origin_from_headers(
+                root.headers.iter().map(|h| (h.name.as_str(), h.value.as_str())),
+            )),
         })
     }
 
