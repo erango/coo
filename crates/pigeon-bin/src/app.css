@@ -281,6 +281,38 @@ input, textarea, [contenteditable="true"] { cursor: text; }
 .link-btn:hover { text-decoration: underline; text-underline-offset: 2px; }
 .link-btn:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)); outline-offset: 2px; border-radius: 3px; }
 
+/* Reader: the collapsed reply bar. One clear target, vertically centered,
+   with the shortcuts as key chips (was a placeholder with uneven padding). */
+.reply-bar {
+  height: 48px; display: flex; align-items: center; gap: 12px; padding: 0 8px 0 4px;
+  border-radius: 14px; background: var(--bg-1); box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+.reply-bar:hover { background: var(--bg-2); }
+.reply-bar:focus-within { box-shadow: inset 0 0 0 1.5px var(--focus-ring), 0 0 0 4px var(--focus-halo); }
+.reply-bar__main {
+  flex: 1; min-width: 0; height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 12px;
+  border: 0; border-radius: 10px; background: transparent; color: var(--text-3);
+  font: inherit; font-size: var(--fs-body); text-align: start; cursor: text;
+}
+.reply-bar__main:focus-visible { outline: none; }
+.reply-bar__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reply-bar__keys { display: flex; align-items: center; gap: 12px; flex: none; }
+.reply-bar__key { display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-caption); color: var(--text-3); }
+@media (max-width: 760px) { .reply-bar__keys { display: none; } }
+
+/* Inline reply, open: hard to miss. Raised surface, a taller editor that
+   grows as you type (capped, then scrolls), and a short open transition. */
+.inline-reply--open {
+  background: var(--bg-3); box-shadow: var(--shadow-popover), inset 0 0 0 1px var(--line-strong);
+  max-height: 62vh; animation: pg-reply-open 180ms var(--ease-standard, ease-out);
+}
+.inline-reply--open:focus-within { box-shadow: var(--shadow-popover), inset 0 0 0 1.5px var(--focus-ring), 0 0 0 4px var(--focus-halo); }
+.inline-reply--open .inline-reply__editor {
+  min-height: calc(var(--lh-body, 24px) * 8); flex: 1 1 auto; overflow-y: auto;
+}
+@keyframes pg-reply-open { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .inline-reply--open { animation: none; } }
+
 /* Thread header: newest-first / oldest-first toggle. */
 .thread-order {
   display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px;

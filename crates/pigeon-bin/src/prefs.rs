@@ -58,6 +58,8 @@ pub struct Prefs {
     pub sidebar_width: u32,
     /// Conversation order in the reader: newest message on top.
     pub thread_newest_first: bool,
+    /// Where replies open: "inline" (below the conversation) or "window".
+    pub reply_mode: String,
 }
 
 impl Default for Prefs {
@@ -82,6 +84,7 @@ impl Default for Prefs {
             compose_mode: "window".into(),
             sidebar_width: 0,
             thread_newest_first: true,
+            reply_mode: "inline".into(),
             reminders_time_sensitive: true,
             sound_theme: crate::sound::DEFAULT.into(),
             sound_volume: 60,

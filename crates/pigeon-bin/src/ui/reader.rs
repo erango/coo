@@ -110,6 +110,7 @@ fn Thread(view: ReaderView) -> Element {
     let matches = match_count(&s, &view.account_id, &open_ids, &terms);
     let draft = s.draft.read().clone();
     let inline_draft = draft
+        .filter(|_| !super::compose::reply_window_mode())
         .filter(|d| d.reply.as_ref().is_some_and(|r| r.account_id == view.account_id && r.thread_id == view.thread_id));
 
     rsx! {
@@ -190,10 +191,20 @@ fn Thread(view: ReaderView) -> Element {
                     let last = view.messages.last().map(|m| m.id.clone()).unwrap_or_default();
                     let account_id = view.account_id.clone();
                     let to = view.messages.last().and_then(|m| m.from.as_ref()).map(|a| a.display().to_string()).unwrap_or_default();
+                    let start = move |kind: ReplyKind| {
+                        send_cmd(Cmd::StartReply { account_id: account_id.clone(), message_id: last.clone(), kind })
+                    };
                     rsx! {
-                        div { class: "inline-reply inline-reply--collapsed",
-                            onclick: move |_| send_cmd(Cmd::StartReply { account_id: account_id.clone(), message_id: last.clone(), kind: ReplyKind::Reply }),
-                            div { class: "inline-reply__editor", "data-placeholder": "Reply to {to}…  R reply · A reply all · F forward" }
+                        div { class: "reply-bar",
+                            button { class: "reply-bar__main", r#type: "button", onclick: move |_| start(ReplyKind::Reply),
+                                Icon { name: "reply", class: "icon--sm" }
+                                span { class: "reply-bar__text", dir: "auto", "Reply to {to}…" }
+                            }
+                            div { class: "reply-bar__keys", "aria-hidden": "true",
+                                span { class: "reply-bar__key", kbd { class: "kbd", "R" } "Reply" }
+                                span { class: "reply-bar__key", kbd { class: "kbd", "A" } "Reply all" }
+                                span { class: "reply-bar__key", kbd { class: "kbd", "F" } "Forward" }
+                            }
                         }
                     }
                 }

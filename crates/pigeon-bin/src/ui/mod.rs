@@ -110,6 +110,24 @@ pub fn App() -> Element {
                         send_cmd(Cmd::OpenThread { account_id: account_id.into(), thread_id: thread_id.into() });
                     }
                 }
+                // reply:<account_id>|<thread_id>|<message_id> — open a thread and start a reply
+                "reply" => {
+                    let p: Vec<&str> = arg.split('|').collect();
+                    if let [account_id, thread_id, message_id] = p[..] {
+                        let mut sel = s.selected;
+                        sel.set(Some(format!("{account_id}|{thread_id}")));
+                        send_cmd(Cmd::OpenThread { account_id: account_id.into(), thread_id: thread_id.into() });
+                        let (account_id, message_id) = (account_id.to_string(), message_id.to_string());
+                        spawn(async move {
+                            tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+                            send_cmd(Cmd::StartReply {
+                                account_id,
+                                message_id,
+                                kind: pigeon_core::compose::ReplyKind::Reply,
+                            });
+                        });
+                    }
+                }
                 // calendar[:day|week|month]
                 "calendar" => {
                     let mut m = s.mode;

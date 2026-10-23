@@ -44,8 +44,17 @@ pub fn is_blank(d: &Draft, typed: &str) -> bool {
         && pigeon_core::text::html_to_text(typed).trim().is_empty()
 }
 
-/// Replies to the thread open in the reader are written inline.
+/// Replies open in their own window (Settings › Composing › Replies).
+pub fn reply_window_mode() -> bool {
+    crate::prefs::get().reply_mode == "window"
+}
+
+/// Replies to the thread open in the reader are written inline (unless
+/// replies are set to open in a window).
 pub fn is_inline(s: &AppState, d: &Draft) -> bool {
+    if reply_window_mode() {
+        return false;
+    }
     let reader = s.reader.read();
     d.reply
         .as_ref()
@@ -61,7 +70,8 @@ pub fn docked_mode() -> bool {
 /// The draft docked in the reading pane, if any.
 pub fn docked_draft(s: &AppState) -> Option<Draft> {
     let d = s.draft.read().clone()?;
-    (!is_inline(s, &d) && docked_mode()).then_some(d)
+    let windowed_reply = d.reply.is_some() && reply_window_mode();
+    (!is_inline(s, &d) && docked_mode() && !windowed_reply).then_some(d)
 }
 
 fn editor_id(d: &Draft) -> String {
@@ -556,7 +566,14 @@ pub fn InlineReply(draft: Draft) -> Element {
     let id = editor_id(&draft);
     use_hook({
         let id = id.clone();
-        move || bridge::focus(&id)
+        move || {
+            bridge::focus(&id);
+            // Bring the whole reply into view so it can't be missed.
+            document::eval(
+                "requestAnimationFrame(()=>{const r=document.querySelector('.inline-reply--open');\
+                 r&&r.scrollIntoView({block:'nearest',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});});",
+            );
+        }
     });
     let current = state.read().clone().unwrap_or(draft.clone());
     let hint = cross_hint(&s, &current);
@@ -564,7 +581,7 @@ pub fn InlineReply(draft: Draft) -> Element {
     let (over, leave, drop) = drop_handlers(slot, dragging);
 
     rsx! {
-        div { class: "inline-reply", "data-dragging": dragging.read().then_some("true"),
+        div { class: "inline-reply inline-reply--open", "data-dragging": dragging.read().then_some("true"),
             ondragover: move |e| over.call(e), ondragleave: move |e| leave.call(e), ondrop: move |e| drop.call(e),
             div { class: "inline-reply__head", style: "height:auto;min-height:44px",
                 FromPicker {}
@@ -613,7 +630,8 @@ pub fn ComposerOverlay() -> Element {
     let s = use_context::<AppState>();
     use_effect(move || {
         let Some(d) = s.draft.read().clone() else { return };
-        if is_inline(&s, &d) || docked_mode() {
+        let windowed_reply = d.reply.is_some() && reply_window_mode();
+        if is_inline(&s, &d) || (docked_mode() && !windowed_reply) {
             return;
         }
         let mut draft = s.draft;

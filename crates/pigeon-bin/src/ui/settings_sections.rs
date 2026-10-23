@@ -60,6 +60,8 @@ pub fn CalendarSettings() -> Element {
 
 /// Where new messages open (prefs `compose_mode`).
 const COMPOSE_MODES: [(&str, &str); 2] = [("window", "In a separate window"), ("docked", "Docked in the reading pane")];
+/// Where replies open (prefs `reply_mode`).
+const REPLY_MODES: [(&str, &str); 2] = [("inline", "Inline in the conversation"), ("window", "In a separate window")];
 
 #[component]
 pub fn Composing() -> Element {
@@ -71,6 +73,8 @@ pub fn Composing() -> Element {
     });
     let mut undo = use_signal(|| prefs::get().undo_send_seconds);
     let mut mode = use_signal(|| prefs::get().compose_mode);
+    let mut rmode = use_signal(|| prefs::get().reply_mode);
+    let current_rmode = rmode.read().clone();
     let senders = s.senders.read().clone();
     let current = *undo.read();
     let current_mode = mode.read().clone();
@@ -91,7 +95,20 @@ pub fn Composing() -> Element {
                         }
                     }
                 }
-                span { class: "settings-field__hint", "Replies to the open conversation are always written below it." }
+            }
+            div { class: "settings-field",
+                span { class: "settings-field__label", "Replies" }
+                div { class: "segmented", role: "radiogroup", "aria-label": "Open replies",
+                    for (value, label) in REPLY_MODES {
+                        button { role: "radio", "aria-checked": "{current_rmode == value}", "aria-selected": "{current_rmode == value}",
+                            onclick: move |_| {
+                                prefs::update(|p| p.reply_mode = value.to_string());
+                                rmode.set(value.to_string());
+                            },
+                            "{label}"
+                        }
+                    }
+                }
             }
             div { class: "settings-field",
                 span { class: "settings-field__label", "Undo send" }
