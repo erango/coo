@@ -182,6 +182,18 @@ pub fn open_new(s: AppState, day: NaiveDate, minutes: u32) {
     crate::bridge::focus("event-title");
 }
 
+/// Open a blank event for a dragged range (local ms).
+pub fn open_range(s: AppState, start: i64, end: i64) {
+    let (Some(a), Some(b)) = (format::local(start), format::local(end)) else { return };
+    open_new(s, a.date_naive(), 0);
+    let mut editor = s.editor;
+    if let Some(f) = editor.write().as_mut() {
+        f.start = a.format("%H:%M").to_string();
+        // A range ending at midnight shows as 23:59 (same-day form).
+        f.end = if b.date_naive() > a.date_naive() { "23:59".into() } else { b.format("%H:%M").to_string() };
+    }
+}
+
 /// Next round hour today.
 pub fn open_new_now(s: AppState) {
     let now = Local::now();

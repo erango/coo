@@ -1,14 +1,25 @@
+//! Calendar: Day / Week / Month views, event popover, sidebar mini month.
+//!
+//! Drag on a time grid (empty space to create, an event to move, its
+//! bottom edge to resize) is tracked by the bridge, which draws a ghost and
+//! sends `cal-create | cal-move | cal-resize` on drop; snapping and the new
+//! times are computed here.
+
 use chrono::{Datelike, Duration, Local, NaiveDate, TimeZone};
 use dioxus::prelude::*;
-use pigeon_core::model::{EventRow, Response};
+use pigeon_core::model::{Attendee, EventDraft, EventRow, Response};
 use pigeon_engine::service::Cmd;
 
 use super::{DAY_MS, Icon};
 use crate::format;
 use crate::send_cmd;
-use crate::state::AppState;
+use crate::state::{AppState, CalView};
 
 const HOUR_PX: f64 = 60.0;
+/// Drag snapping, minutes.
+const SNAP_MIN: i64 = 15;
+/// Chips per month cell before "+N more".
+const MONTH_CHIPS: usize = 3;
 
 /// Overlap columns for one day's timed events: (col, cols) per input, in
 /// input order. Events that transitively overlap share a column count.
@@ -50,8 +61,204 @@ pub fn layout_day(spans: &[(i64, i64)]) -> Vec<(usize, usize)> {
     out
 }
 
-fn day_of(week_start: i64, i: i64) -> chrono::DateTime<Local> {
-    format::local(week_start).map(|d| d + Duration::days(i)).unwrap_or_else(Local::now)
+/// Local midnight of `d`, epoch ms.
+pub fn midnight(d: NaiveDate) -> i64 {
+    Local
+        .from_local_datetime(&d.and_hms_opt(0, 0, 0).expect("midnight"))
+        .earliest()
+        .map(|t| t.timestamp_millis())
+        .unwrap_or_else(|| d.and_hms_opt(0, 0, 0).expect("midnight").and_utc().timestamp_millis())
+}
+
+fn monday_of(d: NaiveDate) -> NaiveDate {
+    d - Duration::days(i64::from(d.weekday().num_days_from_monday()))
+}
+
+fn first_of_month(d: NaiveDate) -> NaiveDate {
+    NaiveDate::from_ymd_opt(d.year(), d.month(), 1).unwrap_or(d)
+}
+
+/// The 6×7 days a month grid shows (Monday first).
+pub fn month_grid(d: NaiveDate) -> Vec<NaiveDate> {
+    let start = monday_of(first_of_month(d));
+    (0..42).map(|i| start + Duration::days(i)).collect()
+}
+
+/// Days a view shows.
+pub fn view_days(view: CalView, d: NaiveDate) -> Vec<NaiveDate> {
+    match view {
+        CalView::Day => vec![d],
+        CalView::Week => {
+            let m = monday_of(d);
+            (0..7).map(|i| m + Duration::days(i)).collect()
+        }
+        CalView::Month => month_grid(d),
+    }
+}
+
+/// The [from, to) range of events a view needs.
+pub fn view_range(view: CalView, d: NaiveDate) -> (i64, i64) {
+    let days = view_days(view, d);
+    let first = days[0];
+    let last = *days.last().expect("non-empty");
+    (midnight(first), midnight(last + Duration::days(1)))
+}
+
+/// Previous / next period from `d`.
+pub fn step(view: CalView, d: NaiveDate, forward: bool) -> NaiveDate {
+    let sign = if forward { 1 } else { -1 };
+    match view {
+        CalView::Day => d + Duration::days(sign),
+        CalView::Week => d + Duration::days(7 * sign),
+        CalView::Month => {
+            let f = first_of_month(d);
+            let moved = if forward { f + Duration::days(32) } else { f - Duration::days(1) };
+            first_of_month(moved)
+        }
+    }
+}
+
+/// Focus the calendar on `d` (keeps the week anchor in step).
+pub fn go_to(s: AppState, d: NaiveDate) {
+    let (mut day, mut ws) = (s.cal_day, s.week_start);
+    day.set(d);
+    ws.set(midnight(monday_of(d)));
+}
+
+/// Events touching `day`, all-day first then by start; split into the
+/// first `max` and how many more there are.
+pub fn month_cell(events: &[EventRow], day: NaiveDate, max: usize) -> (Vec<EventRow>, usize) {
+    let (from, to) = (midnight(day), midnight(day + Duration::days(1)));
+    // All-day events are UTC-midnight floating dates.
+    let utc = |d: NaiveDate| d.and_hms_opt(0, 0, 0).expect("midnight").and_utc().timestamp_millis();
+    let (ufrom, uto) = (utc(day), utc(day + Duration::days(1)));
+    let mut mine: Vec<EventRow> = events
+        .iter()
+        .filter(|e| {
+            if e.event.all_day {
+                e.event.start_at < uto && e.event.end_at > ufrom
+            } else {
+                e.event.start_at < to && e.event.end_at > from
+            }
+        })
+        .cloned()
+        .collect();
+    mine.sort_by_key(|e| (!e.event.all_day, e.event.start_at));
+    let more = mine.len().saturating_sub(max);
+    mine.truncate(max);
+    (mine, more)
+}
+
+/// Pixels into a day column → minutes since midnight, snapped.
+pub fn snap_minutes(y: f64, hour_px: f64) -> i64 {
+    let raw = (y.max(0.0) / hour_px * 60.0).round() as i64;
+    ((raw + SNAP_MIN / 2) / SNAP_MIN * SNAP_MIN).clamp(0, 24 * 60)
+}
+
+/// A drag-created range on a day column: (start, end) ms, at least one snap step.
+pub fn drag_create(day_start: i64, y0: f64, y1: f64, hour_px: f64) -> (i64, i64) {
+    let (a, b) = (snap_minutes(y0.min(y1), hour_px), snap_minutes(y0.max(y1), hour_px));
+    let b = if b - a < SNAP_MIN { (a + SNAP_MIN).min(24 * 60) } else { b };
+    let a = a.min(b - SNAP_MIN);
+    (day_start + a * 60_000, day_start + b * 60_000)
+}
+
+/// An event dropped with its top at `top_px` in the column of `day_start`:
+/// same duration, snapped start.
+pub fn drag_move(orig: (i64, i64), day_start: i64, top_px: f64, hour_px: f64) -> (i64, i64) {
+    let start = day_start + snap_minutes(top_px, hour_px) * 60_000;
+    (start, start + (orig.1 - orig.0))
+}
+
+/// A bottom edge dropped at `bottom_px` in its column: snapped end, never
+/// shorter than one snap step.
+pub fn drag_resize(orig: (i64, i64), day_start: i64, bottom_px: f64, hour_px: f64) -> (i64, i64) {
+    let end = day_start + snap_minutes(bottom_px, hour_px) * 60_000;
+    (orig.0, end.max(orig.0 + SNAP_MIN * 60_000))
+}
+
+/// Whether drag may change this event: an editable calendar, not part of
+/// a recurring series (single-instance edits aren't supported yet).
+fn draggable(s: &AppState, row: &EventRow) -> bool {
+    row.event.series_id.is_none()
+        && !row.event.all_day
+        && s.calendar
+            .read()
+            .calendars
+            .iter()
+            .any(|(a, c)| a == &row.account_id && c.id == row.event.calendar_id && c.can_edit)
+}
+
+/// The update to send when only the time changes (descriptions aren't
+/// stored locally; `None` leaves the server's copy alone).
+fn reschedule_draft(row: &EventRow, start_at: i64, end_at: i64) -> EventDraft {
+    let e = &row.event;
+    EventDraft {
+        calendar_id: e.calendar_id.clone(),
+        title: e.title.clone(),
+        start_at,
+        end_at,
+        all_day: false,
+        timezone: e.timezone.clone(),
+        location: e.location.clone(),
+        description: None,
+        attendees: e
+            .attendees
+            .iter()
+            .map(|a| Attendee { address: a.address.clone(), response: Response::None, optional: a.optional })
+            .collect(),
+        conferencing: Default::default(),
+    }
+}
+
+/// A finished drag from the bridge: `cal-create day_start|y0|y1`,
+/// `cal-move account|event|day_start|top`, `cal-resize account|event|day_start|bottom`.
+pub fn on_drag(s: AppState, kind: &str, v: &str) {
+    let parts: Vec<&str> = v.split('|').collect();
+    let num = |i: usize| parts.get(i).and_then(|p| p.parse::<f64>().ok());
+    match kind {
+        "cal-create" => {
+            let (Some(day_start), Some(y0), Some(y1)) = (num(0), num(1), num(2)) else { return };
+            let (start, end) = drag_create(day_start as i64, y0, y1, HOUR_PX);
+            super::event_editor::open_range(s, start, end);
+        }
+        "cal-move" | "cal-resize" => {
+            let (Some(account), Some(event), Some(day_start), Some(px)) = (parts.first(), parts.get(1), num(2), num(3))
+            else {
+                return;
+            };
+            let row =
+                s.calendar.read().events.iter().find(|e| &e.account_id == account && &e.event.id == event).cloned();
+            let Some(row) = row else { return };
+            if !draggable(&s, &row) {
+                return;
+            }
+            let orig = (row.event.start_at, row.event.end_at);
+            let (start, end) = if kind == "cal-move" {
+                drag_move(orig, day_start as i64, px, HOUR_PX)
+            } else {
+                drag_resize(orig, day_start as i64, px, HOUR_PX)
+            };
+            if (start, end) == orig {
+                return;
+            }
+            // Optimistic: show it moved now; a failed update republishes the
+            // server's version, which puts it back.
+            let mut cal = s.calendar;
+            if let Some(e) =
+                cal.write().events.iter_mut().find(|e| e.account_id == row.account_id && e.event.id == row.event.id)
+            {
+                e.event.start_at = start;
+                e.event.end_at = end;
+            }
+            send_cmd(Cmd::UpdateEvent {
+                account_id: row.account_id.clone(),
+                event_id: row.event.id.clone(),
+                draft: reschedule_draft(&row, start, end),
+            });
+        }
+        _ => {}
+    }
 }
 
 fn rsvp_attr(r: Response) -> Option<&'static str> {
@@ -63,42 +270,49 @@ fn rsvp_attr(r: Response) -> Option<&'static str> {
     }
 }
 
+fn title_for(view: CalView, d: NaiveDate) -> (String, String) {
+    match view {
+        CalView::Day => (d.format("%A, %B %-d").to_string(), d.format("%Y").to_string()),
+        CalView::Week => {
+            let m = monday_of(d);
+            (m.format("%B %Y").to_string(), format!("Week {}", m.iso_week().week()))
+        }
+        CalView::Month => (d.format("%B %Y").to_string(), String::new()),
+    }
+}
+
 #[component]
 pub fn CalendarView() -> Element {
     let s = use_context::<AppState>();
-    let mut week_start = s.week_start;
-    let mut selected = use_signal(|| None::<(String, String)>);
-    let ws = *week_start.read();
+    let mut view = s.cal_view;
+    let selected = use_signal(|| None::<(String, String)>);
+    let v = *view.read();
+    let day = *s.cal_day.read();
+    let (title, sub) = title_for(v, day);
     let data = s.calendar.read().clone();
-    let now = pigeon_core::now_ms();
-    let first_day = day_of(ws, 0);
-    let today = Local::now().date_naive();
-
-    use_effect(|| {
-        document::eval(
-            "setTimeout(()=>{const g=document.querySelector('.week .grid'); if(g) g.scrollTop = 7.5*60;},0)",
-        );
-    });
-
-    let events: Vec<EventRow> =
-        data.events.iter().filter(|e| e.event.end_at > ws && e.event.start_at < ws + 7 * DAY_MS).cloned().collect();
-    let (all_day, timed): (Vec<EventRow>, Vec<EventRow>) = events.into_iter().partition(|e| e.event.all_day);
     let selected_event = selected
         .read()
         .as_ref()
         .and_then(|(a, id)| data.events.iter().find(|e| &e.account_id == a && &e.event.id == id).cloned());
+    let views = [(CalView::Day, "Day"), (CalView::Week, "Week"), (CalView::Month, "Month")];
+    let mut sel = selected;
 
     rsx! {
         main { class: "pane pane--reader", style: "position:relative",
             super::toasts::Toasts {}
             header { class: "cal-header",
-                h1 { class: "cal-header__title", "{first_day.format(\"%B %Y\")}" }
-                span { class: "cal-header__week", "Week {first_day.iso_week().week()}" }
+                h1 { class: "cal-header__title", "{title}" }
+                span { class: "cal-header__week", "{sub}" }
                 span { class: "spacer" }
-                button { class: "btn btn--secondary btn--sm", r#type: "button", style: "height:30px",
-                    onclick: move |_| week_start.set(format::week_start(Local::now())), "Today" }
-                button { class: "icon-btn", "aria-label": "Previous week", onclick: move |_| week_start.set(ws - 7 * DAY_MS), Icon { name: "chev-left" } }
-                button { class: "icon-btn", "aria-label": "Next week", onclick: move |_| week_start.set(ws + 7 * DAY_MS), Icon { name: "chev-right" } }
+                div { class: "segmented segmented--sm", role: "tablist", "aria-label": "Calendar view",
+                    for (cv, label) in views {
+                        button { role: "tab", "aria-selected": "{v == cv}", onclick: move |_| view.set(cv), "{label}" }
+                    }
+                }
+                button { class: "btn btn--secondary btn--sm", r#type: "button", style: "height:30px;margin-left:8px",
+                    onclick: move |_| go_to(s, Local::now().date_naive()), "Today" }
+                button { class: "icon-btn", "aria-label": "Previous", onclick: move |_| go_to(s, step(v, day, false)), Icon { name: "chev-left" } }
+                button { class: "icon-btn", "aria-label": "Next", onclick: move |_| go_to(s, step(v, day, true)), Icon { name: "chev-right" } }
                 button { class: "btn btn--primary", r#type: "button", style: "height:30px;margin-left:8px",
                     onclick: move |_| super::event_editor::open_new_now(s),
                     Icon { name: "plus", class: "icon--sm" }
@@ -106,105 +320,179 @@ pub fn CalendarView() -> Element {
                     kbd { class: "kbd", "C" }
                 }
             }
-            div { class: "week",
-                div { class: "day-heads",
-                    for i in 0..7 {
-                        {
-                            let d = day_of(ws, i);
-                            let is_today = d.date_naive() == today;
-                            rsx! {
-                                div { class: "day-head", key: "{i}",
-                                    "aria-current": is_today.then_some("date"),
-                                    "data-weekend": (i >= 5).then_some("true"),
-                                    span { class: "day-head__dow", "{d.format(\"%a\")}" }
-                                    span { class: "day-head__num", "{d.day()}" }
-                                }
-                            }
-                        }
-                    }
+            if v == CalView::Month {
+                MonthGrid { on_select: move |k| sel.set(Some(k)) }
+            } else {
+                TimeGrid { days: view_days(v, day), selected }
+            }
+            if let Some(e) = selected_event {
+                EventPopover { row: e, on_close: move |_| sel.set(None) }
+            }
+        }
+    }
+}
+
+#[component]
+fn MonthGrid(on_select: EventHandler<(String, String)>) -> Element {
+    let s = use_context::<AppState>();
+    let mut view = s.cal_view;
+    let day = *s.cal_day.read();
+    let events = s.calendar.read().events.clone();
+    let today = Local::now().date_naive();
+    rsx! {
+        div { class: "week",
+            div { class: "day-heads", style: "padding-left:0",
+                for d in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] {
+                    div { class: "day-head", key: "{d}", span { class: "day-head__dow", "{d}" } }
                 }
-                div { class: "allday",
-                    span { class: "allday__label", "all-day" }
-                    div { class: "allday__track",
-                        for e in all_day {
-                            {
-                                let start_day = ((e.event.start_at - ws).max(0) / DAY_MS).min(6);
-                                let end_day = ((e.event.end_at - 1 - ws) / DAY_MS).clamp(start_day, 6);
-                                let span = end_day - start_day + 1;
-                                let hue = s.hue(&e.account_id);
-                                rsx! {
-                                    div { class: "allday-chip", key: "{e.account_id}{e.event.id}", "data-hue": "{hue}", dir: "auto",
-                                        style: "--day:{start_day};--span:{span}", "{e.event.title}" }
-                                }
-                            }
-                        }
-                    }
-                }
-                div { class: "grid",
-                    div { class: "grid__hours", style: "height:calc(24 * var(--hour-h))",
-                        for h in 1..24 {
-                            div { class: "hour-line", key: "h{h}", style: "top:{h * 60}px",
-                                span { class: "hour-line__label", "{h}:00" }
-                            }
-                        }
-                        div { class: "grid__days",
-                            for i in 0..7i64 {
-                                {
-                                    let day_start = format::local(ws)
-                                        .and_then(|d| Local.from_local_datetime(&(d.date_naive() + Duration::days(i)).and_hms_opt(0, 0, 0)?).earliest())
-                                        .map(|d| d.timestamp_millis())
-                                        .unwrap_or(ws + i * DAY_MS);
-                                    let day_end = day_start + DAY_MS;
-                                    let mine: Vec<&EventRow> = timed.iter().filter(|e| e.event.start_at < day_end && e.event.end_at > day_start).collect();
-                                    let spans: Vec<(i64, i64)> = mine.iter().map(|e| (e.event.start_at.max(day_start), e.event.end_at.min(day_end))).collect();
-                                    let cols = layout_day(&spans);
-                                    let is_today = day_of(ws, i).date_naive() == today;
-                                    let day = day_of(ws, i).date_naive();
-                                    rsx! {
-                                        div { class: "day-col", key: "d{i}", "data-weekend": (i >= 5).then_some("true"),
-                                            onclick: move |ev| {
-                                                let y = ev.element_coordinates().y;
-                                                selected.set(None);
-                                                super::event_editor::open_new(s, day, super::event_editor::slot_from_offset(y, HOUR_PX));
-                                            },
-                                            for (k, e) in mine.into_iter().enumerate() {
-                                                {
-                                                    let (start, end) = spans[k];
-                                                    let (col, ncols) = cols[k];
-                                                    let top = (start - day_start) as f64 / 3_600_000.0 * HOUR_PX;
-                                                    let height = ((end - start) as f64 / 3_600_000.0 * HOUR_PX - 2.0).max(14.0);
-                                                    let short = height < 40.0;
-                                                    let hue = s.hue(&e.account_id);
-                                                    let key = (e.account_id.clone(), e.event.id.clone());
-                                                    let is_sel = selected.read().as_ref() == Some(&key);
-                                                    let video = pigeon_core::meeting::meeting_link(&e.event).is_some();
-                                                    rsx! {
-                                                        div { class: "event", key: "{e.account_id}{e.event.id}", "data-hue": "{hue}",
-                                                            "data-rsvp": rsvp_attr(e.event.my_response),
-                                                            "data-past": (e.event.end_at < now).then_some("true"),
-                                                            "data-short": short.then_some("true"),
-                                                            "aria-selected": "{is_sel}",
-                                                            style: "top:{top}px;height:{height}px;--col:{col};--cols:{ncols}",
-                                                            onclick: move |ev| { ev.stop_propagation(); selected.set(Some(key.clone())); },
-                                                            div { class: "event__title", dir: "auto",
-                                                                if video { Icon { name: "video", class: "icon--xs" } }
-                                                                "{e.event.title}"
-                                                            }
-                                                            if !short { div { class: "event__time", "{format::hhmm(e.event.start_at)}–{format::hhmm(e.event.end_at)}" } }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            if is_today && now > day_start && now < day_end {
-                                                div { class: "now-line", style: "top:{(now - day_start) as f64 / 3_600_000.0 * HOUR_PX}px" }
+            }
+            div { class: "month",
+                for date in month_grid(day) {
+                    {
+                        let (chips, more) = month_cell(&events, date, MONTH_CHIPS);
+                        rsx! {
+                            div { class: "month__cell", key: "{date}",
+                                "data-outside": (date.month() != day.month()).then_some("true"),
+                                "aria-current": (date == today).then_some("date"),
+                                onclick: move |_| { go_to(s, date); view.set(CalView::Day); },
+                                span { class: "month__num", "{date.day()}" }
+                                for e in chips {
+                                    {
+                                        let hue = s.hue(&e.account_id);
+                                        let key = (e.account_id.clone(), e.event.id.clone());
+                                        let time = if e.event.all_day { String::new() } else { format::hhmm(e.event.start_at) };
+                                        rsx! {
+                                            div { class: "month__event", key: "{e.account_id}{e.event.id}", "data-hue": "{hue}",
+                                                "data-rsvp": rsvp_attr(e.event.my_response),
+                                                onclick: move |ev| { ev.stop_propagation(); on_select.call(key.clone()); },
+                                                if !time.is_empty() { span { class: "t-3", "{time}" } }
+                                                span { dir: "auto", style: "overflow:hidden;text-overflow:ellipsis", "{e.event.title}" }
                                             }
                                         }
                                     }
                                 }
+                                if more > 0 { span { class: "month__more", "+{more} more" } }
                             }
                         }
-                        if let Some(e) = selected_event {
-                            EventPopover { row: e, on_close: move |_| selected.set(None) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn TimeGrid(days: Vec<NaiveDate>, selected: Signal<Option<(String, String)>>) -> Element {
+    let s = use_context::<AppState>();
+    let mut selected = selected;
+    let data = s.calendar.read().clone();
+    let now = pigeon_core::now_ms();
+    let today = Local::now().date_naive();
+    let n = days.len() as i64;
+    let first = midnight(days[0]);
+    let last = midnight(*days.last().expect("days") + Duration::days(1));
+
+    use_effect(|| {
+        document::eval(
+            "setTimeout(()=>{const g=document.querySelector('.week .grid'); if(g && !g.dataset.scrolled){ g.scrollTop = 7.5*60; g.dataset.scrolled='1'; }},0)",
+        );
+    });
+
+    let events: Vec<EventRow> =
+        data.events.iter().filter(|e| e.event.end_at > first && e.event.start_at < last).cloned().collect();
+    let (all_day, timed): (Vec<EventRow>, Vec<EventRow>) = events.into_iter().partition(|e| e.event.all_day);
+    let utc0 = days[0].and_hms_opt(0, 0, 0).expect("midnight").and_utc().timestamp_millis();
+
+    rsx! {
+        div { class: "week", "data-days": "{n}",
+            div { class: "day-heads",
+                for (i, d) in days.iter().enumerate() {
+                    div { class: "day-head", key: "{i}",
+                        "aria-current": (*d == today).then_some("date"),
+                        "data-weekend": (d.weekday().num_days_from_monday() >= 5).then_some("true"),
+                        span { class: "day-head__dow", "{d.format(\"%a\")}" }
+                        span { class: "day-head__num", "{d.day()}" }
+                    }
+                }
+            }
+            div { class: "allday",
+                span { class: "allday__label", "all-day" }
+                div { class: "allday__track",
+                    for e in all_day {
+                        {
+                            let start_day = ((e.event.start_at - utc0).max(0) / DAY_MS).min(n - 1);
+                            let end_day = ((e.event.end_at - 1 - utc0) / DAY_MS).clamp(start_day, n - 1);
+                            let span = end_day - start_day + 1;
+                            let hue = s.hue(&e.account_id);
+                            rsx! {
+                                div { class: "allday-chip", key: "{e.account_id}{e.event.id}", "data-hue": "{hue}", dir: "auto",
+                                    style: "--day:{start_day};--span:{span};--days:{n}", "{e.event.title}" }
+                            }
+                        }
+                    }
+                }
+            }
+            div { class: "grid",
+                div { class: "grid__hours", style: "height:calc(24 * var(--hour-h))",
+                    for h in 1..24 {
+                        div { class: "hour-line", key: "h{h}", style: "top:{h * 60}px",
+                            span { class: "hour-line__label", "{h}:00" }
+                        }
+                    }
+                    div { class: "grid__days",
+                        for (i, day) in days.iter().copied().enumerate() {
+                            {
+                                let day_start = midnight(day);
+                                let day_end = midnight(day + Duration::days(1));
+                                let mine: Vec<&EventRow> = timed.iter().filter(|e| e.event.start_at < day_end && e.event.end_at > day_start).collect();
+                                let spans: Vec<(i64, i64)> = mine.iter().map(|e| (e.event.start_at.max(day_start), e.event.end_at.min(day_end))).collect();
+                                let cols = layout_day(&spans);
+                                rsx! {
+                                    div { class: "day-col", key: "d{i}",
+                                        "data-weekend": (day.weekday().num_days_from_monday() >= 5).then_some("true"),
+                                        "data-day-start": "{day_start}",
+                                        onclick: move |ev| {
+                                            let y = ev.element_coordinates().y;
+                                            selected.set(None);
+                                            super::event_editor::open_new(s, day, super::event_editor::slot_from_offset(y, HOUR_PX));
+                                        },
+                                        for (k, e) in mine.into_iter().enumerate() {
+                                            {
+                                                let (start, end) = spans[k];
+                                                let (col, ncols) = cols[k];
+                                                let top = (start - day_start) as f64 / 3_600_000.0 * HOUR_PX;
+                                                let height = ((end - start) as f64 / 3_600_000.0 * HOUR_PX - 2.0).max(14.0);
+                                                let short = height < 40.0;
+                                                let hue = s.hue(&e.account_id);
+                                                let key = (e.account_id.clone(), e.event.id.clone());
+                                                let is_sel = selected.read().as_ref() == Some(&key);
+                                                let video = pigeon_core::meeting::meeting_link(&e.event).is_some();
+                                                let drag = draggable(&s, e);
+                                                rsx! {
+                                                    div { class: "event", key: "{e.account_id}{e.event.id}", "data-hue": "{hue}",
+                                                        "data-rsvp": rsvp_attr(e.event.my_response),
+                                                        "data-past": (e.event.end_at < now).then_some("true"),
+                                                        "data-short": short.then_some("true"),
+                                                        "data-drag": drag.then(|| format!("{}|{}", e.account_id, e.event.id)),
+                                                        "aria-selected": "{is_sel}",
+                                                        style: "top:{top}px;height:{height}px;--col:{col};--cols:{ncols}",
+                                                        onclick: move |ev| { ev.stop_propagation(); selected.set(Some(key.clone())); },
+                                                        div { class: "event__title", dir: "auto",
+                                                            if video { Icon { name: "video", class: "icon--xs" } }
+                                                            "{e.event.title}"
+                                                        }
+                                                        if !short { div { class: "event__time", "{format::hhmm(e.event.start_at)}–{format::hhmm(e.event.end_at)}" } }
+                                                        if drag { div { class: "event__resize" } }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if day == today && now > day_start && now < day_end {
+                                            div { class: "now-line", style: "top:{(now - day_start) as f64 / 3_600_000.0 * HOUR_PX}px" }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -327,14 +615,24 @@ fn EventPopover(row: EventRow, on_close: EventHandler<()>) -> Element {
 #[component]
 pub fn CalendarSidebar() -> Element {
     let s = use_context::<AppState>();
-    let mut week_start = s.week_start;
-    let mut month = use_signal(|| {
-        let d = format::local(*week_start.peek()).unwrap_or_else(Local::now).date_naive();
-        NaiveDate::from_ymd_opt(d.year(), d.month(), 1).unwrap_or(d)
+    let focus = *s.cal_day.read();
+    let view = *s.cal_view.read();
+    let mut month = use_signal(|| first_of_month(focus));
+    // Follow the main view when it moves to another month.
+    use_effect(move || {
+        let f = first_of_month(*s.cal_day.read());
+        if *month.peek() != f {
+            month.set(f);
+        }
     });
     let m = *month.read();
-    let grid_start = m - Duration::days(i64::from(m.weekday().num_days_from_monday()));
-    let ws_date = format::local(*week_start.read()).map(|d| d.date_naive()).unwrap_or(m);
+    let grid = month_grid(m);
+    let shown = view_days(view, focus);
+    let (range_start, range_end) = if view == CalView::Month {
+        (first_of_month(focus), first_of_month(step(CalView::Month, focus, true)) - Duration::days(1))
+    } else {
+        (shown[0], *shown.last().expect("days"))
+    };
     let today = Local::now().date_naive();
     let calendars = s.calendar.read().calendars.clone();
     let accounts = s.accounts.read().clone();
@@ -344,33 +642,23 @@ pub fn CalendarSidebar() -> Element {
             div { class: "mini-month__head",
                 span { class: "spacer", "{m.format(\"%B %Y\")}" }
                 button { class: "icon-btn icon-btn--xs", "aria-label": "Previous month",
-                    onclick: move |_| { let p = m - Duration::days(1); month.set(NaiveDate::from_ymd_opt(p.year(), p.month(), 1).unwrap_or(p)); },
+                    onclick: move |_| month.set(step(CalView::Month, m, false)),
                     Icon { name: "chev-left", class: "icon--sm" } }
                 button { class: "icon-btn icon-btn--xs", "aria-label": "Next month",
-                    onclick: move |_| { let n = m + Duration::days(32); month.set(NaiveDate::from_ymd_opt(n.year(), n.month(), 1).unwrap_or(n)); },
+                    onclick: move |_| month.set(step(CalView::Month, m, true)),
                     Icon { name: "chev-right", class: "icon--sm" } }
             }
             div { class: "mini-month__grid",
                 for d in ["M", "T", "W", "T", "F", "S", "S"] { span { class: "mini-month__dow", "{d}" } }
-                for i in 0..42 {
-                    {
-                        let date = grid_start + Duration::days(i);
-                        let in_week = date >= ws_date && date < ws_date + Duration::days(7);
-                        rsx! {
-                            span { class: "mini-month__day", key: "{i}",
-                                "data-outside": (date.month() != m.month()).then_some("true"),
-                                "data-in-range": in_week.then_some("true"),
-                                "data-range-start": (date == ws_date).then_some("true"),
-                                "data-range-end": (date == ws_date + Duration::days(6)).then_some("true"),
-                                "aria-current": (date == today).then_some("date"),
-                                onclick: move |_| {
-                                    if let Some(t) = Local.from_local_datetime(&date.and_hms_opt(12, 0, 0).unwrap_or_default()).earliest() {
-                                        week_start.set(format::week_start(t));
-                                    }
-                                },
-                                span { "{date.day()}" }
-                            }
-                        }
+                for (i, date) in grid.into_iter().enumerate() {
+                    span { class: "mini-month__day", key: "{i}",
+                        "data-outside": (date.month() != m.month()).then_some("true"),
+                        "data-in-range": (date >= range_start && date <= range_end).then_some("true"),
+                        "data-range-start": (date == range_start).then_some("true"),
+                        "data-range-end": (date == range_end).then_some("true"),
+                        "aria-current": (date == today).then_some("date"),
+                        onclick: move |_| go_to(s, date),
+                        span { "{date.day()}" }
                     }
                 }
             }
@@ -396,7 +684,7 @@ pub fn CalendarSidebar() -> Element {
 
 #[cfg(test)]
 mod tests {
-    use super::layout_day;
+    use super::*;
 
     #[test]
     fn overlap_columns() {
@@ -406,5 +694,73 @@ mod tests {
         assert_eq!(layout_day(&[]), vec![]);
         // Three at once.
         assert_eq!(layout_day(&[(0, 10), (0, 10), (0, 10)]), vec![(0, 3), (1, 3), (2, 3)]);
+    }
+
+    fn d(y: i32, m: u32, day: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(y, m, day).unwrap()
+    }
+
+    #[test]
+    fn views_and_ranges() {
+        // October 2026 starts on a Thursday: the grid opens Mon Sep 28.
+        let g = month_grid(d(2026, 10, 23));
+        assert_eq!((g[0], g[41], g.len()), (d(2026, 9, 28), d(2026, 11, 8), 42));
+        assert_eq!(view_days(CalView::Week, d(2026, 10, 23))[0], d(2026, 10, 19));
+        assert_eq!(view_days(CalView::Day, d(2026, 10, 23)), vec![d(2026, 10, 23)]);
+        let (from, to) = view_range(CalView::Day, d(2026, 10, 25)); // DST ends in Israel/EU that night
+        assert_eq!((from, to), (midnight(d(2026, 10, 25)), midnight(d(2026, 10, 26))));
+        assert_eq!(step(CalView::Month, d(2026, 1, 31), true), d(2026, 2, 1));
+        assert_eq!(step(CalView::Month, d(2026, 3, 15), false), d(2026, 2, 1));
+        assert_eq!(step(CalView::Week, d(2026, 10, 23), false), d(2026, 10, 16));
+    }
+
+    #[test]
+    fn drag_math_snaps_to_quarter_hours() {
+        assert_eq!(snap_minutes(0.0, 60.0), 0);
+        assert_eq!(snap_minutes(67.0, 60.0), 60); // 1:07 → 1:00
+        assert_eq!(snap_minutes(68.0, 60.0), 75); // 1:08 → 1:15
+        assert_eq!(snap_minutes(9999.0, 60.0), 1440);
+        let day = 1_000_000_000;
+        // Dragging upwards works too; a tiny drag still makes 15 minutes.
+        assert_eq!(drag_create(day, 600.0, 540.0, 60.0), (day + 540 * 60_000, day + 600 * 60_000));
+        assert_eq!(drag_create(day, 600.0, 602.0, 60.0), (day + 600 * 60_000, day + 615 * 60_000));
+        assert_eq!(drag_create(day, 1440.0, 1440.0, 60.0), (day + 1425 * 60_000, day + 1440 * 60_000));
+        // Move keeps the duration; resize keeps the start and a minimum length.
+        let orig = (day + 600 * 60_000, day + 690 * 60_000);
+        assert_eq!(
+            drag_move(orig, day + DAY_MS, 122.0, 60.0),
+            (day + DAY_MS + 120 * 60_000, day + DAY_MS + 210 * 60_000)
+        );
+        assert_eq!(drag_resize(orig, day, 750.0, 60.0), (orig.0, day + 750 * 60_000));
+        assert_eq!(drag_resize(orig, day, 0.0, 60.0), (orig.0, orig.0 + 15 * 60_000));
+    }
+
+    #[test]
+    fn month_cells_put_all_day_first_and_count_overflow() {
+        use pigeon_core::model::Event;
+        let mk = |id: &str, start: i64, end: i64, all_day: bool| EventRow {
+            account_id: "a".into(),
+            event: Event {
+                id: id.into(),
+                title: id.into(),
+                start_at: start,
+                end_at: end,
+                all_day,
+                ..Default::default()
+            },
+        };
+        let day = d(2026, 10, 23);
+        let m = midnight(day);
+        let utc = day.and_hms_opt(0, 0, 0).unwrap().and_utc().timestamp_millis();
+        let events = vec![
+            mk("late", m + 15 * 3_600_000, m + 16 * 3_600_000, false),
+            mk("early", m + 9 * 3_600_000, m + 10 * 3_600_000, false),
+            mk("holiday", utc, utc + DAY_MS, true),
+            mk("noon", m + 12 * 3_600_000, m + 13 * 3_600_000, false),
+            mk("tomorrow", m + DAY_MS + 3_600_000, m + DAY_MS + 7_200_000, false),
+        ];
+        let (shown, more) = month_cell(&events, day, 3);
+        assert_eq!(shown.iter().map(|e| e.event.id.as_str()).collect::<Vec<_>>(), ["holiday", "early", "noon"]);
+        assert_eq!(more, 1);
     }
 }

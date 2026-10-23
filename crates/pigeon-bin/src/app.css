@@ -124,3 +124,17 @@ input.input--bare { border: 0; outline: none; }
 .move-picker { position: absolute; top: 56px; right: 24px; width: 300px; max-height: min(460px, calc(100vh / var(--ui-zoom, 1) - 96px)); }
 .move-picker__input { margin: 0 4px 6px; }
 .move-picker__list { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; }
+
+/* Calendar Day / Month glue: all-day chips span --days columns (the design
+   assumes 7); month cells mark today and overflow; drag affordances. */
+.week .allday-chip { left: calc(var(--day) / var(--days, 7) * 100% + 3px); width: calc(var(--span, 1) / var(--days, 7) * 100% - 6px); }
+.week > .month { min-height: 0; }
+.month__cell { cursor: default; }
+.month__cell:hover { background: var(--bg-2); }
+.month__cell[aria-current="date"] .month__num { color: var(--on-accent); background: var(--accent); align-self: flex-start; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; }
+.month__event { border-radius: 4px; padding: 0 3px; }
+.month__event:hover { background: rgba(var(--hue-rgb), var(--event-fill-a)); }
+.month__event[data-rsvp="declined"] { color: var(--text-3); text-decoration: line-through; }
+.month__more { font-size: 11px; font-weight: var(--fw-semibold); color: var(--text-3); padding-left: 3px; }
+.event[data-drag] { cursor: grab; }
+.day-col { touch-action: none; }

@@ -167,6 +167,82 @@ pub const JS: &str = r#"
     ed.focus(); getSelection().removeAllRanges(); getSelection().addRange(range); placeBar();
   };
 
+  // ---- Calendar drag: create on empty grid, move events, resize by the bottom edge ----
+  // Draws a ghost owned by this script (Dioxus never sees it) and reports
+  // column-local CSS px on drop; Rust snaps and applies.
+  (() => {
+    let drag = null, swallowClick = false;
+    const colAt = (x, y) => {
+      for (const el of document.elementsFromPoint(x, y)) { const c = el.closest && el.closest('.day-col[data-day-start]'); if (c) return c; }
+      return null;
+    };
+    // Column-local y in layout px (CSS zoom scales client rects).
+    const localY = (col, clientY) => { const r = col.getBoundingClientRect(); return (clientY - r.top) * (col.offsetHeight / (r.height || 1)); };
+    document.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      const col = e.target.closest && e.target.closest('.day-col[data-day-start]');
+      if (!col) return;
+      const ev = e.target.closest('.event');
+      if (ev && !ev.dataset.drag) return; // read-only event: click only
+      const y = localY(col, e.clientY);
+      if (ev) {
+        const top = parseFloat(ev.style.top) || 0;
+        drag = { kind: e.target.closest('.event__resize') ? 'resize' : 'move', ev, col, y0: y, grab: y - top, top, h: ev.offsetHeight, moved: false };
+      } else {
+        drag = { kind: 'create', col, y0: y, moved: false };
+      }
+    });
+    document.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      const over = drag.kind === 'move' ? (colAt(e.clientX, e.clientY) || drag.col) : drag.col;
+      const y = localY(over, e.clientY);
+      if (!drag.moved && Math.abs(y - drag.y0) < 4 && over === drag.col) return;
+      if (!drag.moved) {
+        drag.moved = true;
+        drag.ghost = document.createElement('div');
+        drag.ghost.className = drag.kind === 'create' ? 'event event--draft' : drag.ev.className;
+        if (drag.ev) {
+          drag.ghost.innerHTML = drag.ev.innerHTML;
+          drag.ghost.dataset.hue = drag.ev.dataset.hue || '';
+          drag.ghost.setAttribute('data-dragging', 'true');
+          drag.ghost.style.cssText = drag.ev.style.cssText;
+          drag.ghost.style.setProperty('--col', '0'); drag.ghost.style.setProperty('--cols', '1');
+          drag.ev.style.opacity = '0.35';
+        }
+        drag.ghost.style.pointerEvents = 'none';
+        drag.ghost.style.zIndex = '4';
+      }
+      if (drag.ghost.parentNode !== over) over.appendChild(drag.ghost);
+      drag.over = over;
+      if (drag.kind === 'create') {
+        const a = Math.min(drag.y0, y), b = Math.max(drag.y0, y);
+        drag.ghost.style.top = a + 'px'; drag.ghost.style.height = Math.max(14, b - a) + 'px';
+        drag.y1 = y;
+      } else if (drag.kind === 'move') {
+        drag.newTop = Math.max(0, y - drag.grab);
+        drag.ghost.style.top = drag.newTop + 'px';
+      } else {
+        drag.bottom = Math.max(drag.top + 14, y);
+        drag.ghost.style.height = (drag.bottom - drag.top) + 'px';
+      }
+    });
+    const end = () => {
+      if (!drag) return;
+      const d = drag; drag = null;
+      if (d.ghost) d.ghost.remove();
+      if (d.ev) d.ev.style.opacity = '';
+      if (!d.moved) return;
+      swallowClick = true; setTimeout(() => { swallowClick = false; }, 0);
+      if (d.kind === 'create') send('cal-create', [d.col.dataset.dayStart, d.y0, d.y1].join('|'));
+      else if (d.kind === 'move') send('cal-move', [d.ev.dataset.drag, d.over.dataset.dayStart, d.newTop].join('|'));
+      else send('cal-resize', [d.ev.dataset.drag, d.col.dataset.dayStart, d.bottom].join('|'));
+    };
+    document.addEventListener('pointerup', end);
+    document.addEventListener('pointercancel', () => { if (drag) { if (drag.ghost) drag.ghost.remove(); if (drag.ev) drag.ev.style.opacity = ''; drag = null; } });
+    // The click that ends a drag must not also open the editor/popover.
+    document.addEventListener('click', (e) => { if (swallowClick) { e.stopPropagation(); e.preventDefault(); swallowClick = false; } }, true);
+  })();
+
   // ---- Mail frames: fit height to content, open links in the browser ----
   function wire(f) {
     const fit = () => {

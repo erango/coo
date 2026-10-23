@@ -74,9 +74,16 @@ pub fn App() -> Element {
                         send_cmd(Cmd::OpenThread { account_id: account_id.into(), thread_id: thread_id.into() });
                     }
                 }
+                // calendar[:day|week|month]
                 "calendar" => {
                     let mut m = s.mode;
                     m.set(Mode::Calendar);
+                    let mut v = s.cal_view;
+                    match arg {
+                        "day" => v.set(crate::state::CalView::Day),
+                        "month" => v.set(crate::state::CalView::Month),
+                        _ => {}
+                    }
                 }
                 // move:<account_id>|<thread_id>[|label] — open the thread, then the picker
                 "move" => {
@@ -184,8 +191,8 @@ pub fn App() -> Element {
 
     use_effect(move || {
         if *s.mode.read() == Mode::Calendar {
-            let from = *s.week_start.read();
-            send_cmd(Cmd::ShowCalendar { from, to: from + 7 * DAY_MS });
+            let (from, to) = calendar::view_range(*s.cal_view.read(), *s.cal_day.read());
+            send_cmd(Cmd::ShowCalendar { from, to });
         }
     });
 
@@ -267,8 +274,7 @@ async fn click_loop(s: AppState) {
                 settings.set(false);
                 mode.set(Mode::Calendar);
                 if let Some(t) = crate::format::local(start_at) {
-                    let mut ws = s.week_start;
-                    ws.set(crate::format::week_start(t));
+                    calendar::go_to(s, t.date_naive());
                 }
             }
         }
@@ -291,6 +297,7 @@ async fn bridge_loop(s: AppState) {
             }
             "key" => on_key(s, &msg.v),
             "draft-input" => compose::autosave(s, &msg.v),
+            "cal-create" | "cal-move" | "cal-resize" => calendar::on_drag(s, &msg.k, &msg.v),
             "focus" => {
                 let mut f = s.window_focused;
                 f.set(msg.v == "1");

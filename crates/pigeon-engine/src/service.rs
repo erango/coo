@@ -836,7 +836,14 @@ impl Service {
             }
             Cmd::UpdateEvent { account_id, event_id, draft } => {
                 let account = self.app.account(&account_id)?;
-                let event = self.app.update_event(&account, &event_id, &draft).await?;
+                let event = match self.app.update_event(&account, &event_id, &draft).await {
+                    Ok(e) => e,
+                    Err(e) => {
+                        // The UI may have moved it optimistically (drag); put it back.
+                        self.publish().await;
+                        return Err(e);
+                    }
+                };
                 self.toast(format!("Updated “{}”", event.title), false, None);
                 self.publish().await;
             }

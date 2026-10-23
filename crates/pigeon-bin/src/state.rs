@@ -73,6 +73,13 @@ pub struct MovePicker {
     pub label: bool,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CalView {
+    Day,
+    Week,
+    Month,
+}
+
 /// A message on its way out, shown as a row until the next sync lists it.
 #[derive(Clone, PartialEq, Debug)]
 pub enum OutState {
@@ -140,6 +147,10 @@ pub struct AppState {
     pub calendar: Signal<CalendarData>,
     /// Monday 00:00 local of the shown week, epoch ms.
     pub week_start: Signal<i64>,
+    /// Day / Week / Month.
+    pub cal_view: Signal<CalView>,
+    /// The day the calendar is focused on (Day view shows it; Month shows its month).
+    pub cal_day: Signal<chrono::NaiveDate>,
     pub theme: Signal<Theme>,
     /// Color theme family id (see `themes`).
     pub palette: Signal<String>,
@@ -187,6 +198,8 @@ impl AppState {
             mode: Signal::new(Mode::Mail),
             calendar: Signal::new(CalendarData::default()),
             week_start: Signal::new(crate::format::week_start(chrono::Local::now())),
+            cal_view: Signal::new(CalView::Week),
+            cal_day: Signal::new(chrono::Local::now().date_naive()),
             theme: Signal::new(Theme::from_pref(&crate::prefs::get().theme_mode)),
             palette: Signal::new({
                 let p = crate::prefs::get().palette;
