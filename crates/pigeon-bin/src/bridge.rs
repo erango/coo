@@ -260,6 +260,14 @@ pub const JS: &str = r#"
   }
   document.addEventListener('contextmenu', (e) => contextGuard(e, document));
 
+  // ---- Settings: hairline under the sticky header once scrolled ----
+  document.addEventListener('scroll', (e) => {
+    const el = e.target;
+    if (!el.classList || !el.classList.contains('settings')) return;
+    const head = el.querySelector('.settings__crumbs');
+    if (head) head.toggleAttribute('data-scrolled', el.scrollTop > 0);
+  }, true);
+
   // ---- Window: drag by the title strips, double-click to zoom ----
   // The titlebar is transparent with content under it, and WKWebView ignores
   // -webkit-app-region, so empty parts of the top bars move the window

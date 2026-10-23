@@ -231,3 +231,13 @@ input, textarea, [contenteditable="true"] { cursor: text; }
 .palette__field input { flex: 1; min-width: 0; height: 40px; border: 0; outline: none; background: transparent; font-size: 16px; color: var(--text-1); caret-color: var(--accent); }
 .palette__field input::placeholder { color: var(--text-3); }
 .palette__esc { flex: none; }
+
+/* Settings: the "Settings" crumb and its close button stay put while the
+   page scrolls (.settings is the scroller, padded 20px 28px), with a
+   hairline once content runs under it. */
+.settings__crumbs {
+  position: sticky; top: -20px; z-index: 3;
+  margin: -20px -28px 0; padding: 20px 28px 10px;
+  background: var(--bg-1);
+}
+.settings__crumbs[data-scrolled] { box-shadow: inset 0 -1px 0 var(--line); }
