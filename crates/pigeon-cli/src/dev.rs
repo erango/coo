@@ -1,8 +1,8 @@
 //! Hidden developer tools: a synthetic large store and hot-path benchmarks.
 //!
 //! ```sh
-//! PIGEON_DATA_DIR=/tmp/pigeon-perf pigeon dev seed --messages 100000 --accounts 5 --events 3000
-//! PIGEON_DATA_DIR=/tmp/pigeon-perf pigeon dev bench
+//! PIGEON_DATA_DIR=/tmp/coo-perf coo dev seed --messages 100000 --accounts 5 --events 3000
+//! PIGEON_DATA_DIR=/tmp/coo-perf coo dev bench
 //! ```
 
 use std::time::{Duration, Instant};
