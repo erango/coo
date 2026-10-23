@@ -41,6 +41,8 @@ pub fn Onboarding() -> Element {
                         Icon { name: "browser", class: "icon--xl" }
                         div { class: "onboard__title onboard__title--sm", "Finish signing in in your browser" }
                         div { class: "onboard__lede", "Coo opened your browser to sign in. Come back here when it says you're done." }
+                        div { class: "onboard__fine", style: "justify-content:center",
+                            "Adding Gmail? If Google says it hasn't verified Coo, click Advanced, then Go to Coo." }
                         button { class: "btn btn--ghost", r#type: "button", onclick: move |_| signing_in.set(false), "Cancel" }
                     }
                 } else if *icloud.read() {
