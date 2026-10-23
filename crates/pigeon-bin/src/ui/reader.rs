@@ -282,8 +282,11 @@ fn Body(account_id: String, message_id: String, sender: String, body: StoredBody
     let (id1, id2) = (message_id.clone(), message_id.clone());
 
     let terms = search_terms(&s);
-    let content = match &body.html {
-        Some(html) => {
+    let content = match mailframe::shown(body.html.as_deref(), body.text.as_deref()) {
+        mailframe::Shown::Empty => rsx! {
+            div { class: "plain-body body-empty", Icon { name: "mail", class: "icon--sm" } "This message has no text." }
+        },
+        mailframe::Shown::Html(html) => {
             let adapted = mailframe::is_complex(html) == flipped;
             let (marked, _) = mailframe::highlight_html(html, &terms);
             let doc = mailframe::srcdoc(&marked, &s.palette.read(), dark, adapted, allowed);
@@ -300,10 +303,9 @@ fn Body(account_id: String, message_id: String, sender: String, body: StoredBody
                 }
             }
         }
-        None => {
-            let text = body.text.clone().unwrap_or_default();
+        mailframe::Shown::Text(text) => {
             let runs: Vec<(String, bool)> =
-                mailframe::split_matches(&text, &terms).into_iter().map(|(t, m)| (t.to_string(), m)).collect();
+                mailframe::split_matches(text, &terms).into_iter().map(|(t, m)| (t.to_string(), m)).collect();
             rsx! {
                 div { class: "plain-body", dir: "auto",
                     // One inline run: .plain-body is a flex column.

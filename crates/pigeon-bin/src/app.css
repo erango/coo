@@ -185,3 +185,6 @@ body[data-resizing] iframe { pointer-events: none; }
 /* Onboarding grows with each added account: let the stage scroll. */
 .onboard__stage { overflow-y: auto; padding-top: 24px; }
 .provider-choice > .icon:last-child { color: var(--text-3); }
+
+/* Reader: an empty message says so instead of showing a blank frame. */
+.body-empty { flex-direction: row; align-items: center; gap: 8px; color: var(--text-3); font-style: italic; }

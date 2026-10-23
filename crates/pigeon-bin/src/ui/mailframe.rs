@@ -4,6 +4,33 @@ use crate::themes;
 
 const ADAPTED_CSS: &str = include_str!("../../../../design/mail-adapted.css");
 
+/// What a message body shows: its HTML, its plain text, or nothing.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Shown<'a> {
+    Html(&'a str),
+    Text(&'a str),
+    Empty,
+}
+
+/// HTML with nothing a reader would see (no text, images or tables).
+pub fn html_is_blank(html: &str) -> bool {
+    let lower = html.to_ascii_lowercase();
+    if ["<img", "<table", "<svg", "<video", "<hr"].iter().any(|t| lower.contains(t)) {
+        return false;
+    }
+    pigeon_core::text::html_to_text(html).chars().all(|c| c.is_whitespace() || c == '\u{a0}' || c == '\u{200b}')
+}
+
+/// Prefer the HTML part, but not an empty one when the text part has
+/// content, and report an empty message instead of showing a blank frame.
+pub fn shown<'a>(html: Option<&'a str>, text: Option<&'a str>) -> Shown<'a> {
+    let text = text.filter(|t| !t.trim().is_empty());
+    match html {
+        Some(h) if !html_is_blank(h) => Shown::Html(h),
+        _ => text.map_or(Shown::Empty, Shown::Text),
+    }
+}
+
 /// Authored-layout email (newsletters, receipts) that should keep its own
 /// white background ("paper") rather than adapt to the theme.
 pub fn is_complex(html: &str) -> bool {
@@ -172,6 +199,19 @@ pub fn srcdoc(html: &str, palette: &str, dark: bool, adapted: bool, allow_remote
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn empty_bodies_are_recognized() {
+        // The shape of a real message whose sender sent only a subject.
+        let empty = "<html><head><meta charset=\"utf-8\"></head><body></body></html>\r\n";
+        assert_eq!(shown(Some(empty), Some("\r\n")), Shown::Empty);
+        assert_eq!(shown(Some("\n"), Some("\r\n")), Shown::Empty);
+        assert_eq!(shown(Some("<div><br></div>"), Some("Hi there")), Shown::Text("Hi there"));
+        assert_eq!(shown(Some("<p>שלום</p>"), None), Shown::Html("<p>שלום</p>"));
+        assert_eq!(shown(Some(r#"<img src="cid:x">"#), None), Shown::Html(r#"<img src="cid:x">"#));
+        assert_eq!(shown(None, Some("  ")), Shown::Empty);
+        assert_eq!(shown(Some("<p>&nbsp;</p>"), None), Shown::Empty);
+    }
 
     #[test]
     fn csp_blocks_remote_until_allowed() {
