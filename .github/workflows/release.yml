@@ -1,6 +1,6 @@
 name: release
 
-# Build a universal, signed + notarized Pigeon.app and publish a .dmg to a
+# Build a universal, signed + notarized Coo.app and publish a .dmg to a
 # GitHub Release whenever a v* tag is pushed:
 #   (bump [workspace.package] version in Cargo.toml) && git tag v0.1.0 && git push origin v0.1.0
 on:
@@ -85,20 +85,20 @@ jobs:
       # when Homebrew copies it out of the dmg.
       - name: Notarize app
         if: steps.sign.outputs.enabled == 'true'
-        run: ./scripts/notarize.sh dist/Pigeon.app
+        run: ./scripts/notarize.sh dist/Coo.app
 
       - name: Package .dmg
         id: dmg
         run: |
           VER="${GITHUB_REF_NAME#v}"
           STAGE="$(mktemp -d)"
-          cp -R dist/Pigeon.app "$STAGE/"
+          cp -R dist/Coo.app "$STAGE/"
           ln -s /Applications "$STAGE/Applications"
-          DMG="Pigeon-${VER}.dmg"
+          DMG="Coo-${VER}.dmg"
           # hdiutil intermittently fails with "Resource busy" on GitHub's macOS
           # runners; retry.
           for i in 1 2 3 4 5; do
-            hdiutil create -volname "Pigeon" -srcfolder "$STAGE" -ov -format UDZO "$DMG" && break
+            hdiutil create -volname "Coo" -srcfolder "$STAGE" -ov -format UDZO "$DMG" && break
             [ "$i" = 5 ] && exit 1
             echo "hdiutil create failed (attempt $i), retrying…"; sleep $((i * 5))
           done
@@ -112,7 +112,7 @@ jobs:
           echo "dmg=$DMG" >> "$GITHUB_OUTPUT"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "ver=$VER" >> "$GITHUB_OUTPUT"
-          echo "### Pigeon $VER" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Coo $VER" >> "$GITHUB_STEP_SUMMARY"
           echo "sha256: \`$SHA\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish GitHub Release
@@ -140,9 +140,9 @@ jobs:
 
           ### Install
           \`\`\`sh
-          brew install --cask erango/tap/pigeon
+          brew install --cask erango/tap/coo
           \`\`\`
-          Or download \`$DMG\` below and drag Pigeon to Applications.
+          Or download \`$DMG\` below and drag Coo to Applications.
 
           \`sha256: $SHA\`
           EOF
@@ -150,11 +150,11 @@ jobs:
             cat >> notes.md <<EOF
 
           **Unsigned build:** on first launch, right-click the app → **Open**, or run
-          \`xattr -dr com.apple.quarantine /Applications/Pigeon.app\`.
+          \`xattr -dr com.apple.quarantine /Applications/Coo.app\`.
           EOF
           fi
           gh release create "$GITHUB_REF_NAME" "$DMG" "$DMG.sha256" \
-            --title "Pigeon $GITHUB_REF_NAME" \
+            --title "Coo $GITHUB_REF_NAME" \
             --notes-file notes.md
 
       - name: Bump Homebrew tap
@@ -169,14 +169,14 @@ jobs:
           fi
           git clone "https://x-access-token:${TAP_TOKEN}@github.com/erango/homebrew-tap.git" tap
           cd tap
-          if [ ! -f Casks/pigeon.rb ]; then
-            echo "Casks/pigeon.rb missing in erango/homebrew-tap: skipping bump." >> "$GITHUB_STEP_SUMMARY"
+          if [ ! -f Casks/coo.rb ]; then
+            echo "Casks/coo.rb missing in erango/homebrew-tap: skipping bump." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          sed -i '' -E "s/version \".*\"/version \"$VER\"/; s/sha256 \".*\"/sha256 \"$SHA\"/" Casks/pigeon.rb
+          sed -i '' -E "s/version \".*\"/version \"$VER\"/; s/sha256 \".*\"/sha256 \"$SHA\"/" Casks/coo.rb
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -am "pigeon $VER"
+          git commit -am "coo $VER"
           git push
           echo "Bumped erango/homebrew-tap to $VER." >> "$GITHUB_STEP_SUMMARY"
 

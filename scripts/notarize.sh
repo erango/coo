@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Notarize and staple a Developer ID-signed Pigeon.app or .dmg.
-#   ./scripts/notarize.sh dist/Pigeon.app
-#   ./scripts/notarize.sh Pigeon-1.2.3.dmg
+# Notarize and staple a Developer ID-signed Coo.app or .dmg.
+#   ./scripts/notarize.sh dist/Coo.app
+#   ./scripts/notarize.sh Coo-1.2.3.dmg
 #
 # Credentials (first match wins):
 #   PIGEON_NOTARY_PROFILE   keychain profile created once with

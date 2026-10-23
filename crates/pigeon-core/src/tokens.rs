@@ -15,8 +15,8 @@ pub enum TokenStore {
 }
 
 /// What to tell a headless caller whose Keychain read needs a person.
-pub const KEYCHAIN_APPROVAL_NEEDED: &str = "macOS needs you to allow this program to read Pigeon's \
-     sign-ins from the Keychain. Run `pigeon doctor` once in Terminal and choose \"Always Allow\" (again after \
+pub const KEYCHAIN_APPROVAL_NEEDED: &str = "macOS needs you to allow this program to read Coo's \
+     sign-ins from the Keychain. Run `coo doctor` once in Terminal and choose \"Always Allow\" (again after \
      updating Pigeon), or use the file token store (PIGEON_TOKEN_STORE=file) for both the app and the agent";
 
 /// Keeps Keychain reads from showing an "allow access" dialog while held;

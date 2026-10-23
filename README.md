@@ -1,4 +1,4 @@
-# Pigeon
+# Coo
 
 A fast, keyboard-first mail + calendar desktop app for Microsoft 365, Google
 Workspace / Gmail and iCloud. Rust + Dioxus. Early development: the
@@ -35,7 +35,7 @@ cargo cli sync
 cargo cli ls --threads
 ```
 
-Using Pigeon from Claude or another agent (CLI `--json`, `pigeon mcp`): see
+Using Coo from Claude or another agent (CLI `--json`, `coo mcp`): see
 [docs/agents.md](docs/agents.md).
 
 Optional crash reporting: `export PIGEON_SENTRY_DSN=<dsn>` (Sentry project,

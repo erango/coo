@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "pigeon"
+name = "coo"
 path = "src/main.rs"
 
 [dependencies]

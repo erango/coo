@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build dist/Pigeon.app (macOS), no Xcode needed.
+# Build dist/Coo.app (macOS), no Xcode needed.
 #   ./scripts/bundle.sh            release build
 #   ./scripts/bundle.sh --debug    debug build (faster)
 #   ./scripts/bundle.sh --universal  release universal binary (arm64 + x86_64)
@@ -8,10 +8,9 @@
 # Signing: with PIGEON_SIGN_IDENTITY set (e.g. "Developer ID Application:
 # Name (TEAMID)") the bundle is signed for distribution: hardened runtime,
 # secure timestamp, entitlements, helper CLI first. Otherwise ad-hoc.
-# The `pigeon` CLI ships inside the bundle at Contents/Helpers/pigeon (not
+# The `coo` CLI ships inside the bundle at Contents/Helpers/coo (not
 # MacOS/: the default case-insensitive disk would make it the same file as
-# MacOS/Pigeon) so agent setup can point at a stable path. Signing is ad-hoc for now; Developer ID
-# signing + notarization come with the release workflow.
+# MacOS/Coo) so agent setup can point at a stable path.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -26,7 +25,7 @@ for arg in "$@"; do
 done
 
 VERSION="$(grep -m1 '^version' "$ROOT/Cargo.toml" | sed 's/.*"\(.*\)".*/\1/')"
-ICNS="$ROOT/crates/pigeon-bin/assets/icon/Pigeon.icns"
+ICNS="$ROOT/crates/pigeon-bin/assets/icon/Coo.icns"
 if [ ! -f "$ICNS" ] || [ "$ROOT/design/logo/app-icon.svg" -nt "$ICNS" ]; then
   "$ROOT/scripts/gen-icon.sh"
 fi
@@ -40,7 +39,7 @@ if [ "$UNIVERSAL" = "1" ]; then
   done
   TARGET="$TARGET_ROOT/universal"
   mkdir -p "$TARGET"
-  for b in pigeon-app pigeon; do
+  for b in pigeon-app coo; do
     lipo -create "$TARGET_ROOT/aarch64-apple-darwin/release/$b" "$TARGET_ROOT/x86_64-apple-darwin/release/$b" -output "$TARGET/$b"
     echo "==> lipo $b: $(lipo -archs "$TARGET/$b")"
   done
@@ -50,24 +49,24 @@ else
   TARGET="$TARGET_ROOT/$PROFILE_DIR"
 fi
 
-APP="$ROOT/dist/Pigeon.app"
+APP="$ROOT/dist/Coo.app"
 echo "==> assembling $APP (v$VERSION)…"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
-cp "$TARGET/pigeon-app" "$APP/Contents/MacOS/Pigeon"
-cp "$TARGET/pigeon" "$APP/Contents/Helpers/pigeon"
-cp "$ICNS" "$APP/Contents/Resources/Pigeon.icns"
+cp "$TARGET/pigeon-app" "$APP/Contents/MacOS/Coo"
+cp "$TARGET/coo" "$APP/Contents/Helpers/coo"
+cp "$ICNS" "$APP/Contents/Resources/Coo.icns"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>Pigeon</string>
-  <key>CFBundleDisplayName</key><string>Pigeon</string>
+  <key>CFBundleName</key><string>Coo</string>
+  <key>CFBundleDisplayName</key><string>Coo</string>
   <key>CFBundleIdentifier</key><string>il.co.frost-media.pigeon</string>
-  <key>CFBundleExecutable</key><string>Pigeon</string>
-  <key>CFBundleIconFile</key><string>Pigeon</string>
+  <key>CFBundleExecutable</key><string>Coo</string>
+  <key>CFBundleIconFile</key><string>Coo</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$VERSION</string>
@@ -81,13 +80,13 @@ PLIST
 
 if [ -n "${PIGEON_SIGN_IDENTITY:-}" ]; then
   echo "==> signing with $PIGEON_SIGN_IDENTITY"
-  SIGN=(codesign --force --timestamp --options runtime --entitlements "$ROOT/scripts/Pigeon.entitlements" --sign "$PIGEON_SIGN_IDENTITY")
+  SIGN=(codesign --force --timestamp --options runtime --entitlements "$ROOT/scripts/Coo.entitlements" --sign "$PIGEON_SIGN_IDENTITY")
   # Inside-out: nested code first, then the bundle (never --deep).
-  "${SIGN[@]}" "$APP/Contents/Helpers/pigeon"
+  "${SIGN[@]}" "$APP/Contents/Helpers/coo"
   "${SIGN[@]}" "$APP"
   codesign --verify --strict --verbose=2 "$APP"
 else
-  codesign --force --sign - "$APP/Contents/Helpers/pigeon" >/dev/null
+  codesign --force --sign - "$APP/Contents/Helpers/coo" >/dev/null
   codesign --force --sign - "$APP" >/dev/null
 fi
 echo "==> $APP"

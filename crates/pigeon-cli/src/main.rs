@@ -1,8 +1,8 @@
-//! `pigeon` — command-line access to the engine, for people and agents.
+//! `coo` — command-line access to the engine, for people and agents.
 //!
 //! Every command takes `--json` for machine-readable output (shapes in
 //! `out.rs`). Writes from a non-interactive caller need `--yes`;
-//! `PIGEON_AGENT_READONLY=1` blocks them entirely. `pigeon mcp` serves the
+//! `PIGEON_AGENT_READONLY=1` blocks them entirely. `coo mcp` serves the
 //! same operations over the Model Context Protocol.
 //!
 //! Exit codes: 0 ok, 1 error, 2 usage, 3 sign-in required, 4 write blocked.
@@ -25,11 +25,11 @@ use crate::out::*;
 
 #[derive(Parser)]
 #[command(
-    name = "pigeon",
-    before_help = "AI agents: run `pigeon agent-help` first (or use `pigeon mcp`).",
-    about = "Pigeon mail + calendar from the command line",
+    name = "coo",
+    before_help = "AI agents: run `coo agent-help` first (or use `coo mcp`).",
+    about = "Coo mail + calendar from the command line",
     after_help = "Agents: add --json for structured output; writes need --yes when not run from a terminal; \
-                  `pigeon mcp` starts an MCP server (read-only unless --allow-write)."
+                  `coo mcp` starts an MCP server (read-only unless --allow-write)."
 )]
 struct Cli {
     /// Machine-readable JSON on stdout (errors too, with a non-zero exit code).
@@ -232,9 +232,9 @@ enum Cmd {
         #[arg(long)]
         allow_write: bool,
     },
-    /// Install the Claude Code skill (~/.claude/skills/pigeon/SKILL.md).
+    /// Install the Claude Code skill (~/.claude/skills/coo/SKILL.md).
     InstallSkill {
-        /// Skill directory (default ~/.claude/skills/pigeon).
+        /// Skill directory (default ~/.claude/skills/coo).
         #[arg(long)]
         dir: Option<std::path::PathBuf>,
         /// Replace an existing, different SKILL.md.
@@ -254,7 +254,7 @@ async fn main() -> ExitCode {
     // Agents read stdout; keep stderr quiet unless RUST_LOG says otherwise.
     let quiet = cli.json || matches!(cli.cmd, Cmd::Mcp { .. });
     let _telemetry = pigeon_engine::telemetry::init(
-        concat!("pigeon-cli@", env!("CARGO_PKG_VERSION")),
+        concat!("coo-cli@", env!("CARGO_PKG_VERSION")),
         if quiet { "warn" } else { "warn,pigeon=info" },
     );
     let json = cli.json;
@@ -287,7 +287,7 @@ fn doctor(app: &Pigeon, exe: &std::path::Path) -> serde_json::Value {
         "accounts",
         !accounts.is_empty(),
         if accounts.is_empty() {
-            "none yet: run `pigeon login google|microsoft`".into()
+            "none yet: run `coo login google|microsoft`".into()
         } else {
             accounts.len().to_string()
         },
@@ -299,7 +299,7 @@ fn doctor(app: &Pigeon, exe: &std::path::Path) -> serde_json::Value {
             Ok(false) => check(
                 &format!("sign-in {}", a.email),
                 false,
-                format!("missing: run `pigeon login {}`", a.provider.as_str()),
+                format!("missing: run `coo login {}`", a.provider.as_str()),
             ),
             Err(e) => check(&format!("sign-in {}", a.email), false, e.to_string()),
         }
@@ -646,7 +646,7 @@ fn print_act(r: &ActOut) {
         println!("rejected (rolled back): {e}");
     }
     if r.needs_sign_in {
-        println!("sign-in required: run `pigeon login` again");
+        println!("sign-in required: run `coo login` again");
     }
     println!("undo handle: {}", r.undo_handle);
 }

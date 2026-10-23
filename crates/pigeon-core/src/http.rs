@@ -15,7 +15,7 @@ pub fn client() -> &'static Client {
     static CLIENT: OnceLock<Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
         Client::builder()
-            .user_agent(concat!("pigeon/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("coo/", env!("CARGO_PKG_VERSION")))
             .gzip(true)
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(60))

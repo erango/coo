@@ -4,7 +4,7 @@ Guidance for working in this repo.
 
 ## What this is
 
-Pigeon — a fast mail + calendar **desktop app** (Outlook alternative), Rust +
+Coo — a fast mail + calendar **desktop app** (Outlook alternative), Rust +
 Dioxus 0.7 + Tokio, macOS-first. Personal side project. Accounts: Microsoft
 365 (Graph), Google (Gmail + Calendar APIs), iCloud later (IMAP/CalDAV).
 Expect 5–10 accounts per user. See `ARCHITECTURE.md` (plan, protocols, phases)
@@ -21,7 +21,7 @@ and `DESIGN_SPEC.md` (brief handed to Claude Design).
   hand-written `reqwest` + serde clients; only the fields we use.
 - `crates/pigeon-engine` — login, account registry, concurrent sync of all
   accounts. Will own the UI `Cmd`/`Delta` loop.
-- `crates/pigeon-cli` — `pigeon` binary, dev harness for the engine.
+- `crates/pigeon-cli` — `coo` binary, dev harness for the engine.
 - `crates/pigeon-bin` — Dioxus 0.7 desktop app (`pigeon-app`). `ui/` components
   render from `state::AppState` signals; the engine side is
   `pigeon-engine/src/service.rs` (`Cmd` in, `Delta` out, 30 s sync tick).

@@ -28,7 +28,7 @@ pub fn Settings() -> Element {
                 Appearance {}
                 Accounts {}
                 div { class: "settings__title", style: "margin-top:12px", "AI agents" }
-                div { class: "settings__hint", "Let Claude or another agent search and read your mail and calendar through Pigeon." }
+                div { class: "settings__hint", "Let Claude or another agent search and read your mail and calendar through Coo." }
                 div {
                     button { class: "btn btn--secondary", r#type: "button",
                         onclick: move |_| { let mut o = s.agent_setup_open; o.set(true); },

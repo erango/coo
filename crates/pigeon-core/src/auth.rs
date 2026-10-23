@@ -231,8 +231,8 @@ async fn wait_for_code(listener: &TcpListener, state: &str) -> Result<String> {
         let request = String::from_utf8_lossy(&buf[..len]);
         let outcome = parse_callback(&request, state);
         let page = match &outcome {
-            Callback::Code(_) => "Signed in. You can close this tab and return to Pigeon.",
-            Callback::Failed(_) => "Sign-in failed. Return to Pigeon for details.",
+            Callback::Code(_) => "Signed in. You can close this tab and return to Coo.",
+            Callback::Failed(_) => "Sign-in failed. Return to Coo for details.",
             Callback::Ignore => {
                 let _ =
                     sock.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await;
@@ -240,7 +240,7 @@ async fn wait_for_code(listener: &TcpListener, state: &str) -> Result<String> {
             }
         };
         let html = format!(
-            "<!doctype html><meta charset=utf-8><title>Pigeon</title>\
+            "<!doctype html><meta charset=utf-8><title>Coo</title>\
              <body style=\"font:16px -apple-system,system-ui;display:grid;place-items:center;height:90vh\">{page}</body>"
         );
         let resp = format!(

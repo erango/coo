@@ -73,7 +73,7 @@ pub fn ICloudForm(on_cancel: EventHandler<()>) -> Element {
                         div { class: "icloud-form__step-body",
                             "Apple doesn't let other apps use your Apple Account password. At account.apple.com, open "
                             b { "Sign-In and Security → App-Specific Passwords" }
-                            ", create one named “Pigeon”, and copy it."
+                            ", create one named “Coo”, and copy it."
                         }
                         button { class: "btn btn--secondary btn--sm", r#type: "button", style: "margin-top:8px",
                             onclick: move |_| { let _ = open::that_detached(APPLE_ACCOUNT_URL); },
@@ -115,7 +115,7 @@ pub fn ICloudForm(on_cancel: EventHandler<()>) -> Element {
                 }
             }
             div { class: "onboard__fine", Icon { name: "lock", class: "icon--sm" }
-                "Pigeon checks the password with iCloud Mail and Calendar, then keeps it in your Keychain. You can revoke it any time at account.apple.com."
+                "Coo checks the password with iCloud Mail and Calendar, then keeps it in your Keychain. You can revoke it any time at account.apple.com."
             }
         }
     }

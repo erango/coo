@@ -1,5 +1,5 @@
-//! App icon at runtime. A bundled Pigeon.app gets its icon from
-//! Info.plist/Pigeon.icns; an unbundled binary (`cargo app`) would show the
+//! App icon at runtime. A bundled Coo.app gets its icon from
+//! Info.plist/Coo.icns; an unbundled binary (`cargo app`) would show the
 //! generic executable icon in the Dock, so set it explicitly.
 
 #[cfg(target_os = "macos")]

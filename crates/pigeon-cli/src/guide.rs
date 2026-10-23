@@ -1,4 +1,4 @@
-//! `pigeon agent-help`: the one guide agents read. Shared phrasing comes from
+//! `coo agent-help`: the one guide agents read. Shared phrasing comes from
 //! `pigeon_engine::agent_setup::guide` (also used by the MCP server's
 //! instructions and the skill), so the three can't disagree.
 
@@ -7,48 +7,44 @@ use pigeon_engine::agent_setup::guide::*;
 /// (command, one-line example, what it's for). Every subcommand must be here
 /// (checked by a test).
 const COMMANDS: &[(&str, &str, &str)] = &[
-    ("accounts", "pigeon --json accounts", "signed-in accounts (ids for every other command)"),
-    ("folders", "pigeon --json folders me@x.com", "an account's folders/labels with counts"),
-    ("ls", "pigeon --json ls --threads --unread -n 20", "a mailbox; -f <role|folder> -a <account>"),
-    ("search", "pigeon --json search \"invoice from:dana has:attachment\"", "search; --server also asks the servers"),
-    ("thread", "pigeon --json thread <account> <thread_id>", "a whole conversation with bodies"),
-    ("get", "pigeon --json get <account> <message_id>", "one message with its plain-text body"),
-    (
-        "attachment",
-        "pigeon --json attachment <account> <message_id> <attachment_id>",
-        "download; prints the local path",
-    ),
-    ("agenda", "pigeon --json agenda --from today --to +7d", "events in a range (-a <account>)"),
-    ("freebusy", "pigeon --json freebusy <account> a@x.com,b@y.com --from +1d --to +2d", "busy intervals"),
-    ("sync", "pigeon --json sync", "pull new mail and events (all accounts, or one)"),
-    ("senders", "pigeon --json senders", "every address the user can send from"),
+    ("accounts", "coo --json accounts", "signed-in accounts (ids for every other command)"),
+    ("folders", "coo --json folders me@x.com", "an account's folders/labels with counts"),
+    ("ls", "coo --json ls --threads --unread -n 20", "a mailbox; -f <role|folder> -a <account>"),
+    ("search", "coo --json search \"invoice from:dana has:attachment\"", "search; --server also asks the servers"),
+    ("thread", "coo --json thread <account> <thread_id>", "a whole conversation with bodies"),
+    ("get", "coo --json get <account> <message_id>", "one message with its plain-text body"),
+    ("attachment", "coo --json attachment <account> <message_id> <attachment_id>", "download; prints the local path"),
+    ("agenda", "coo --json agenda --from today --to +7d", "events in a range (-a <account>)"),
+    ("freebusy", "coo --json freebusy <account> a@x.com,b@y.com --from +1d --to +2d", "busy intervals"),
+    ("sync", "coo --json sync", "pull new mail and events (all accounts, or one)"),
+    ("senders", "coo --json senders", "every address the user can send from"),
     (
         "reply",
-        "pigeon --json reply <account> <message_id> --body \"…\" --dry-run",
+        "coo --json reply <account> <message_id> --body \"…\" --dry-run",
         "reply/--all/--forward; draft with --dry-run",
     ),
-    ("send", "pigeon --json send --from me@x.com --to a@y.com --subject Hi --body \"…\" --dry-run", "new message"),
+    ("send", "coo --json send --from me@x.com --to a@y.com --subject Hi --body \"…\" --dry-run", "new message"),
     (
         "act",
-        "pigeon --json --yes act archive <account> <message_id>",
+        "coo --json --yes act archive <account> <message_id>",
         "read|unread|flag|unflag|archive|trash|move --to <folder>",
     ),
-    ("undo", "pigeon --json --yes undo <account> <undo_handle>", "revert an act"),
-    ("rsvp", "pigeon --json --yes rsvp <account> <calendar_id> <event_id> accept", "accept|tentative|decline"),
+    ("undo", "coo --json --yes undo <account> <undo_handle>", "revert an act"),
+    ("rsvp", "coo --json --yes rsvp <account> <calendar_id> <event_id> accept", "accept|tentative|decline"),
     (
         "event-create",
-        "pigeon --json --yes event-create <account> --title T --start 2026-11-02T10:00 --duration 30",
+        "coo --json --yes event-create <account> --title T --start 2026-11-02T10:00 --duration 30",
         "new event",
     ),
-    ("event-delete", "pigeon --json --yes event-delete <account> <calendar_id> <event_id>", "delete/cancel an event"),
-    ("login", "pigeon login google", "a person signs in (browser); agents can't"),
-    ("logout", "pigeon logout <account>", "remove an account (person only)"),
-    ("mcp", "pigeon mcp [--allow-write]", "serve all of this over MCP on stdio"),
-    ("mcp-config", "pigeon mcp-config --client claude-code", "print the MCP setup for a client"),
-    ("install-skill", "pigeon install-skill", "install the Claude Code skill"),
-    ("doctor", "pigeon --json doctor", "check setup and sign-in access"),
-    ("agent-help", "pigeon agent-help", "this guide"),
-    ("telemetry-test", "pigeon telemetry-test", "developer: send a test error to Sentry"),
+    ("event-delete", "coo --json --yes event-delete <account> <calendar_id> <event_id>", "delete/cancel an event"),
+    ("login", "coo login google", "a person signs in (browser); agents can't"),
+    ("logout", "coo logout <account>", "remove an account (person only)"),
+    ("mcp", "coo mcp [--allow-write]", "serve all of this over MCP on stdio"),
+    ("mcp-config", "coo mcp-config --client claude-code", "print the MCP setup for a client"),
+    ("install-skill", "coo install-skill", "install the Claude Code skill"),
+    ("doctor", "coo --json doctor", "check setup and sign-in access"),
+    ("agent-help", "coo agent-help", "this guide"),
+    ("telemetry-test", "coo telemetry-test", "developer: send a test error to Sentry"),
 ];
 
 const SHAPES: &str = "\
@@ -74,8 +70,8 @@ pub fn agent_help() -> String {
          COMMANDS\n{cmds}\n{SHAPES}\n\n{OPERATORS}\n\n{TIMES}\n\n\
          WRITES\n{WRITE_ETIQUETTE}\nCLI: from a non-interactive caller, writes need --yes; send/reply take --dry-run \
          (save a draft, don't send).\n\n{EXIT_CODES}\n\n\
-         MCP\n`pigeon mcp` serves the same operations as tools on stdio (read-only; add --allow-write for writes). \
-         `pigeon mcp-config --client claude-code|claude-code-desktop|claude-desktop` prints a ready config with the \
+         MCP\n`coo mcp` serves the same operations as tools on stdio (read-only; add --allow-write for writes). \
+         `coo mcp-config --client claude-code|claude-code-desktop|claude-desktop` prints a ready config with the \
          absolute path and env.\n"
     )
 }

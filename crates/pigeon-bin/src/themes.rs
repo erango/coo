@@ -1,6 +1,6 @@
 //! Color themes: light + dark pairs from well-known palettes, mapped onto the
 //! design tokens (design/tokens.css stays the source of truth for the
-//! default "Pigeon" theme and every non-color token).
+//! default "Coo" theme and every non-color token).
 //!
 //! Each palette lists its official colors (source URL beside it). The CSS is
 //! generated from that data so the explicit `data-theme` blocks and the
@@ -381,7 +381,7 @@ pub static FAMILIES: &[Family] = &[
 
 /// Picker entries: (id, name) including the default.
 pub fn choices() -> Vec<(&'static str, &'static str)> {
-    let mut v = vec![(DEFAULT, "Pigeon")];
+    let mut v = vec![(DEFAULT, "Coo")];
     v.extend(FAMILIES.iter().map(|f| (f.id, f.name)));
     v
 }

@@ -18,17 +18,17 @@ pub const ZOOM_RESET: &str = "pigeon-zoom-reset";
 
 pub fn build() -> Menu {
     let about = AboutMetadata {
-        name: Some("Pigeon".into()),
+        name: Some("Coo".into()),
         version: Some(env!("CARGO_PKG_VERSION").into()),
         ..Default::default()
     };
     let settings =
         MenuItem::with_id(SETTINGS, "Settings…", true, Some(Accelerator::new(Some(Modifiers::SUPER), Code::Comma)));
     let app = Submenu::with_items(
-        "Pigeon",
+        "Coo",
         true,
         &[
-            &PredefinedMenuItem::about(Some("About Pigeon"), Some(about)),
+            &PredefinedMenuItem::about(Some("About Coo"), Some(about)),
             &PredefinedMenuItem::separator(),
             &settings,
             &PredefinedMenuItem::separator(),

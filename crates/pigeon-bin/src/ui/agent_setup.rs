@@ -1,7 +1,7 @@
 //! "Connect an AI agent": what to paste (or click) so Claude Code (terminal
-//! or desktop app), Claude Desktop, or any MCP agent can use Pigeon. All the
+//! or desktop app), Claude Desktop, or any MCP agent can use Coo. All the
 //! snippets come from `pigeon_engine::agent_setup`, the same code behind
-//! `pigeon mcp-config`, so the app and the CLI never disagree.
+//! `coo mcp-config`, so the app and the CLI never disagree.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -106,11 +106,11 @@ pub fn AgentSetup() -> Element {
                 div { class: "dialog agent-setup", role: "dialog", onclick: move |e| e.stop_propagation(),
                     div { class: "dialog__title", "Connect an AI agent" }
                     div { class: "dialog__body",
-                        "Agents talk to Pigeon through its command-line tool, which isn't installed next to the app. Build it with "
+                        "Agents talk to Coo through its command-line tool, which isn't installed next to the app. Build it with "
                         code { class: "t-mono", "cargo build --release -p pigeon-cli" }
                         " and put "
                         code { class: "t-mono", "target/release/pigeon" }
-                        " in /usr/local/bin (or next to Pigeon), then open this again."
+                        " in /usr/local/bin (or next to Coo), then open this again."
                     }
                     div { class: "dialog__actions", button { class: "btn btn--primary", onclick: move |_| open.set(false), "Close" } }
                 }
@@ -132,7 +132,7 @@ pub fn AgentSetup() -> Element {
             Ok(r) => (
                 true,
                 format!(
-                    "{} Pigeon in {}.{} Restart Claude Code (or reload its window) to pick it up.",
+                    "{} Coo in {}.{} Restart Claude Code (or reload its window) to pick it up.",
                     if r.replaced { "Updated" } else { "Added" },
                     r.path.display(),
                     r.backup.map(|b| format!(" Backup: {}.", b.display())).unwrap_or_default()
@@ -163,7 +163,7 @@ pub fn AgentSetup() -> Element {
                     div {
                         div { class: "dialog__title", "Connect an AI agent" }
                         div { class: "dialog__body",
-                            "Let Claude (or any MCP agent) search and read your mail and calendar through Pigeon, on this Mac. Read-only unless you allow more below."
+                            "Let Claude (or any MCP agent) search and read your mail and calendar through Coo, on this Mac. Read-only unless you allow more below."
                         }
                     }
                     button { class: "icon-btn icon-btn--sm", "aria-label": "Close (Esc)", onclick: move |_| open.set(false), Icon { name: "x" } }
@@ -189,11 +189,11 @@ pub fn AgentSetup() -> Element {
                 div { class: "agent-setup__body",
                     match current {
                         Tab::CodeTerminal => rsx! {
-                            p { "Run this once in Terminal. It adds Pigeon for all your projects; the Claude Code desktop app uses the same setting." }
+                            p { "Run this once in Terminal. It adds Coo for all your projects; the Claude Code desktop app uses the same setting." }
                             Snippet { text: setup.claude_code_command(), what: "command" }
                         },
                         Tab::CodeDesktop => rsx! {
-                            p { "No terminal needed: Pigeon can add itself to Claude Code's settings ("
+                            p { "No terminal needed: Coo can add itself to Claude Code's settings ("
                                 code { class: "t-mono", "{config_path}" }
                                 ", shared by the desktop app and the terminal)." }
                             if *confirm_add.read() {
@@ -235,7 +235,7 @@ pub fn AgentSetup() -> Element {
                     div { class: "spacer",
                         div { "Claude Code skill " span { class: "t-3", "(optional)" } }
                         div { class: "t-3", style: "font-size:12px",
-                            "Lets Claude reach for Pigeon by itself for mail and calendar tasks. Installs to ~/.claude/skills/pigeon. The desktop app may need a restart to see it."
+                            "Lets Claude reach for Coo by itself for mail and calendar tasks. Installs to ~/.claude/skills/coo. The desktop app may need a restart to see it."
                         }
                     }
                     button { class: "btn btn--secondary btn--sm", r#type: "button", onclick: install_skill, "Install skill" }

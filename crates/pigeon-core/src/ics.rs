@@ -370,7 +370,7 @@ pub fn build_calendar(e: &NewVEvent) -> String {
     let mut lines = vec![
         "BEGIN:VCALENDAR".to_string(),
         "VERSION:2.0".to_string(),
-        "PRODID:-//Pigeon//Pigeon Mail//EN".to_string(),
+        "PRODID:-//Coo//Coo Mail//EN".to_string(),
         "CALSCALE:GREGORIAN".to_string(),
         "BEGIN:VEVENT".to_string(),
         format!("UID:{}", e.uid),

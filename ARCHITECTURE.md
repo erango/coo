@@ -1,6 +1,6 @@
-# Pigeon — Architecture & Plan
+# Coo — Architecture & Plan
 
-Pigeon is a fast, native-feeling **mail + calendar desktop client** (an Outlook
+Coo is a fast, native-feeling **mail + calendar desktop client** (an Outlook
 alternative) for Microsoft 365 and Google Workspace / Gmail. Rust + Dioxus 0.7
 desktop + Tokio, same shape as Kompass. macOS-first.
 
@@ -48,7 +48,7 @@ other generic IMAP/CalDAV account.
   **Risk:** Gmail scopes are *restricted* — a public app needs Google
   verification + a CASA security assessment. **Decision:** ship as an
   unverified **test app** (≤100 allow-listed test users, "unverified app"
-  warning screen). Revisit verification only if Pigeon goes public.
+  warning screen). Revisit verification only if Coo goes public.
 - Refresh tokens stored in the **macOS Keychain** (`keyring` crate). Never on
   disk in plaintext. Access tokens kept in memory only.
 
@@ -158,7 +158,7 @@ crates/
   pigeon-google/    Gmail + Google Calendar impl
   pigeon-engine/    wires providers to core: login, account registry, concurrent
                     multi-account sync; grows the Cmd/Delta loop in phase 1
-  pigeon-cli/       `pigeon` dev harness (login/sync/ls/search/events)
+  pigeon-cli/       `coo` dev harness (login/sync/ls/search/events)
   pigeon-bin/       (phase 1) Dioxus 0.7 desktop app, renders from signals
   pigeon-imap/      (phase 1.5) IMAP + SMTP (iCloud, generic)
   pigeon-caldav/    (phase 1.5) CalDAV (iCloud, generic)

@@ -1,6 +1,6 @@
-//! `pigeon mcp`: a Model Context Protocol server over stdio (newline-
+//! `coo mcp`: a Model Context Protocol server over stdio (newline-
 //! delimited JSON-RPC 2.0), so Claude and other agents can use the user's
-//! mail and calendar through Pigeon's local store.
+//! mail and calendar through Coo's local store.
 //!
 //! Read-only unless started with `--allow-write`. stdout carries protocol
 //! messages only; logs go to stderr.
@@ -445,7 +445,7 @@ async fn handle(app: &Pigeon, w: Writes, msg: Value) -> Option<Value> {
             Ok(json!({
                 "protocolVersion": version,
                 "capabilities": { "tools": { "listChanged": false } },
-                "serverInfo": { "name": "pigeon", "version": env!("CARGO_PKG_VERSION") },
+                "serverInfo": { "name": "coo", "version": env!("CARGO_PKG_VERSION") },
                 "instructions": instructions(w.allowed),
             }))
         }
@@ -488,7 +488,7 @@ pub async fn serve(app: Pigeon, allow_write: bool) -> pigeon_core::Result<()> {
     // Running as an agent's subprocess: nobody can answer a Keychain dialog,
     // so reads that need one fail with a clear error instead of hanging.
     let _headless = pigeon_core::tokens::headless();
-    tracing::info!(writes = w.allowed, "pigeon MCP server on stdio");
+    tracing::info!(writes = w.allowed, "coo MCP server on stdio");
     let app = Arc::new(app);
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Value>();

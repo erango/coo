@@ -1,4 +1,4 @@
-//! Connecting AI agents to Pigeon: the guide text agents read, the MCP config
+//! Connecting AI agents to Coo: the guide text agents read, the MCP config
 //! snippets for each client, the Claude Code skill, and the two installers
 //! (skill file, Claude Code user-scope MCP entry). Shared by the CLI
 //! (`agent-help`, `mcp-config`, `install-skill`) and the app's
@@ -15,10 +15,10 @@ use pigeon_core::model::ProviderKind;
 use pigeon_core::{Error, Result};
 use serde_json::{Value, json};
 
-/// Building blocks of the agent guide, reused by `pigeon agent-help`, the MCP
+/// Building blocks of the agent guide, reused by `coo agent-help`, the MCP
 /// server's `instructions`, and the skill.
 pub mod guide {
-    pub const PURPOSE: &str = "Pigeon is the user's own mail and calendar client (Microsoft 365, Gmail/Workspace, \
+    pub const PURPOSE: &str = "Coo is the user's own mail and calendar client (Microsoft 365, Gmail/Workspace, \
         iCloud). It keeps a local, synced copy, so reads are instant and work offline.";
 
     pub const WORKFLOW: &str = "Workflow: list accounts first; then list a mailbox or search; then read a whole \
@@ -39,7 +39,7 @@ pub mod guide {
         PIGEON_AGENT_READONLY=1 blocks everything).";
 
     pub const EXIT_CODES: &str = "Exit codes: 0 ok, 1 error, 2 bad usage, 3 sign-in required (the user runs \
-        `pigeon login <provider>`), 4 write blocked.";
+        `coo login <provider>`), 4 write blocked.";
 }
 
 /// Where a snippet is going.
@@ -64,10 +64,10 @@ impl Client {
     }
 }
 
-/// Everything needed to start `pigeon mcp` from a client that has no shell.
+/// Everything needed to start `coo mcp` from a client that has no shell.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Setup {
-    /// Absolute path of the `pigeon` CLI.
+    /// Absolute path of the `coo` CLI.
     pub binary: PathBuf,
     /// Env vars the server needs, in a stable order.
     pub env: Vec<(String, String)>,
@@ -86,7 +86,7 @@ const CLIENT_VARS: [(&str, ProviderKind); 3] = [
 
 impl Setup {
     /// Snapshot this process's configuration (data dir, token store, client
-    /// ids) for an agent's `pigeon mcp`.
+    /// ids) for an agent's `coo mcp`.
     pub fn detect(binary: PathBuf, allow_write: bool, token_store: &'static str) -> Self {
         let mut env = Vec::new();
         if let Some(dir) = std::env::var_os("PIGEON_DATA_DIR") {
@@ -122,7 +122,7 @@ impl Setup {
     /// One line for a terminal: user scope, so it works in every project and
     /// in the Claude Code desktop app.
     pub fn claude_code_command(&self) -> String {
-        let mut parts = vec!["claude mcp add --scope user pigeon".to_string()];
+        let mut parts = vec!["claude mcp add --scope user coo".to_string()];
         for (k, v) in &self.env {
             parts.push(format!("-e {}", shell_quote(&format!("{k}={v}"))));
         }
@@ -147,7 +147,7 @@ impl Setup {
     /// The `mcpServers` block for a client's JSON config file.
     pub fn config_json(&self, client: Client) -> String {
         let entry = self.server_entry(client != Client::ClaudeDesktop);
-        serde_json::to_string_pretty(&json!({ "mcpServers": { "pigeon": entry } })).unwrap_or_default()
+        serde_json::to_string_pretty(&json!({ "mcpServers": { "coo": entry } })).unwrap_or_default()
     }
 
     /// Something to paste into the agent so it knows what it has.
@@ -159,7 +159,7 @@ impl Setup {
             "It's read-only: you can't send or change anything."
         };
         format!(
-            "You have Pigeon, my mail and calendar, as the `pigeon` MCP server (all my accounts: search mail, read \
+            "You have Coo, my mail and calendar, as the `coo` MCP server (all my accounts: search mail, read \
              threads, list events, check free/busy). Start with list_accounts. Read whole threads before you \
              summarize or reply. {writes} If the tools aren't there, run `{} agent-help` instead.",
             self.binary_str()
@@ -171,8 +171,8 @@ impl Setup {
         let mut n = Vec::new();
         if self.token_store == "keychain" {
             n.push(format!(
-                "Sign-ins are in your Keychain. The first time the agent's Pigeon reads them, macOS must allow it: run \
-                 `{} doctor` once in Terminal and choose \"Always Allow\" (repeat after updating Pigeon). Without that \
+                "Sign-ins are in your Keychain. The first time the agent's Coo reads them, macOS must allow it: run \
+                 `{} doctor` once in Terminal and choose \"Always Allow\" (repeat after updating Coo). Without that \
                  the agent gets a clear \"needs approval\" error instead of hanging.",
                 self.binary_str()
             ));
@@ -204,31 +204,31 @@ fn home() -> Result<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from).ok_or_else(|| Error::Other("HOME is not set".into()))
 }
 
-/// The `pigeon` CLI to point agents at: the app bundle's
-/// `Contents/Helpers/pigeon`, then next to `exe` (same cargo target dir),
+/// The `coo` CLI to point agents at: the app bundle's
+/// `Contents/Helpers/coo`, then next to `exe` (same cargo target dir),
 /// then a release build beside it, then PATH and the usual install
 /// locations (GUI apps get a minimal PATH). Never `exe` itself: on a
-/// case-insensitive disk `MacOS/pigeon` *is* the app's `MacOS/Pigeon`.
+/// case-insensitive disk `MacOS/pigeon` *is* the app's `MacOS/Coo`.
 pub fn find_cli_binary(exe: &Path) -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Some(dir) = exe.parent() {
         if let Some(contents) = dir.parent() {
-            candidates.push(contents.join("Helpers").join("pigeon"));
+            candidates.push(contents.join("Helpers").join("coo"));
         }
-        candidates.push(dir.join("pigeon"));
+        candidates.push(dir.join("coo"));
         if let Some(target) = dir.parent() {
-            candidates.push(target.join("release").join("pigeon"));
-            candidates.push(target.join("debug").join("pigeon"));
+            candidates.push(target.join("release").join("coo"));
+            candidates.push(target.join("debug").join("coo"));
         }
     }
     if let Some(path) = std::env::var_os("PATH") {
-        candidates.extend(std::env::split_paths(&path).map(|d| d.join("pigeon")));
+        candidates.extend(std::env::split_paths(&path).map(|d| d.join("coo")));
     }
     for d in ["/opt/homebrew/bin", "/usr/local/bin"] {
-        candidates.push(PathBuf::from(d).join("pigeon"));
+        candidates.push(PathBuf::from(d).join("coo"));
     }
     if let Ok(h) = home() {
-        candidates.push(h.join(".cargo/bin/pigeon"));
+        candidates.push(h.join(".cargo/bin/coo"));
     }
     candidates.into_iter().find(|p| is_executable(p) && !same_file(p, exe)).map(|p| absolute(&p))
 }
@@ -263,21 +263,21 @@ fn is_executable(p: &Path) -> bool {
 // ---- skill ----
 
 pub fn default_skill_dir() -> Result<PathBuf> {
-    Ok(home()?.join(".claude").join("skills").join("pigeon"))
+    Ok(home()?.join(".claude").join("skills").join("coo"))
 }
 
-/// SKILL.md: the description makes Claude reach for Pigeon on the user's own
+/// SKILL.md: the description makes Claude reach for Coo on the user's own
 /// mail/calendar tasks; the body points at the always-current guide.
 pub fn skill_md(binary: &Path) -> String {
     let bin = binary.to_string_lossy();
     format!(
         "---\n\
          name: pigeon\n\
-         description: Use for the user's own email and calendar through Pigeon — search or list mail, read and \
+         description: Use for the user's own email and calendar through Coo — search or list mail, read and \
          summarize threads, find attachments, check the agenda or someone's free/busy, draft replies, triage the \
          inbox. Covers all their Microsoft 365, Gmail/Workspace and iCloud accounts from a local synced copy.\n\
          ---\n\n\
-         # Pigeon (mail + calendar)\n\n\
+         # Coo (mail + calendar)\n\n\
          If the `pigeon` MCP tools are available, use them. Otherwise use the CLI:\n\n\
          1. Run `{bin} agent-help` first. It is the current guide: commands, JSON shapes, search operators, \
          time formats, write rules.\n\
@@ -320,7 +320,7 @@ pub struct ConfigInstall {
     pub path: PathBuf,
     /// Copy of the previous file (None if there was no file).
     pub backup: Option<PathBuf>,
-    /// An existing `pigeon` entry was replaced.
+    /// An existing `coo` entry was replaced.
     pub replaced: bool,
 }
 
@@ -345,7 +345,7 @@ pub fn install_claude_code(setup: &Setup, path: &Path) -> Result<ConfigInstall> 
     let servers = servers
         .as_object_mut()
         .ok_or_else(|| Error::Other("`mcpServers` isn't an object; not touching the file".into()))?;
-    let replaced = servers.insert("pigeon".into(), setup.server_entry(true)).is_some();
+    let replaced = servers.insert("coo".into(), setup.server_entry(true)).is_some();
 
     let backup = match &original {
         Some(text) => {
@@ -375,7 +375,7 @@ mod tests {
 
     fn setup(allow_write: bool) -> Setup {
         Setup {
-            binary: PathBuf::from("/Applications/Pigeon.app/Contents/Helpers/pigeon"),
+            binary: PathBuf::from("/Applications/Coo.app/Contents/Helpers/coo"),
             env: vec![("PIGEON_TOKEN_STORE".into(), "file".into()), ("PIGEON_MS_CLIENT_ID".into(), "abc".into())],
             allow_write,
             token_store: "file",
@@ -388,10 +388,10 @@ mod tests {
     fn finds_bundled_cli_and_never_the_app_itself() {
         use std::os::unix::fs::PermissionsExt;
         let root = std::env::temp_dir().join(format!("pigeon-bundle-{}", pigeon_core::auth::random_token(6)));
-        let macos = root.join("Pigeon.app/Contents/MacOS");
-        let helpers = root.join("Pigeon.app/Contents/Helpers");
+        let macos = root.join("Coo.app/Contents/MacOS");
+        let helpers = root.join("Coo.app/Contents/Helpers");
         std::fs::create_dir_all(&macos).unwrap();
-        let exe = macos.join("Pigeon");
+        let exe = macos.join("Coo");
         std::fs::write(&exe, b"app").unwrap();
         std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
         // On a case-insensitive disk MacOS/pigeon resolves to the app; it must not be chosen.
@@ -399,7 +399,7 @@ mod tests {
         assert!(found.as_deref().is_none_or(|p| !same_file(p, &exe)), "picked the app itself: {found:?}");
 
         std::fs::create_dir_all(&helpers).unwrap();
-        let cli = helpers.join("pigeon");
+        let cli = helpers.join("coo");
         std::fs::write(&cli, b"cli").unwrap();
         std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
         assert_eq!(find_cli_binary(&exe).unwrap(), absolute(&cli));
@@ -410,10 +410,10 @@ mod tests {
     fn claude_code_command_is_absolute_and_carries_env() {
         assert_eq!(
             setup(false).claude_code_command(),
-            "claude mcp add --scope user pigeon -e PIGEON_TOKEN_STORE=file -e PIGEON_MS_CLIENT_ID=abc -- \
-             /Applications/Pigeon.app/Contents/Helpers/pigeon mcp"
+            "claude mcp add --scope user coo -e PIGEON_TOKEN_STORE=file -e PIGEON_MS_CLIENT_ID=abc -- \
+             /Applications/Coo.app/Contents/Helpers/coo mcp"
         );
-        assert!(setup(true).claude_code_command().ends_with("pigeon mcp --allow-write"));
+        assert!(setup(true).claude_code_command().ends_with("coo mcp --allow-write"));
         assert_eq!(shell_quote("/My Apps/pigeon"), "'/My Apps/pigeon'");
         assert_eq!(shell_quote("it's"), r"'it'\''s'");
     }
@@ -421,13 +421,13 @@ mod tests {
     #[test]
     fn config_json_per_client() {
         let code: Value = serde_json::from_str(&setup(false).config_json(Client::ClaudeCodeDesktop)).unwrap();
-        let e = &code["mcpServers"]["pigeon"];
+        let e = &code["mcpServers"]["coo"];
         assert_eq!(e["type"], "stdio");
         assert_eq!(e["args"], json!(["mcp"]));
         assert_eq!(e["env"]["PIGEON_TOKEN_STORE"], "file");
         let desktop: Value = serde_json::from_str(&setup(true).config_json(Client::ClaudeDesktop)).unwrap();
-        assert!(desktop["mcpServers"]["pigeon"].get("type").is_none());
-        assert_eq!(desktop["mcpServers"]["pigeon"]["args"], json!(["mcp", "--allow-write"]));
+        assert!(desktop["mcpServers"]["coo"].get("type").is_none());
+        assert_eq!(desktop["mcpServers"]["coo"]["args"], json!(["mcp", "--allow-write"]));
     }
 
     #[test]
@@ -444,7 +444,7 @@ mod tests {
         let v: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(v["mcpServers"]["other"]["command"], "x", "other servers kept");
         assert_eq!(v["numStartups"], 3, "other keys kept");
-        assert_eq!(v["mcpServers"]["pigeon"]["type"], "stdio");
+        assert_eq!(v["mcpServers"]["coo"]["type"], "stdio");
         let keys: Vec<&String> = v.as_object().unwrap().keys().collect();
         assert_eq!(keys, ["numStartups", "mcpServers", "projects"], "order preserved");
 
@@ -463,12 +463,12 @@ mod tests {
     #[test]
     fn skill_install_refuses_to_clobber() {
         let dir = std::env::temp_dir().join(format!("pigeon-skill-{}", pigeon_core::auth::random_token(6)));
-        let bin = Path::new("/usr/local/bin/pigeon");
+        let bin = Path::new("/usr/local/bin/coo");
         let (path, changed) = install_skill(Some(dir.clone()), bin, false).unwrap();
         assert!(changed);
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.starts_with("---\nname: pigeon\ndescription: "));
-        assert!(text.contains("/usr/local/bin/pigeon agent-help"));
+        assert!(text.contains("/usr/local/bin/coo agent-help"));
         assert!(!install_skill(Some(dir.clone()), bin, false).unwrap().1, "identical: no-op");
         std::fs::write(&path, "custom").unwrap();
         assert!(install_skill(Some(dir.clone()), bin, false).is_err());
@@ -480,7 +480,7 @@ mod tests {
     fn finds_a_binary_next_to_the_app() {
         let dir = std::env::temp_dir().join(format!("pigeon-bin-{}", pigeon_core::auth::random_token(6)));
         std::fs::create_dir_all(&dir).unwrap();
-        let cli = dir.join("pigeon");
+        let cli = dir.join("coo");
         std::fs::write(&cli, "#!/bin/sh\n").unwrap();
         #[cfg(unix)]
         {

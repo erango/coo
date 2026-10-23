@@ -1,4 +1,4 @@
-//! Pigeon desktop app (Dioxus 0.7). Renders from signals fed by the engine
+//! Coo desktop app (Dioxus 0.7). Renders from signals fed by the engine
 //! service; every action goes out as a `Cmd`.
 
 mod bridge;
@@ -48,7 +48,7 @@ pub fn send_cmd(cmd: Cmd) {
 fn main() {
     // Keep the guard for the whole process so queued reports flush on exit.
     let _telemetry = pigeon_engine::telemetry::init(
-        concat!("pigeon-app@", env!("CARGO_PKG_VERSION")),
+        concat!("coo-app@", env!("CARGO_PKG_VERSION")),
         "warn,pigeon=info,pigeon_engine=info",
     );
 
@@ -79,7 +79,7 @@ fn main() {
         .expect("engine thread");
 
     let mut window = WindowBuilder::new()
-        .with_title("Pigeon")
+        .with_title("Coo")
         .with_inner_size(LogicalSize::new(1360.0, 860.0))
         .with_min_inner_size(LogicalSize::new(960.0, 600.0));
     #[cfg(target_os = "macos")]

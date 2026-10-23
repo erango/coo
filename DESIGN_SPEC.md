@@ -1,4 +1,4 @@
-# Pigeon — Design Spec
+# Coo — Design Spec
 
 > A beautiful, blazing-fast mail + calendar desktop app — an Outlook alternative.
 > This is the design brief for **Claude Design**. It defines product intent,
@@ -9,12 +9,12 @@
 
 ## 1. Product in one line
 
-Pigeon is a native desktop app for **email and calendar** across Microsoft 365,
+Coo is a native desktop app for **email and calendar** across Microsoft 365,
 Google Workspace/Gmail and iCloud accounts — with the calm, premium feel of
 Linear and the speed of Superhuman, without the bloat of Outlook.
 
 Lineage: Superhuman, Notion Mail, Mimestream, Notion Calendar (Cron), Spark,
-Fantastical. Pigeon aims to be the fastest and most beautiful of the family, and
+Fantastical. Coo aims to be the fastest and most beautiful of the family, and
 the one that treats M365 as a first-class citizen.
 
 ---
@@ -279,7 +279,7 @@ Token set, dark and light:
   for complex HTML newsletters, plus a per-message "view in light" toggle.
 - **Density:** comfortable only in v1; tokens should allow a compact mode later.
 - **Brand:** pigeon / carrier-pigeon motif — simple, geometric, reads at 16 px
-  (menu bar, dock badge) and scales up. "Pigeon" wordmark.
+  (menu bar, dock badge) and scales up. "Coo" wordmark.
 
 ---
 

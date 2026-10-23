@@ -1,7 +1,7 @@
-# Using Pigeon from an AI agent
+# Using Coo from an AI agent
 
-Pigeon keeps a local, synced copy of your mail and calendars. Agents can use
-it two ways: the `pigeon` CLI with `--json`, or `pigeon mcp` (Model Context
+Coo keeps a local, synced copy of your mail and calendars. Agents can use
+it two ways: the `coo` CLI with `--json`, or `coo mcp` (Model Context
 Protocol over stdio). Both read **your own accounts** from your machine.
 
 ## One-time setup
@@ -18,16 +18,16 @@ export PIGEON_TOKEN_STORE=file             # optional: avoid Keychain prompts on
 
 ## Easiest: the app does it
 
-**Pigeon › Help › Connect an AI Agent…** (also in ⌘K and Settings) shows the
+**Coo › Help › Connect an AI Agent…** (also in ⌘K and Settings) shows the
 exact setup for Claude Code (terminal or desktop app), Claude Desktop and
 other agents, with Copy buttons. In the Claude Code desktop app tab, **Add to
 Claude Code…** writes the entry for you (after you confirm). Everything below
 is what that screen generates.
 
-Agents learn the rest from Pigeon itself: the MCP server describes its tools
-and rules, `pigeon --help` points agents at `pigeon agent-help` (the full,
+Agents learn the rest from Coo itself: the MCP server describes its tools
+and rules, `coo --help` points agents at `coo agent-help` (the full,
 always-current guide), and the optional skill tells Claude when to reach for
-Pigeon.
+Coo.
 
 ## MCP (recommended for Claude)
 
@@ -39,9 +39,9 @@ Print a ready-made config, with this binary's absolute path and every env var
 it needs (agents launched from GUI apps don't get your shell's PATH or env):
 
 ```sh
-pigeon mcp-config --client claude-code            # `claude mcp add --scope user …` for a terminal
-pigeon mcp-config --client claude-code-desktop    # JSON for ~/.claude.json
-pigeon mcp-config --client claude-desktop         # JSON for claude_desktop_config.json
+coo mcp-config --client claude-code            # `claude mcp add --scope user …` for a terminal
+coo mcp-config --client claude-code-desktop    # JSON for ~/.claude.json
+coo mcp-config --client claude-desktop         # JSON for claude_desktop_config.json
 # add --allow-write to any of them for write tools
 ```
 
@@ -62,35 +62,35 @@ Tools: `list_accounts`, `list_folders`, `list_messages`, `search_mail`,
 
 ### Sign-in storage (Keychain vs. file)
 
-The agent's `pigeon mcp` must read the same sign-ins as the app, so the
+The agent's `coo mcp` must read the same sign-ins as the app, so the
 generated config uses the app's token store:
 
 - **File store** (`PIGEON_TOKEN_STORE=file`, typical for dev builds): the
   config carries `PIGEON_TOKEN_STORE=file`; nothing else to do.
 - **Keychain** (the default): macOS asks before a different program reads
-  Pigeon's Keychain items, and an MCP subprocess has no one to answer. Run
-  `pigeon doctor` once in Terminal and choose **Always Allow** (again after
-  updating Pigeon). Until then the server answers with a clear "needs your
+  Coo's Keychain items, and an MCP subprocess has no one to answer. Run
+  `coo doctor` once in Terminal and choose **Always Allow** (again after
+  updating Coo). Until then the server answers with a clear "needs your
   approval" error instead of hanging: it runs with Keychain UI disabled.
 
 ## Skill (Claude Code)
 
 ```sh
-pigeon install-skill        # → ~/.claude/skills/pigeon/SKILL.md (won't overwrite a changed file without --force)
+coo install-skill        # → ~/.claude/skills/coo/SKILL.md (won't overwrite a changed file without --force)
 ```
 
-The skill's description makes Claude use Pigeon for the user's mail and
-calendar tasks; its body points at `pigeon agent-help`. Claude Code picks up
+The skill's description makes Claude use Coo for the user's mail and
+calendar tasks; its body points at `coo agent-help`. Claude Code picks up
 skill changes in the running session, but restart it if `~/.claude/skills`
 didn't exist before. Whether the Claude Code desktop app reads personal skills
 isn't documented; the MCP server works without the skill.
 
 ## Discovering usage
 
-- `pigeon agent-help`: the agent guide (workflow, every command with an
+- `coo agent-help`: the agent guide (workflow, every command with an
   example, JSON shapes, operators, time formats, write rules, exit codes).
-- `pigeon --help`: its first line sends agents to `agent-help`.
-- `pigeon --json doctor`: setup checks (data dir, accounts, sign-in access,
+- `coo --help`: its first line sends agents to `agent-help`.
+- `coo --json doctor`: setup checks (data dir, accounts, sign-in access,
   client ids).
 
 ## CLI
@@ -99,14 +99,14 @@ Add `--json` to any command for structured output on stdout (errors too).
 
 | Command | What |
 |---|---|
-| `pigeon --json accounts` | accounts |
-| `pigeon --json ls [--threads] [--unread] [-a ACCOUNT] [-f FOLDER]` | mailbox listing (`inbox`, `sent`, … across accounts, or a folder) |
-| `pigeon --json search "invoice from:dana has:attachment" [--server]` | search; `--server` also asks the servers |
-| `pigeon --json get ACCOUNT MESSAGE_ID` | one message with plain-text body |
-| `pigeon --json thread ACCOUNT THREAD_ID` | whole conversation |
-| `pigeon --json agenda --from today --to +7d` | events |
-| `pigeon --json freebusy ACCOUNT a@x.com,b@y.com --from +1d --to +2d` | busy times |
-| `pigeon --json sync` | pull new mail/events |
+| `coo --json accounts` | accounts |
+| `coo --json ls [--threads] [--unread] [-a ACCOUNT] [-f FOLDER]` | mailbox listing (`inbox`, `sent`, … across accounts, or a folder) |
+| `coo --json search "invoice from:dana has:attachment" [--server]` | search; `--server` also asks the servers |
+| `coo --json get ACCOUNT MESSAGE_ID` | one message with plain-text body |
+| `coo --json thread ACCOUNT THREAD_ID` | whole conversation |
+| `coo --json agenda --from today --to +7d` | events |
+| `coo --json freebusy ACCOUNT a@x.com,b@y.com --from +1d --to +2d` | busy times |
+| `coo --json sync` | pull new mail/events |
 
 Search operators: `from:` `to:` `has:attachment` `is:unread` `is:read`
 `is:flagged` `in:<inbox|sent|drafts|trash|archive|starred>` `account:<text>`
@@ -122,4 +122,4 @@ agent they need `--yes`. `send` and `reply` accept `--dry-run` (save a draft,
 don't send). `PIGEON_AGENT_READONLY=1` blocks all writes regardless.
 
 **Exit codes:** 0 ok · 1 error · 2 bad usage · 3 sign-in required (run
-`pigeon login`) · 4 write blocked.
+`coo login`) · 4 write blocked.

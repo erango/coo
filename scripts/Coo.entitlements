@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
   Hardened-runtime entitlements for the Developer ID build.
-  Intentionally empty: Pigeon is not sandboxed, WKWebView's JIT runs in
+  Intentionally empty: Coo is not sandboxed, WKWebView's JIT runs in
   WebKit's own processes, and outgoing network needs no entitlement outside
   the sandbox. Add keys only when a concrete hardened-runtime failure needs one.
 -->

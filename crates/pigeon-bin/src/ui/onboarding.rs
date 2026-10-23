@@ -26,7 +26,7 @@ pub fn Onboarding() -> Element {
                     div { class: "onboard__col onboard__col--center",
                         Icon { name: "browser", class: "icon--xl" }
                         div { class: "onboard__title onboard__title--sm", "Finish signing in in your browser" }
-                        div { class: "onboard__lede", "Pigeon opened your browser to sign in. Come back here when it says you're done." }
+                        div { class: "onboard__lede", "Coo opened your browser to sign in. Come back here when it says you're done." }
                         button { class: "btn btn--ghost", r#type: "button", onclick: move |_| signing_in.set(false), "Cancel" }
                     }
                 } else if *icloud.read() {
@@ -37,7 +37,7 @@ pub fn Onboarding() -> Element {
                 } else {
                     div { class: "onboard__col",
                         svg { class: "icon", style: "width:44px;height:44px", r#use { href: "#i-pigeon" } }
-                        div { class: "onboard__title", "Welcome to Pigeon" }
+                        div { class: "onboard__title", "Welcome to Coo" }
                         div { class: "onboard__lede", "Add your first account. You can add as many as you like later; they all land in one inbox." }
                         div { style: "display:flex;flex-direction:column;gap:10px",
                             button { class: "btn btn--secondary", r#type: "button", style: "height:44px;justify-content:flex-start",
@@ -53,7 +53,7 @@ pub fn Onboarding() -> Element {
                                 Icon { name: "cloud" } "iCloud"
                             }
                         }
-                        div { class: "onboard__fine", Icon { name: "lock", class: "icon--sm" } "Microsoft and Google sign in on their own page; iCloud uses an app-specific password. Pigeon keeps credentials in your Keychain." }
+                        div { class: "onboard__fine", Icon { name: "lock", class: "icon--sm" } "Microsoft and Google sign in on their own page; iCloud uses an app-specific password. Coo keeps credentials in your Keychain." }
                     }
                 }
             }
