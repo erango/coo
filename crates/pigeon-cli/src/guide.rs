@@ -85,7 +85,7 @@ mod tests {
     #[test]
     fn mentions_every_subcommand() {
         let help = agent_help();
-        for sub in crate::Cli::command().get_subcommands() {
+        for sub in crate::Cli::command().get_subcommands().filter(|s| !s.is_hide_set()) {
             let name = sub.get_name();
             let entry = COMMANDS.iter().find(|(c, ex, _)| *c == name && ex.contains(&format!(" {name}")));
             let (_, example, _) = entry.unwrap_or_else(|| panic!("agent-help is missing `{name}`"));

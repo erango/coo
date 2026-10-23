@@ -7,6 +7,7 @@
 //!
 //! Exit codes: 0 ok, 1 error, 2 usage, 3 sign-in required, 4 write blocked.
 
+mod dev;
 mod guide;
 mod mcp;
 mod ops;
@@ -215,6 +216,12 @@ enum Cmd {
         #[arg(long)]
         comment: Option<String>,
     },
+    /// Developer tools (synthetic store, benchmarks).
+    #[command(hide = true)]
+    Dev {
+        #[command(subcommand)]
+        cmd: DevCmd,
+    },
     /// Serve mail and calendar over MCP on stdio (for Claude and other agents).
     Mcp {
         /// Expose write tools (mail actions, reply/send, RSVP, create event).
@@ -246,6 +253,24 @@ enum Cmd {
     Doctor,
     /// Send a test error to Sentry (verifies PIGEON_SENTRY_DSN + scrubbing).
     TelemetryTest,
+}
+
+#[derive(Subcommand)]
+enum DevCmd {
+    /// Fill PIGEON_DATA_DIR with a large synthetic mailbox.
+    Seed {
+        #[arg(long, default_value_t = 100_000)]
+        messages: usize,
+        #[arg(long, default_value_t = 5)]
+        accounts: usize,
+        #[arg(long, default_value_t = 3000)]
+        events: usize,
+    },
+    /// Time the store's hot paths against PIGEON_DATA_DIR.
+    Bench {
+        #[arg(long, default_value_t = 50)]
+        runs: usize,
+    },
 }
 
 #[tokio::main]
@@ -363,6 +388,13 @@ async fn run(cli: Cli) -> pigeon_core::Result<()> {
         });
         return Ok(());
     }
+    if let Cmd::Dev { cmd } = &cli.cmd {
+        let db = pigeon_core::paths::data_dir()?.join("pigeon.db");
+        return match cmd {
+            DevCmd::Seed { messages, accounts, events } => dev::seed(&db, *messages, *accounts, *events),
+            DevCmd::Bench { runs } => dev::bench(&db, (*runs).max(3)),
+        };
+    }
     let app = Pigeon::open()?;
     let now = chrono::Local::now();
     match cli.cmd {
@@ -417,6 +449,7 @@ async fn run(cli: Cli) -> pigeon_core::Result<()> {
                 return Err(pigeon_core::Error::Other("doctor found problems (see above)".into()));
             }
         }
+        Cmd::Dev { .. } => unreachable!(),
         Cmd::Mcp { allow_write } => mcp::serve(app, allow_write).await?,
         Cmd::Login { provider, email } => {
             let kind = ProviderKind::parse(&provider)
