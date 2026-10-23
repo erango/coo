@@ -20,6 +20,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("002_bodies.sql"),
     include_str!("003_outbox.sql"),
     include_str!("004_drafts.sql"),
+    include_str!("005_invites.sql"),
 ];
 
 /// Which folder a list query reads.
@@ -323,8 +324,9 @@ impl Store {
         let tx = self.conn.transaction()?;
         let Some(pk) = message_pk(&tx, account_id, message_id)? else { return Ok(false) };
         tx.prepare_cached(
-            "INSERT OR REPLACE INTO bodies (message_pk, html, text, fetched_at, has_remote, in_reply_to, references_json)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT OR REPLACE INTO bodies (message_pk, html, text, fetched_at, has_remote, in_reply_to, references_json,
+                 invite_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         )?
         .execute(params![
             pk,
@@ -333,7 +335,8 @@ impl Store {
             body.fetched_at,
             body.has_remote_content,
             body.in_reply_to,
-            serde_json::to_string(&body.references)?
+            serde_json::to_string(&body.references)?,
+            body.invite.as_ref().map(serde_json::to_string).transpose()?
         ])?;
         tx.prepare_cached("DELETE FROM attachments WHERE message_pk = ?1")?.execute([pk])?;
         {
@@ -366,7 +369,8 @@ impl Store {
         let body = self
             .conn
             .prepare_cached(
-                "SELECT html, text, has_remote, in_reply_to, references_json, fetched_at FROM bodies WHERE message_pk = ?1",
+                "SELECT html, text, has_remote, in_reply_to, references_json, fetched_at, invite_json
+                 FROM bodies WHERE message_pk = ?1",
             )?
             .query_row([pk], |r| {
                 Ok(StoredBody {
@@ -377,6 +381,7 @@ impl Store {
                     references: serde_json::from_str(&r.get::<_, String>(4)?).unwrap_or_default(),
                     fetched_at: r.get(5)?,
                     attachments: Vec::new(),
+                    invite: r.get::<_, Option<String>>(6)?.and_then(|j| serde_json::from_str(&j).ok()),
                 })
             })
             .optional()?;
@@ -631,6 +636,34 @@ impl Store {
             .optional()?)
     }
 
+    /// The local event an invite refers to: by provider event id (or its
+    /// series) in that account, else by iCalendar UID in that account, else
+    /// by UID in any account. Among a series' instances, the one closest to
+    /// the invite's start wins.
+    pub fn invite_event(&self, account_id: &str, invite: &Invite) -> Result<Option<EventRow>> {
+        let near = invite.start_at;
+        let pick = |sql: &str, args: &[&dyn rusqlite::ToSql]| -> Result<Option<EventRow>> {
+            let sql = format!("SELECT {EVENT_COLS} FROM events e WHERE {sql} ORDER BY ABS(e.start_at - ?9) LIMIT 1");
+            let mut stmt = self.conn.prepare_cached(&sql)?;
+            let mut all: Vec<&dyn rusqlite::ToSql> = args.to_vec();
+            while all.len() < 8 {
+                all.push(&rusqlite::types::Null);
+            }
+            all.push(&near);
+            Ok(stmt.query_row(all.as_slice(), event_from_row).optional()?)
+        };
+        if let Some(id) = &invite.event_id
+            && let Some(e) = pick("e.account_id = ?1 AND (e.id = ?2 OR e.series_id = ?2)", &[&account_id, id])?
+        {
+            return Ok(Some(e));
+        }
+        let Some(uid) = &invite.uid else { return Ok(None) };
+        if let Some(e) = pick("e.account_id = ?1 AND e.ical_uid = ?2", &[&account_id, uid])? {
+            return Ok(Some(e));
+        }
+        pick("e.ical_uid = ?2", &[&account_id, uid])
+    }
+
     /// Non-cancelled events overlapping `[from, to)` on visible calendars.
     pub fn events_between(&self, from: i64, to: i64) -> Result<Vec<EventRow>> {
         let sql = format!(
@@ -661,7 +694,7 @@ fn migrate(conn: &mut Connection) -> Result<()> {
 
 const EVENT_COLS: &str = "e.account_id, e.calendar_id, e.id, e.series_id, e.title, e.start_at, e.end_at, e.all_day,
     e.timezone, e.location, e.organizer_name, e.organizer_addr, e.attendees_json, e.my_response, e.online_url,
-    e.cancelled, e.updated_at";
+    e.cancelled, e.updated_at, e.ical_uid";
 
 fn event_from_row(r: &Row) -> rusqlite::Result<EventRow> {
     let organizer = r
@@ -685,6 +718,7 @@ fn event_from_row(r: &Row) -> rusqlite::Result<EventRow> {
             online_url: r.get(14)?,
             cancelled: r.get(15)?,
             updated_at: r.get(16)?,
+            ical_uid: r.get(17)?,
         },
     })
 }
@@ -693,8 +727,8 @@ fn insert_event(conn: &Connection, account_id: &str, calendar_id: &str, e: &Even
     conn.prepare_cached(
         "INSERT OR REPLACE INTO events (account_id, calendar_id, id, series_id, title, start_at, end_at, all_day,
              timezone, location, organizer_name, organizer_addr, attendees_json, my_response, online_url,
-             cancelled, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+             cancelled, updated_at, ical_uid)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
     )?
     .execute(params![
         account_id,
@@ -714,6 +748,7 @@ fn insert_event(conn: &Connection, account_id: &str, calendar_id: &str, e: &Even
         e.online_url,
         e.cancelled,
         e.updated_at,
+        e.ical_uid,
     ])?;
     Ok(())
 }

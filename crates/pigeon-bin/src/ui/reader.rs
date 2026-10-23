@@ -157,7 +157,9 @@ fn Thread(view: ReaderView) -> Element {
 fn Message(account_id: String, header: MessageHeader) -> Element {
     let s = use_context::<AppState>();
     let hue = s.hue(&account_id);
-    let body = s.bodies.read().get(&(account_id.clone(), header.id.clone())).cloned();
+    let key = (account_id.clone(), header.id.clone());
+    let body = s.bodies.read().get(&key).cloned();
+    let invite = body.as_ref().and_then(|b| b.invite.clone()).zip(s.invites.read().get(&key).cloned());
     let from = header.from.clone().unwrap_or_default();
     let to_line = header.to.iter().chain(&header.cc).map(|a| a.display().to_string()).collect::<Vec<_>>().join(", ");
     let time = format::long_time(header.received_at, chrono::Local::now());
@@ -171,6 +173,9 @@ fn Message(account_id: String, header: MessageHeader) -> Element {
                     div { class: "msg-head__to", dir: "auto", "to {to_line}" }
                 }
                 span { class: "msg-head__time", "{time}" }
+            }
+            if let Some((inv, view)) = invite {
+                super::invite::InviteCard { account_id: account_id.clone(), invite: inv, view }
             }
             match body {
                 None => rsx! { div { class: "plain-body t-3", "Loading…" } },

@@ -87,14 +87,23 @@ impl Part {
 struct Walk<'a> {
     html: Option<&'a Part>,
     text: Option<&'a Part>,
+    /// iCalendar part of a meeting invite.
+    calendar: Option<&'a Part>,
     attachments: Vec<&'a Part>,
 }
 
 fn walk<'a>(part: &'a Part, out: &mut Walk<'a>) {
+    let is_ics =
+        part.mime_type == "text/calendar" || part.mime_type == "application/ics" || part.filename.ends_with(".ics");
+    if is_ics && out.calendar.is_none() {
+        out.calendar = Some(part);
+    }
     if part.mime_type.starts_with("multipart/") {
         for p in &part.parts {
             walk(p, out);
         }
+    } else if part.mime_type == "text/calendar" && !part.is_attachment() {
+        // Inline invite alternative: not a body, not an attachment.
     } else if part.is_attachment() {
         out.attachments.push(part);
     } else if part.mime_type == "text/html" && out.html.is_none() {
@@ -172,6 +181,13 @@ impl BodyProvider for Google {
         walk(&root, &mut w);
         let html = self.part_text(message_id, w.html).await?;
         let text = self.part_text(message_id, w.text).await?;
+        let invite = match self.part_text(message_id, w.calendar).await {
+            Ok(ics) => ics.as_deref().and_then(pigeon_core::ics::parse_invite),
+            Err(e) => {
+                tracing::warn!(error = %e, "could not read invite part");
+                None
+            }
+        };
         let attachments: Vec<AttachmentMeta> = w.attachments.iter().map(|p| meta(p)).collect();
         let mut inline_data = Vec::new();
         for (part, m) in w.attachments.iter().zip(&attachments) {
@@ -186,6 +202,7 @@ impl BodyProvider for Google {
             inline_data,
             in_reply_to: root.header("In-Reply-To").and_then(|v| message_ids(v).into_iter().next()),
             references: root.header("References").map(message_ids).unwrap_or_default(),
+            invite,
         })
     }
 
@@ -243,6 +260,27 @@ mod tests {
         assert_eq!((metas[1].name.as_str(), metas[1].is_inline, metas[1].size), ("deck.pdf", false, Some(1234)));
         assert_eq!(root.find("1").unwrap().filename, "deck.pdf");
         assert_eq!(message_ids(root.header("References").unwrap()), ["<a@x>", "<b@x>"]);
+    }
+
+    #[test]
+    fn finds_inline_invite_part() {
+        let root: Part = serde_json::from_str(
+            r#"{"partId": "", "mimeType": "multipart/mixed", "parts": [
+                {"partId": "0", "mimeType": "multipart/alternative", "parts": [
+                  {"partId": "0.0", "mimeType": "text/plain", "body": {"size": 1, "data": "aGk"}},
+                  {"partId": "0.1", "mimeType": "text/calendar",
+                   "headers": [{"name": "Content-Type", "value": "text/calendar; charset=\"UTF-8\"; method=REQUEST"}],
+                   "body": {"size": 10, "data": "QkVHSU4"}}
+                ]},
+                {"partId": "1", "mimeType": "application/ics", "filename": "invite.ics", "body": {"size": 10, "attachmentId": "A"}}
+            ]}"#,
+        )
+        .unwrap();
+        let mut w = Walk::default();
+        walk(&root, &mut w);
+        assert_eq!(w.calendar.unwrap().part_id, "0.1");
+        assert_eq!(w.text.unwrap().part_id, "0.0");
+        assert_eq!(w.attachments.len(), 1, "invite.ics still listed as an attachment");
     }
 
     #[test]

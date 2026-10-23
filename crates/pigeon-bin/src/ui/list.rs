@@ -132,6 +132,15 @@ pub fn Row(item: ListItem, many: bool) -> Element {
     let subject = if h.subject.is_empty() { "(no subject)".to_string() } else { h.subject.clone() };
     let (i1, i2, i3, i4, i5) = (item.clone(), item.clone(), item.clone(), item.clone(), item.clone());
     let flagged = h.is_flagged;
+    // Inline invite only when the body is already loaded (never fetch for the list).
+    let invite_key = (item.account_id().to_string(), h.id.clone());
+    let row_invite = s
+        .bodies
+        .read()
+        .get(&invite_key)
+        .and_then(|b| b.invite.clone())
+        .filter(|i| i.method == pigeon_core::model::InviteMethod::Request);
+    let row_event = s.invites.read().get(&invite_key).and_then(|v| v.event.clone());
 
     rsx! {
         div { class: "row", role: "option", "data-hue": "{hue}",
@@ -176,7 +185,10 @@ pub fn Row(item: ListItem, many: bool) -> Element {
                 }
             }
             div { class: "row__subject", dir: "auto", "{subject}" }
-            div { class: "row__snippet", dir: "auto", "{h.snippet}" }
+            match row_invite {
+                Some(inv) => rsx! { super::invite::RowInvite { invite: inv, event: row_event } },
+                None => rsx! { div { class: "row__snippet", dir: "auto", "{h.snippet}" } },
+            }
         }
     }
 }

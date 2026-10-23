@@ -86,6 +86,8 @@ pub(crate) struct GEvent {
     hangout_link: Option<String>,
     conference_data: Option<ConferenceData>,
     updated: Option<String>,
+    #[serde(rename = "iCalUID")]
+    ical_uid: Option<String>,
 }
 
 impl CalendarProvider for Google {
@@ -249,6 +251,7 @@ pub(crate) fn to_event(e: GEvent, calendar_id: &str) -> Option<Event> {
             .as_deref()
             .and_then(|u| DateTime::parse_from_rfc3339(u).ok())
             .map_or(0, |d| d.timestamp_millis()),
+        ical_uid: e.ical_uid,
         id: e.id,
     })
 }

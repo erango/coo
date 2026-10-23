@@ -273,6 +273,9 @@ pub struct Event {
     pub online_url: Option<String>,
     pub cancelled: bool,
     pub updated_at: i64,
+    /// RFC 5545 UID (Google `iCalUID`, Graph `iCalUId`); links invites to events.
+    #[serde(default)]
+    pub ical_uid: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -306,6 +309,8 @@ pub struct MessageBody {
     pub in_reply_to: Option<String>,
     /// `References` message ids, oldest first.
     pub references: Vec<String>,
+    /// The meeting this message invites to / updates / cancels.
+    pub invite: Option<Invite>,
 }
 
 /// Body as kept in the store and handed to the UI.
@@ -320,6 +325,7 @@ pub struct StoredBody {
     pub references: Vec<String>,
     pub attachments: Vec<StoredAttachment>,
     pub fetched_at: i64,
+    pub invite: Option<Invite>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -444,3 +450,32 @@ pub struct EventDraft {
 
 /// Busy intervals `[start, end)` per attendee email.
 pub type FreeBusy = Vec<(String, Vec<(i64, i64)>)>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum InviteMethod {
+    /// New invitation or update.
+    #[default]
+    Request,
+    Cancel,
+    /// Someone's RSVP (accept/decline notification).
+    Reply,
+}
+
+/// A meeting invite carried by an email, as parsed from its iCalendar part
+/// (Gmail) or the linked event (Graph).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Invite {
+    pub method: InviteMethod,
+    /// RFC 5545 UID.
+    pub uid: Option<String>,
+    /// Provider event id when the provider links it directly (Graph).
+    pub event_id: Option<String>,
+    pub title: String,
+    pub start_at: i64,
+    pub end_at: i64,
+    pub all_day: bool,
+    pub location: Option<String>,
+    pub organizer: Option<Address>,
+    pub online_url: Option<String>,
+}

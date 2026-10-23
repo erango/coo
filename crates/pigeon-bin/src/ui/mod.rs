@@ -1,13 +1,14 @@
 mod calendar;
 mod compose;
+mod invite;
 pub mod event_editor;
 mod list;
 pub mod mailframe;
 mod onboarding;
 mod palette;
 mod reader;
-mod recipients;
 mod search;
+mod recipients;
 mod sidebar;
 mod toasts;
 
@@ -54,9 +55,17 @@ pub fn App() -> Element {
                         "setTimeout(()=>{{const i=document.getElementById('palette-input'); if(i){{i.value={arg:?}; i.dispatchEvent(new Event('input',{{bubbles:true}}));}}}},800)"
                     ));
                 }
-                "search" => search::open(s, arg),
                 // compose:<to list>[|<partial>] — new draft, chips + autocomplete
                 "compose" => send_cmd(Cmd::NewDraft),
+                "search" => search::open(s, arg),
+                // open:<account_id>|<thread_id>
+                "open" => {
+                    if let Some((account_id, thread_id)) = arg.split_once('|') {
+                        let mut sel = s.selected;
+                        sel.set(Some(format!("{account_id}|{thread_id}")));
+                        send_cmd(Cmd::OpenThread { account_id: account_id.into(), thread_id: thread_id.into() });
+                    }
+                }
                 "calendar" => {
                     let mut m = s.mode;
                     m.set(Mode::Calendar);

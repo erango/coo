@@ -4,7 +4,7 @@
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use pigeon_core::http::{client, send};
-use pigeon_core::model::{AttachmentMeta, MessageBody};
+use pigeon_core::model::{AttachmentMeta, Invite, InviteMethod, MessageBody};
 use pigeon_core::provider::BodyProvider;
 use pigeon_core::{Error, Result};
 use serde::Deserialize;
@@ -16,6 +16,8 @@ const INLINE_EAGER_MAX: u64 = 2 * 1024 * 1024;
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BodyMessage {
+    #[serde(rename = "@odata.type")]
+    odata_type: Option<String>,
     body: Option<ItemBody>,
     #[serde(default)]
     internet_message_headers: Vec<MessageHeader>,
@@ -26,6 +28,45 @@ struct BodyMessage {
 struct ItemBody {
     content_type: Option<String>,
     content: Option<String>,
+}
+
+/// `eventMessage` with its linked event expanded.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EventMessage {
+    meeting_message_type: Option<String>,
+    event: Option<crate::types::GEvent>,
+}
+
+/// Exchange marks calendar messages with this header; `@odata.type` is the
+/// other signal (when the server includes it under `$select`).
+fn is_event_message(m: &BodyMessage) -> bool {
+    m.odata_type.as_deref().is_some_and(|t| t.contains("eventMessage"))
+        || header(&m.internet_message_headers, "Content-Class").is_some_and(|v| v.contains("calendarmessage"))
+}
+
+fn invite_from(m: EventMessage) -> Option<Invite> {
+    let method = match m.meeting_message_type.as_deref()? {
+        "meetingRequest" => InviteMethod::Request,
+        "meetingCancelled" => InviteMethod::Cancel,
+        "meetingAccepted" | "meetingTenativelyAccepted" | "meetingTentativelyAccepted" | "meetingDeclined" => {
+            InviteMethod::Reply
+        }
+        _ => return None,
+    };
+    let event = crate::calendar::to_event(m.event?, "")?;
+    Some(Invite {
+        method,
+        uid: event.ical_uid.clone(),
+        event_id: Some(event.id.clone()),
+        title: event.title,
+        start_at: event.start_at,
+        end_at: event.end_at,
+        all_day: event.all_day,
+        location: event.location,
+        organizer: event.organizer,
+        online_url: event.online_url,
+    })
 }
 
 #[derive(Deserialize)]
@@ -106,6 +147,18 @@ impl BodyProvider for Graph {
             attachments.push(meta);
         }
 
+        let invite = if is_event_message(&msg) {
+            let url = format!("{BASE}/me/messages/{message_id}?$expand=microsoft.graph.eventMessage/event");
+            match self.get::<EventMessage>(&url).await {
+                Ok(m) => invite_from(m),
+                Err(e) => {
+                    tracing::warn!(error = %e, "could not load the invite's event");
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let (html, text) = split_body(msg.body);
         let headers = &msg.internet_message_headers;
         Ok(MessageBody {
@@ -115,6 +168,7 @@ impl BodyProvider for Graph {
             inline_data,
             in_reply_to: header(headers, "In-Reply-To").and_then(|v| message_ids(v).into_iter().next()),
             references: header(headers, "References").map(message_ids).unwrap_or_default(),
+            invite,
         })
     }
 
@@ -128,6 +182,34 @@ impl BodyProvider for Graph {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn event_message_to_invite() {
+        let m: EventMessage = serde_json::from_str(
+            r#"{"meetingMessageType": "meetingRequest", "event": {
+                "id": "EV1", "iCalUId": "040000008200E0", "subject": "Hiring sync",
+                "start": {"dateTime": "2026-10-26T09:30:00.0000000", "timeZone": "UTC"},
+                "end": {"dateTime": "2026-10-26T10:00:00.0000000", "timeZone": "UTC"},
+                "organizer": {"emailAddress": {"name": "Marcus Lee", "address": "marcus@halyard.co"}},
+                "onlineMeeting": {"joinUrl": "https://teams.microsoft.com/l/meetup-join/x"}
+            }}"#,
+        )
+        .unwrap();
+        let inv = invite_from(m).unwrap();
+        assert_eq!(inv.method, InviteMethod::Request);
+        assert_eq!(inv.event_id.as_deref(), Some("EV1"));
+        assert_eq!(inv.uid.as_deref(), Some("040000008200E0"));
+        assert_eq!(inv.end_at - inv.start_at, 30 * 60_000);
+        assert!(inv.online_url.is_some());
+        let cancel: EventMessage =
+            serde_json::from_str(r#"{"meetingMessageType": "meetingCancelled", "event": null}"#).unwrap();
+        assert!(invite_from(cancel).is_none(), "no event to show");
+        let m: BodyMessage = serde_json::from_str(
+            r#"{"internetMessageHeaders": [{"name": "Content-Class", "value": "urn:content-classes:calendarmessage"}]}"#,
+        )
+        .unwrap();
+        assert!(is_event_message(&m));
+    }
 
     #[test]
     fn body_and_headers() {

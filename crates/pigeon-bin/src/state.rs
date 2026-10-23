@@ -6,7 +6,9 @@ use std::collections::{HashMap, HashSet};
 use dioxus::prelude::*;
 use pigeon_core::compose::{Draft, Sender};
 use pigeon_core::model::{Calendar, EventRow, FolderRole, FreeBusy, MessageRow, StoredBody};
-use pigeon_engine::service::{AccountNav, Delta, ListItem, Mailbox, ReaderView, ServerSearch, SyncState, Toast};
+use pigeon_engine::service::{
+    AccountNav, Delta, InviteView, ListItem, Mailbox, ReaderView, ServerSearch, SyncState, Toast,
+};
 
 use crate::RX;
 
@@ -56,10 +58,10 @@ pub struct AppState {
     pub palette_open: Signal<bool>,
     pub palette_token: Signal<u64>,
     pub palette_hits: Signal<Vec<MessageRow>>,
-    /// Latest recipient suggestions: (request token, people).
-    pub contacts: Signal<(u64, Vec<pigeon_core::model::Address>)>,
     /// Accounts delta received at least once (distinguishes "none" from "loading").
     pub loaded: Signal<bool>,
+    /// Latest recipient suggestions: (request token, people).
+    pub contacts: Signal<(u64, Vec<pigeon_core::model::Address>)>,
     pub accounts: Signal<Vec<AccountNav>>,
     pub mailbox: Signal<Mailbox>,
     pub threaded: Signal<bool>,
@@ -68,6 +70,10 @@ pub struct AppState {
     pub selected: Signal<Option<String>>,
     pub reader: Signal<Option<ReaderView>>,
     pub bodies: Signal<HashMap<(String, String), StoredBody>>,
+    /// Invites in loaded bodies, resolved to local events.
+    pub invites: Signal<HashMap<(String, String), InviteView>>,
+    /// RSVPs sent this session (`account|event_id`), shown before the next sync.
+    pub rsvp_sent: Signal<HashMap<String, pigeon_core::model::Response>>,
     /// Messages whose remote images the user allowed.
     pub remote_ok: Signal<HashSet<String>>,
     /// Messages the user flipped between adapted/paper rendering.
@@ -97,15 +103,17 @@ impl AppState {
             palette_open: Signal::new(false),
             palette_token: Signal::new(0),
             palette_hits: Signal::new(Vec::new()),
-            contacts: Signal::new((0, Vec::new())),
             loaded: Signal::new(false),
             accounts: Signal::new(Vec::new()),
             mailbox: Signal::new(Mailbox::Unified(FolderRole::Inbox)),
             threaded: Signal::new(true),
             list: Signal::new(Vec::new()),
             selected: Signal::new(None),
+            contacts: Signal::new((0, Vec::new())),
             reader: Signal::new(None),
             bodies: Signal::new(HashMap::new()),
+            invites: Signal::new(HashMap::new()),
+            rsvp_sent: Signal::new(HashMap::new()),
             remote_ok: Signal::new(HashSet::new()),
             render_flip: Signal::new(HashSet::new()),
             toasts: Signal::new(Vec::new()),
@@ -180,8 +188,13 @@ pub async fn pump(mut s: AppState) {
                 }
             }
             Delta::Reader(r) => s.reader.set(Some(r)),
-            Delta::Body { account_id, message_id, body } => {
-                s.bodies.write().insert((account_id, message_id), body);
+            Delta::Body { account_id, message_id, body, invite } => {
+                let key = (account_id, message_id);
+                match invite {
+                    Some(v) => s.invites.write().insert(key.clone(), *v),
+                    None => s.invites.write().remove(&key),
+                };
+                s.bodies.write().insert(key, body);
             }
             Delta::Toast(t) => {
                 if t.error {
@@ -203,7 +216,6 @@ pub async fn pump(mut s: AppState) {
                 }
             }
             Delta::SendFailed { .. } => s.sending.set(false),
-            Delta::Contacts { token, items } => s.contacts.set((token, items)),
             Delta::SearchResults { token, items, server } => {
                 let current = s.search.peek().as_ref().map(|st| st.token);
                 if current == Some(token) {
@@ -217,6 +229,7 @@ pub async fn pump(mut s: AppState) {
             }
             Delta::FreeBusy { token, result } => s.free_busy.set((token, result)),
             Delta::AttachmentReady(path) => {
+            Delta::Contacts { token, items } => s.contacts.set((token, items)),
                 if let Err(e) = open::that_detached(&path) {
                     tracing::warn!(error = %e, ?path, "could not open attachment");
                 }

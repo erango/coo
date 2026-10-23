@@ -6,7 +6,7 @@ use pigeon_core::{Error, Result};
 use crate::types::{self, GCalendar, GEvent, Page};
 use crate::{BASE, Graph};
 
-const EVENT_FIELDS: &str = "id,seriesMasterId,subject,start,end,isAllDay,isCancelled,originalStartTimeZone,\
+const EVENT_FIELDS: &str = "id,iCalUId,seriesMasterId,subject,start,end,isAllDay,isCancelled,originalStartTimeZone,\
     location,organizer,attendees,responseStatus,onlineMeeting,lastModifiedDateTime";
 
 impl CalendarProvider for Graph {
@@ -115,6 +115,7 @@ pub(crate) fn to_event(e: GEvent, calendar_id: &str) -> Option<Event> {
         online_url: e.online_meeting.and_then(|m| m.join_url),
         cancelled: e.is_cancelled,
         updated_at: e.last_modified_date_time.as_deref().and_then(types::parse_rfc3339).unwrap_or(0),
+        ical_uid: e.ical_uid,
         id: e.id,
     })
 }

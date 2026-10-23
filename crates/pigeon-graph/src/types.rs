@@ -149,6 +149,8 @@ pub struct GEvent {
     pub response_status: Option<ResponseStatus>,
     pub online_meeting: Option<OnlineMeeting>,
     pub last_modified_date_time: Option<String>,
+    #[serde(rename = "iCalUId")]
+    pub ical_uid: Option<String>,
 }
 
 /// RFC 3339 (`2026-10-23T09:00:00Z`) to epoch ms.
