@@ -69,7 +69,7 @@ pub fn agent_help() -> String {
          Always pass --json and parse stdout. Ids come from earlier results; never invent them.\n\n\
          COMMANDS\n{cmds}\n{SHAPES}\n\n{OPERATORS}\n\n{TIMES}\n\n\
          WRITES\n{WRITE_ETIQUETTE}\nCLI: from a non-interactive caller, writes need --yes; send/reply take --dry-run \
-         (save a draft, don't send).\n\n{EXIT_CODES}\n\n\
+         (save a draft, don't send).\n\n{EXIT_CODES}\n{ERRORS}\n\n\
          MCP\n`coo mcp` serves the same operations as tools on stdio (read-only; add --allow-write for writes). \
          `coo mcp-config --client claude-code|claude-code-desktop|claude-desktop` prints a ready config with the \
          absolute path and env.\n"

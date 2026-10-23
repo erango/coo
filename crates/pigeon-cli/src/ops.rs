@@ -41,7 +41,11 @@ impl Writes {
         } else if allow_write {
             Writes { allowed: true, reason: "" }
         } else {
-            Writes { allowed: false, reason: "server is read-only (start it with --allow-write)" }
+            Writes {
+                allowed: false,
+                reason: "this agent is set up read-only. To let it send, open Coo › Help › Connect an AI Agent, turn on \
+                         sending and click Update, then restart the agent",
+            }
         }
     }
 
@@ -525,6 +529,52 @@ pub async fn delete_event(app: &Pigeon, w: Writes, account: &str, calendar_id: &
     app.delete_event(&a, calendar_id, event_id).await
 }
 
+/// What failed, for agents and people: a stable kind plus one plain sentence
+/// on what to do. Provider refusals keep the provider's own message (a 403
+/// usually names the missing permission).
+pub fn describe(e: &Error) -> (&'static str, String) {
+    match e {
+        e if e.to_string().starts_with(WRITE_BLOCKED) => ("write_blocked", e.to_string()),
+        Error::SignInRequired(account) => (
+            "sign_in_required",
+            format!(
+                "The sign-in for {} has expired. Open Coo and sign in again (Settings › Accounts).",
+                account.split_once(':').map_or(account.as_str(), |(_, email)| email)
+            ),
+        ),
+        Error::TokenStore(msg) => ("sign_in_unavailable", msg.clone()),
+        Error::Api { status, url, body } => {
+            let who = if url.contains("googleapis.com") {
+                "Google"
+            } else if url.contains("graph.microsoft.com") {
+                "Microsoft"
+            } else {
+                "The mail server"
+            };
+            let said = provider_message(body).unwrap_or_else(|| body.chars().take(300).collect());
+            let hint = match status {
+                401 => " Open Coo and sign in to this account again.",
+                403 => " The account may not have granted Coo this permission; signing in again in Coo asks for it.",
+                429 => " Too many requests right now; try again in a minute.",
+                _ => "",
+            };
+            ("provider_error", format!("{who} refused the request ({status}): {said}.{hint}"))
+        }
+        e if e.is_network() => {
+            ("network", format!("Couldn't reach the server: {e}. Check the connection and try again."))
+        }
+        e => ("error", e.to_string()),
+    }
+}
+
+/// `error.message` from a Google / Microsoft JSON error body.
+fn provider_message(body: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(body).ok()?;
+    let m =
+        v["error"]["message"].as_str().or_else(|| v["error_description"].as_str()).or_else(|| v["error"].as_str())?;
+    Some(m.trim().trim_end_matches('.').to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -548,6 +598,30 @@ mod tests {
         assert_eq!(parse_when("2026-11-01T09:15:00Z", n).unwrap(), 1_793_524_500_000);
         assert!(parse_when("next tuesday", n).is_err());
         assert!(parse_when("+3x", n).is_err());
+    }
+
+    #[test]
+    fn errors_say_what_failed() {
+        let blocked = Error::Other(format!("{WRITE_BLOCKED}: server is read-only (start it with --allow-write)"));
+        assert_eq!(describe(&blocked).0, "write_blocked");
+        let (kind, msg) = describe(&Error::SignInRequired("google:a@x.com".into()));
+        assert_eq!(kind, "sign_in_required");
+        assert!(msg.contains("a@x.com") && msg.contains("Open Coo"), "{msg}");
+        let body = r#"{"error":{"code":403,"message":"Request had insufficient authentication scopes.","status":"PERMISSION_DENIED"}}"#;
+        let (kind, msg) = describe(&Error::Api {
+            status: 403,
+            url: "https://gmail.googleapis.com/gmail/v1/users/me/messages/send".into(),
+            body: body.into(),
+        });
+        assert_eq!(kind, "provider_error");
+        assert!(
+            msg.starts_with("Google refused the request (403): Request had insufficient authentication scopes."),
+            "{msg}"
+        );
+        assert!(msg.contains("permission"), "{msg}");
+        let (kind, msg) = describe(&Error::TokenStore(pigeon_core::broker::APP_NOT_RUNNING.into()));
+        assert_eq!(kind, "sign_in_unavailable");
+        assert!(msg.contains("Open Coo"));
     }
 
     #[test]

@@ -94,7 +94,10 @@ pub fn AgentSetup() -> Element {
             _ => Tab::CodeTerminal,
         }
     });
-    let mut allow_write = use_signal(|| false);
+    // Configured agents and whether they may write; the toggle starts from
+    // what's actually configured.
+    let mut existing = use_signal(agent_setup::existing_entries);
+    let mut allow_write = use_signal(|| existing.peek().iter().any(|e| e.allow_write));
     let mut confirm_add = use_signal(|| false);
     let mut result = use_signal(|| None::<(bool, String)>);
     let binary = use_hook(cli_binary);
@@ -129,11 +132,35 @@ pub fn AgentSetup() -> Element {
     let config_path =
         agent_setup::claude_code_config_path().map(|p| p.display().to_string()).unwrap_or("~/.claude.json".into());
     let setup_for_add = setup.clone();
+    let setup_for_update = setup.clone();
+    let wants_write = *allow_write.read();
+    let entries = existing.read().clone();
+    let stale: Vec<agent_setup::Existing> = entries.iter().filter(|e| e.allow_write != wants_write).cloned().collect();
+    let has_stale = !stale.is_empty();
+    let update_agents = move |_| {
+        let mut msgs = Vec::new();
+        let mut ok = true;
+        for e in &stale {
+            match agent_setup::install_config(&setup_for_update, &e.path, e.client) {
+                Ok(_) => msgs.push(format!("Updated {}.", e.client_name())),
+                Err(err) => {
+                    ok = false;
+                    msgs.push(format!("Couldn't update {}: {err}", e.client_name()));
+                }
+            }
+        }
+        if ok {
+            msgs.push("Restart the agent (or reload its window) so it picks up the change.".into());
+        }
+        existing.set(agent_setup::existing_entries());
+        result.set(Some((ok, msgs.join(" "))));
+    };
     let bin_for_skill = bin.clone();
     let add_to_claude_code = move |_| {
         let r =
             agent_setup::claude_code_config_path().and_then(|p| agent_setup::install_claude_code(&setup_for_add, &p));
         confirm_add.set(false);
+        existing.set(agent_setup::existing_entries());
         result.set(Some(match r {
             Ok(r) => (
                 true,
@@ -186,6 +213,25 @@ pub fn AgentSetup() -> Element {
                     }
                 }
 
+                for e in entries.iter() {
+                    div { class: "agent-setup__status", key: "{e.path.display()}",
+                        Icon { name: "check", class: "icon--sm" }
+                        span { "Connected to {e.client_name()} · " b { if e.allow_write { "can send" } else { "read-only" } } }
+                    }
+                }
+                if has_stale {
+                    div { class: "banner banner--info agent-setup__confirm", role: "status",
+                        span { class: "spacer",
+                            if wants_write {
+                                "Your agent is set up read-only. Click Update to let it send."
+                            } else {
+                                "Your agent can still send. Click Update to make it read-only."
+                            }
+                        }
+                        button { class: "btn btn--primary btn--sm", r#type: "button", onclick: update_agents, "Update" }
+                    }
+                }
+
                 div { class: "segmented agent-setup__tabs", role: "tablist",
                     for (t, label) in TABS {
                         button { role: "tab", "aria-selected": "{current == t}", onclick: move |_| { tab.set(t); result.set(None); }, "{label}" }
@@ -205,7 +251,7 @@ pub fn AgentSetup() -> Element {
                             if *confirm_add.read() {
                                 div { class: "banner banner--info agent-setup__confirm",
                                     span { class: "spacer",
-                                        "This adds a \"pigeon\" entry to "
+                                        "This adds a \"coo\" entry to "
                                         code { class: "t-mono", "{config_path}" }
                                         ". Your other servers and settings stay as they are, and a backup is saved next to it."
                                     }

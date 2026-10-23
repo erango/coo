@@ -60,18 +60,28 @@ Tools: `list_accounts`, `list_folders`, `list_messages`, `search_mail`,
 `--allow-write` also `mail_action`, `undo`, `reply`, `send_email`, `rsvp`,
 `create_event`.
 
-### Sign-in storage (Keychain vs. file)
+### Sign-ins (how the agent gets access)
 
-The agent's `coo mcp` must read the same sign-ins as the app, so the
-generated config uses the app's token store:
+The agent's `coo mcp` uses the same accounts as the app, without ever
+reading your Keychain itself:
 
-- **File store** (`PIGEON_TOKEN_STORE=file`, typical for dev builds): the
-  config carries `PIGEON_TOKEN_STORE=file`; nothing else to do.
-- **Keychain** (the default): macOS asks before a different program reads
-  Coo's Keychain items, and an MCP subprocess has no one to answer. Run
-  `coo doctor` once in Terminal and choose **Always Allow** (again after
-  updating Coo). Until then the server answers with a clear "needs your
-  approval" error instead of hanging: it runs with Keychain UI disabled.
+- **Release builds (Keychain):** while Coo runs (closing the window keeps it
+  in the menu bar), it shares short-lived access tokens with its own `coo`
+  helper over a private socket in Coo's data folder. Only Coo's own signed
+  programs are answered; refresh tokens never leave the app. If Coo has quit,
+  the helper opens it in the background. Nothing to approve.
+- **Dev builds (`PIGEON_TOKEN_STORE=file`):** the config carries
+  `PIGEON_TOKEN_STORE=file`, and the helper reads the same file.
+
+If something's off, `coo doctor` says whether Coo is running and can share
+sign-ins.
+
+### Turning sending on later
+
+The write tools exist only when the server starts with `--allow-write`. If
+you turn **Allow the agent to send** on after connecting, Help › Connect an
+AI Agent shows "Your agent is set up read-only" with an **Update** button that
+rewrites the entry (with a backup). Restart the agent afterwards.
 
 ## Skill (Claude Code)
 
@@ -90,7 +100,7 @@ isn't documented; the MCP server works without the skill.
 - `coo agent-help`: the agent guide (workflow, every command with an
   example, JSON shapes, operators, time formats, write rules, exit codes).
 - `coo --help`: its first line sends agents to `agent-help`.
-- `coo --json doctor`: setup checks (data dir, accounts, sign-in access,
+- `coo --json doctor`: setup checks (data dir, accounts, whether Coo is running and sharing sign-ins,
   client ids).
 
 ## CLI

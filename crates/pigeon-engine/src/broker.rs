@@ -1,0 +1,168 @@
+//! The app's side of the sign-in broker (`pigeon_core::broker`): answers the
+//! `coo` helper with access tokens from the app's own token sources, so an
+//! AI agent never needs Keychain access.
+
+use std::sync::Arc;
+use std::time::Instant;
+
+use futures::future::BoxFuture;
+use pigeon_core::broker::{self, Failure, Handler, Request, Response};
+use pigeon_core::model::ProviderKind;
+
+use crate::Pigeon;
+
+struct AppBroker {
+    app: Arc<Pigeon>,
+}
+
+impl AppBroker {
+    fn account(&self, id: &str) -> Option<pigeon_core::model::Account> {
+        self.app.accounts().ok()?.into_iter().find(|a| a.id == id)
+    }
+
+    async fn answer(&self, req: Request) -> Response {
+        match req {
+            Request::Ping => Response::pong(),
+            Request::Has { account } => match self.account(&account) {
+                None => Response::has(false),
+                Some(a) => match self.app.tokens.has(&a.id) {
+                    Ok(has) => Response::has(has),
+                    Err(e) => broker::failure_for(&e),
+                },
+            },
+            Request::AccessToken { account } => {
+                let Some(a) = self.account(&account) else {
+                    return Response::fail(Failure::UnknownAccount, format!("{account} isn't signed in to Coo"));
+                };
+                if a.provider == ProviderKind::ICloud {
+                    return Response::fail(Failure::Denied, "iCloud signs in with a password, not a token");
+                }
+                match self.app.token_source(&a) {
+                    Ok(src) => match src.access_token_with_expiry().await {
+                        Ok((token, expires_at)) => {
+                            Response::token(token, expires_at.saturating_duration_since(Instant::now()))
+                        }
+                        Err(e) => broker::failure_for(&e),
+                    },
+                    Err(e) => broker::failure_for(&e),
+                }
+            }
+            // Only iCloud's app-specific password is shared: IMAP, SMTP and
+            // CalDAV log in with it directly. OAuth refresh tokens never leave.
+            Request::Secret { account } => match self.account(&account) {
+                None => Response::fail(Failure::UnknownAccount, format!("{account} isn't signed in to Coo")),
+                Some(a) if a.provider != ProviderKind::ICloud => {
+                    Response::fail(Failure::Denied, "this account shares access tokens only")
+                }
+                Some(a) => match self.app.tokens.get(&a.id) {
+                    Ok(Some(secret)) => Response { ok: true, token: Some(secret), ..Default::default() },
+                    Ok(None) => Response::fail(Failure::SignInRequired, format!("{} needs to sign in again", a.email)),
+                    Err(e) => broker::failure_for(&e),
+                },
+            },
+        }
+    }
+}
+
+impl Handler for AppBroker {
+    fn handle(&self, req: Request) -> BoxFuture<'_, Response> {
+        Box::pin(self.answer(req))
+    }
+}
+
+/// Start sharing sign-ins with the helper (the app calls this once). Only
+/// for the Keychain: with the file store the helper reads the file itself.
+pub fn start(app: Arc<Pigeon>) {
+    if app.tokens.kind() != "keychain" || app.tokens.broker().is_some() {
+        return;
+    }
+    let socket = broker::socket_path(&app.data_dir);
+    tokio::spawn(async move {
+        if let Err(e) = broker::serve(socket, Arc::new(AppBroker { app })).await {
+            tracing::warn!(error = %e, "sign-in broker stopped");
+        }
+    });
+}
+
+/// Whether a running Coo answers on the broker socket (for `coo doctor`).
+pub fn ping(app: &Pigeon) -> Result<String, String> {
+    let socket = broker::socket_path(&app.data_dir);
+    match broker::call(&socket, &Request::Ping, std::time::Duration::from_secs(3)) {
+        Ok(r) if r.ok => Ok(r.version.unwrap_or_default()),
+        Ok(r) => Err(r.error.unwrap_or_else(|| "refused".into())),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pigeon_core::model::Account;
+    use pigeon_core::tokens::TokenStore;
+
+    /// The app's broker over a real socket, asked by a helper-side store,
+    /// exactly as `coo mcp` does (file store stands in for the Keychain).
+    #[tokio::test]
+    async fn helper_reads_sign_ins_through_the_app() {
+        let dir = std::env::temp_dir().join(format!("coo-appbroker-{}", pigeon_core::auth::random_token(4)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let app = Arc::new(Pigeon::open_with(dir.clone(), TokenStore::File(dir.join("tokens.json"))).unwrap());
+        let icloud = Account {
+            id: Account::make_id(ProviderKind::ICloud, "a@icloud.com"),
+            provider: ProviderKind::ICloud,
+            email: "a@icloud.com".into(),
+            display_name: "a".into(),
+        };
+        let google = Account {
+            id: Account::make_id(ProviderKind::Google, "b@gmail.com"),
+            provider: ProviderKind::Google,
+            email: "b@gmail.com".into(),
+            display_name: "b".into(),
+        };
+        for a in [&icloud, &google] {
+            app.store().upsert_account(a).unwrap();
+        }
+        app.tokens.set(&icloud.id, "app-specific-pw").unwrap();
+        app.tokens.set(&google.id, "refresh-token-never-shared").unwrap();
+
+        let socket = broker::socket_path(&dir);
+        tokio::spawn(broker::serve(socket.clone(), Arc::new(AppBroker { app: app.clone() })));
+        for _ in 0..50 {
+            if socket.exists() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+
+        let helper = TokenStore::Brokered { client: broker::Client::new(&dir, false), fallback: None };
+        let (icloud_id, google_id) = (icloud.id.clone(), google.id.clone());
+        let (pw, has, secret, token, unknown) = tokio::task::spawn_blocking(move || {
+            let client = broker::Client::new(&dir, false);
+            (
+                helper.get(&icloud_id).unwrap(),
+                helper.has(&google_id).unwrap(),
+                helper.get(&google_id),
+                client.call(&Request::AccessToken { account: icloud_id.clone() }).unwrap(),
+                helper.get("google:nobody@x.com").unwrap(),
+            )
+        })
+        .await
+        .unwrap();
+        assert_eq!(pw.as_deref(), Some("app-specific-pw"), "iCloud password is brokered");
+        assert!(has);
+        assert!(secret.is_err(), "OAuth refresh tokens never leave the app");
+        assert_eq!(token.failure, Some(Failure::Denied), "iCloud has no access token");
+        assert_eq!(unknown, None);
+        std::fs::remove_dir_all(app.data_dir.clone()).ok();
+    }
+
+    #[test]
+    fn without_the_app_the_agent_is_told_to_open_coo() {
+        let dir = std::env::temp_dir().join(format!("coo-noapp-{}", pigeon_core::auth::random_token(4)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let helper = TokenStore::Brokered { client: broker::Client::new(&dir, false), fallback: None };
+        let err = helper.get("icloud:a@icloud.com").unwrap_err().to_string();
+        assert!(err.contains("Open Coo"), "{err}");
+        std::fs::remove_dir_all(dir).ok();
+    }
+}

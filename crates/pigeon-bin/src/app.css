@@ -375,3 +375,7 @@ input, textarea, [contenteditable="true"] { cursor: text; }
 }
 .sender-card__actions { display: flex; gap: 4px; padding: 8px 10px; box-shadow: inset 0 1px 0 var(--line); }
 @media (prefers-reduced-motion: reduce) { .sender-card { animation: none; } }
+
+/* Connect an AI agent: what's already configured. */
+.agent-setup__status { display: flex; align-items: center; gap: 8px; font-size: var(--fs-ui); color: var(--text-2); }
+.agent-setup__status .icon { color: var(--success); }

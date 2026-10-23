@@ -286,12 +286,13 @@ async fn main() -> ExitCode {
     match run(cli).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            let (code, kind) = classify(&e);
+            let (code, _) = classify(&e);
+            let (kind, message) = ops::describe(&e);
             if json {
-                let err = serde_json::json!({ "error": { "kind": kind, "message": e.to_string() } });
+                let err = serde_json::json!({ "error": { "kind": kind, "message": message } });
                 println!("{err}");
             } else {
-                eprintln!("error: {e}");
+                eprintln!("error: {message}");
             }
             ExitCode::from(code)
         }
@@ -318,6 +319,12 @@ fn doctor(app: &Pigeon, exe: &std::path::Path) -> serde_json::Value {
         },
     );
     check("token store", true, app.token_store_kind().to_string());
+    if app.uses_broker() {
+        match pigeon_engine::broker::ping(app) {
+            Ok(v) => check("Coo app", true, format!("running (version {v}), sharing sign-ins")),
+            Err(_) => check("Coo app", false, "not running: open Coo so agents can use your sign-ins".into()),
+        }
+    }
     for a in &accounts {
         match app.has_sign_in(a) {
             Ok(true) => check(&format!("sign-in {}", a.email), true, "stored and readable".into()),
@@ -395,7 +402,13 @@ async fn run(cli: Cli) -> pigeon_core::Result<()> {
             DevCmd::Bench { runs } => dev::bench(&db, (*runs).max(3)),
         };
     }
-    let app = Pigeon::open()?;
+    // Sign-ins come from the running app (no Keychain prompts for agents).
+    // Only a person at a terminal may fall back to the Keychain directly.
+    let interactive = {
+        use std::io::IsTerminal;
+        !matches!(cli.cmd, Cmd::Mcp { .. }) && std::io::stdin().is_terminal()
+    };
+    let app = Pigeon::open_helper(interactive)?;
     let now = chrono::Local::now();
     match cli.cmd {
         Cmd::TelemetryTest | Cmd::AgentHelp | Cmd::InstallSkill { .. } => unreachable!(),

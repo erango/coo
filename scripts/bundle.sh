@@ -111,7 +111,8 @@ if [ -n "${PIGEON_SIGN_IDENTITY:-}" ]; then
     echo "==> embedded provisioning profile (team $TEAM), Time Sensitive notifications on"
   fi
   SIGN=(codesign --force --timestamp --options runtime --entitlements "$ENTITLEMENTS" --sign "$PIGEON_SIGN_IDENTITY")
-  HELPER_SIGN=(codesign --force --timestamp --options runtime --entitlements "$ROOT/scripts/Coo.entitlements" --sign "$PIGEON_SIGN_IDENTITY")
+  # Explicit identifier: the app's sign-in broker only answers Coo's own signed programs.
+  HELPER_SIGN=(codesign --force --timestamp --options runtime --identifier il.co.frost-media.pigeon.coo --entitlements "$ROOT/scripts/Coo.entitlements" --sign "$PIGEON_SIGN_IDENTITY")
   # Inside-out: nested code first, then the bundle (never --deep). Sparkle's
   # parts per its docs for non-sandboxed apps; Downloader.xpc keeps its own
   # entitlements.

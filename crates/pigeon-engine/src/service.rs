@@ -1064,6 +1064,8 @@ impl Service {
 
 /// Run the engine until the command channel closes.
 pub async fn run(app: Arc<Pigeon>, mut rx: mpsc::UnboundedReceiver<Cmd>, tx: mpsc::UnboundedSender<Delta>) {
+    // Share sign-ins with the `coo` helper (AI agents) while the app runs.
+    crate::broker::start(app.clone());
     let svc = Arc::new(Service {
         app,
         tx,

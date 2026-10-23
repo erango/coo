@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 
 mod actions;
 pub mod agent_setup;
+pub mod broker;
 mod calendar;
 pub mod notify;
 pub mod service;
@@ -42,6 +43,8 @@ pub struct Pigeon {
     pub data_dir: PathBuf,
     /// One backend (and so one token cache) per account.
     backends: Mutex<HashMap<String, Arc<Backend>>>,
+    /// The OAuth token source behind each backend (the broker hands out its tokens).
+    sources: Mutex<HashMap<String, Arc<TokenSource>>>,
 }
 
 #[derive(Debug)]
@@ -64,15 +67,47 @@ struct ICloud {
 }
 
 impl Pigeon {
+    /// The app: it owns the sign-ins (Keychain or the dev file).
     pub fn open() -> Result<Self> {
         let data_dir = paths::data_dir()?;
+        let tokens = TokenStore::from_env(&data_dir);
+        Self::open_with(data_dir, tokens)
+    }
+
+    /// The `coo` helper (CLI / MCP server): sign-ins come from the running
+    /// app through the broker. `interactive` (a person at a terminal) may
+    /// fall back to reading the Keychain directly when the app is away.
+    pub fn open_helper(interactive: bool) -> Result<Self> {
+        let data_dir = paths::data_dir()?;
+        let tokens = TokenStore::for_helper(&data_dir, interactive);
+        Self::open_with(data_dir, tokens)
+    }
+
+    fn open_with(data_dir: PathBuf, tokens: TokenStore) -> Result<Self> {
         let store = Store::open(data_dir.join("pigeon.db"))?;
         Ok(Pigeon {
             store: Arc::new(Mutex::new(store)),
-            tokens: TokenStore::from_env(&data_dir),
+            tokens,
             data_dir,
             backends: Mutex::default(),
+            sources: Mutex::default(),
         })
+    }
+
+    /// Whether sign-ins come from the app through the broker.
+    pub fn uses_broker(&self) -> bool {
+        self.tokens.broker().is_some()
+    }
+
+    /// The OAuth token source for an account (creating its backend).
+    pub(crate) fn token_source(&self, account: &Account) -> Result<Arc<TokenSource>> {
+        self.backend(account)?;
+        self.sources
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(&account.id)
+            .cloned()
+            .ok_or_else(|| Error::Other(format!("{} has no OAuth sign-in", account.email)))
     }
 
     pub fn store(&self) -> std::sync::MutexGuard<'_, Store> {
@@ -108,7 +143,7 @@ impl Pigeon {
     /// Whether this process can read the account's stored sign-in. From a
     /// terminal this is where a Keychain "allow access" prompt appears.
     pub fn has_sign_in(&self, account: &Account) -> Result<bool> {
-        Ok(self.tokens.get(&account.id)?.is_some())
+        self.tokens.has(&account.id)
     }
 
     /// Add an iCloud (app-specific password) account. Verifies both IMAP and
@@ -146,6 +181,7 @@ impl Pigeon {
 
     pub fn logout(&self, account_id: &str) -> Result<()> {
         self.backends.lock().unwrap_or_else(|p| p.into_inner()).remove(account_id);
+        self.sources.lock().unwrap_or_else(|p| p.into_inner()).remove(account_id);
         self.tokens.delete(account_id)?;
         self.store().delete_account(account_id)
     }
@@ -167,6 +203,7 @@ impl Pigeon {
             provider => {
                 let app = OAuthApp::from_env(provider)?;
                 let tokens = Arc::new(TokenSource::new(app, &account.id, self.tokens.clone()));
+                self.sources.lock().unwrap_or_else(|p| p.into_inner()).insert(account.id.clone(), tokens.clone());
                 match provider {
                     ProviderKind::Microsoft => Backend::Microsoft(Graph::new(tokens)),
                     _ => Backend::Google(Google::new(tokens)),

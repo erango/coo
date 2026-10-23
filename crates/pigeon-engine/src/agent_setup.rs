@@ -38,8 +38,14 @@ pub mod guide {
         are off unless the user enabled them (MCP --allow-write; CLI --yes when not at a terminal; \
         PIGEON_AGENT_READONLY=1 blocks everything).";
 
-    pub const EXIT_CODES: &str = "Exit codes: 0 ok, 1 error, 2 bad usage, 3 sign-in required (the user runs \
-        `coo login <provider>`), 4 write blocked.";
+    pub const EXIT_CODES: &str = "Exit codes: 0 ok, 1 error, 2 bad usage, 3 sign-in required (the user signs \
+        in again in Coo), 4 write blocked.";
+
+    pub const ERRORS: &str = "Errors carry a kind and one plain sentence on what to do: write_blocked (writes are \
+        off: the user turns on sending in Coo › Help › Connect an AI Agent and clicks Update), sign_in_required \
+        (the user signs in again in Coo), sign_in_unavailable (Coo isn't running: ask the user to open it), \
+        provider_error (Google/Microsoft refused; their message says why, e.g. a missing permission), network. \
+        Tell the user the message; don't retry writes blindly.";
 }
 
 /// Where a snippet is going.
@@ -170,12 +176,11 @@ impl Setup {
     pub fn notes(&self) -> Vec<String> {
         let mut n = Vec::new();
         if self.token_store == "keychain" {
-            n.push(format!(
-                "Sign-ins are in your Keychain. The first time the agent's Coo reads them, macOS must allow it: run \
-                 `{} doctor` once in Terminal and choose \"Always Allow\" (repeat after updating Coo). Without that \
-                 the agent gets a clear \"needs approval\" error instead of hanging.",
-                self.binary_str()
-            ));
+            n.push(
+                "Coo shares your sign-ins with the agent while it's running. Closing the window keeps it running in \
+                 the menu bar; if Coo has quit, the agent opens it in the background."
+                    .to_string(),
+            );
         }
         if !self.missing.is_empty() {
             n.push(format!(
@@ -315,6 +320,48 @@ pub fn claude_code_config_path() -> Result<PathBuf> {
     Ok(home()?.join(".claude.json"))
 }
 
+pub fn claude_desktop_config_path() -> Result<PathBuf> {
+    Ok(home()?.join("Library/Application Support/Claude/claude_desktop_config.json"))
+}
+
+/// A `coo` server already configured in an agent's settings.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Existing {
+    pub client: Client,
+    pub path: PathBuf,
+    /// Started with `--allow-write`.
+    pub allow_write: bool,
+}
+
+impl Existing {
+    pub fn client_name(&self) -> &'static str {
+        match self.client {
+            Client::ClaudeDesktop => "Claude Desktop",
+            _ => "Claude Code",
+        }
+    }
+}
+
+/// The `coo` entry in one config file, if any.
+pub fn read_entry(path: &Path, client: Client) -> Option<Existing> {
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+    let entry = v.get("mcpServers")?.get("coo")?;
+    let allow_write = entry["args"].as_array().is_some_and(|a| a.iter().any(|x| x.as_str() == Some("--allow-write")));
+    Some(Existing { client, path: path.to_path_buf(), allow_write })
+}
+
+/// Coo entries in Claude Code (`~/.claude.json`) and Claude Desktop.
+pub fn existing_entries() -> Vec<Existing> {
+    let mut out = Vec::new();
+    if let Some(e) = claude_code_config_path().ok().and_then(|p| read_entry(&p, Client::ClaudeCodeDesktop)) {
+        out.push(e);
+    }
+    if let Some(e) = claude_desktop_config_path().ok().and_then(|p| read_entry(&p, Client::ClaudeDesktop)) {
+        out.push(e);
+    }
+    out
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigInstall {
     pub path: PathBuf,
@@ -329,6 +376,12 @@ pub struct ConfigInstall {
 /// Merges: every other key and server is kept. Backs the file up first and
 /// writes atomically, keeping its permissions.
 pub fn install_claude_code(setup: &Setup, path: &Path) -> Result<ConfigInstall> {
+    install_config(setup, path, Client::ClaudeCodeDesktop)
+}
+
+/// Add (or update) `mcpServers.coo` in a client's config file, as
+/// [`install_claude_code`] does (merge, backup, atomic write).
+pub fn install_config(setup: &Setup, path: &Path, client: Client) -> Result<ConfigInstall> {
     let (mut root, original) = match std::fs::read_to_string(path) {
         Ok(text) => {
             let v: Value = serde_json::from_str(&text)
@@ -345,7 +398,7 @@ pub fn install_claude_code(setup: &Setup, path: &Path) -> Result<ConfigInstall> 
     let servers = servers
         .as_object_mut()
         .ok_or_else(|| Error::Other("`mcpServers` isn't an object; not touching the file".into()))?;
-    let replaced = servers.insert("coo".into(), setup.server_entry(true)).is_some();
+    let replaced = servers.insert("coo".into(), setup.server_entry(client != Client::ClaudeDesktop)).is_some();
 
     let backup = match &original {
         Some(text) => {
@@ -371,6 +424,29 @@ pub fn install_claude_code(setup: &Setup, path: &Path) -> Result<ConfigInstall> 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn existing_entry_reports_write_mode_and_updates() {
+        let dir = std::env::temp_dir().join(format!("coo-existing-{}", pigeon_core::auth::random_token(6)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("claude_desktop_config.json");
+        std::fs::write(&path, r#"{"mcpServers":{"other":{"command":"x"},"coo":{"command":"/c","args":["mcp"]}}}"#)
+            .unwrap();
+        let e = read_entry(&path, Client::ClaudeDesktop).unwrap();
+        assert!(!e.allow_write);
+        assert_eq!(e.client_name(), "Claude Desktop");
+
+        let mut s = setup(true);
+        s.binary = PathBuf::from("/Applications/Coo.app/Contents/Helpers/coo");
+        let r = install_config(&s, &path, Client::ClaudeDesktop).unwrap();
+        assert!(r.replaced && r.backup.is_some());
+        assert!(read_entry(&path, Client::ClaudeDesktop).unwrap().allow_write);
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(v["mcpServers"]["other"].is_object(), "other servers kept");
+        assert!(v["mcpServers"]["coo"].get("type").is_none(), "Claude Desktop entries have no type");
+        assert!(read_entry(&dir.join("missing.json"), Client::ClaudeDesktop).is_none());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
     use super::*;
 
     fn setup(allow_write: bool) -> Setup {

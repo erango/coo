@@ -4,6 +4,7 @@
 pub mod actions;
 pub mod auth;
 pub mod bodies;
+pub mod broker;
 pub mod compose;
 pub mod error;
 pub mod html;

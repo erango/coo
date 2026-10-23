@@ -308,14 +308,41 @@ impl TokenSource {
     }
 
     pub async fn access_token(&self) -> Result<String> {
+        Ok(self.access_token_with_expiry().await?.0)
+    }
+
+    /// The access token and when it expires (the broker tells peers).
+    pub async fn access_token_with_expiry(&self) -> Result<(String, Instant)> {
         let mut cached = self.cached.lock().await;
         if let Some((token, expires_at)) = cached.as_ref()
             && *expires_at > Instant::now()
         {
-            return Ok(token.clone());
+            return Ok((token.clone(), *expires_at));
         }
+        // The helper asks the app, which holds the refresh token.
+        if let Some(client) = self.store.broker().cloned() {
+            let account = self.account_id.clone();
+            let req = crate::broker::Request::AccessToken { account: account.clone() };
+            let answer = tokio::task::spawn_blocking(move || client.call(&req))
+                .await
+                .map_err(|e| Error::Other(e.to_string()))?;
+            match answer {
+                Ok(r) if r.ok && r.token.is_some() => {
+                    // A minute of margin so a token never expires mid-request.
+                    let ttl = Duration::from_secs(r.expires_in.unwrap_or(300).saturating_sub(60).max(30));
+                    let token = r.token.expect("checked");
+                    let expires_at = Instant::now() + ttl;
+                    *cached = Some((token.clone(), expires_at));
+                    return Ok((token, expires_at));
+                }
+                Ok(r) => return Err(r.into_error(&account)),
+                Err(_) if self.store.fallback().is_some() => {}
+                Err(_) => return Err(Error::TokenStore(crate::broker::APP_NOT_RUNNING.into())),
+            }
+        }
+        let store = self.store.fallback().unwrap_or(&self.store);
         let refresh_token =
-            self.store.get(&self.account_id)?.ok_or_else(|| Error::SignInRequired(self.account_id.clone()))?;
+            store.get(&self.account_id)?.ok_or_else(|| Error::SignInRequired(self.account_id.clone()))?;
         let resp = refresh(&self.app, &refresh_token).await.map_err(|e| match e {
             Error::SignInRequired(_) => Error::SignInRequired(self.account_id.clone()),
             e => e,
@@ -323,10 +350,11 @@ impl TokenSource {
         if let Some(rotated) = resp.refresh_token.as_deref()
             && rotated != refresh_token
         {
-            self.store.set(&self.account_id, rotated)?;
+            store.set(&self.account_id, rotated)?;
         }
         *cached = Some((resp.access_token.clone(), resp.expires_at()));
-        Ok(resp.access_token)
+        let expires_at = resp.expires_at();
+        Ok((resp.access_token, expires_at))
     }
 
     /// Drop the cached access token (e.g. after a 401).

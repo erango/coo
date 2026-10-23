@@ -24,14 +24,14 @@ fn instructions(writes_allowed: bool) -> String {
         WRITE_ETIQUETTE.to_string()
     } else {
         "This server is read-only: there are no tools that send or change anything. If the user wants that, they \
-         restart the server with --allow-write."
+         turn on sending in Coo › Help › Connect an AI Agent, click Update, and restart this agent."
             .to_string()
     };
     format!(
         "{PURPOSE}\n\n{WORKFLOW} Tools: list_accounts → list_messages or search_mail → get_thread (or get_message); \
          list_events / free_busy for calendars; sync when data looks stale.\n\nMailboxes are roles across all \
          accounts (inbox, sent, drafts, trash, archive, starred) or, with an account, a folder name from \
-         list_folders.\n\n{OPERATORS}\n\n{TIMES}\n\n{writes}"
+         list_folders.\n\n{OPERATORS}\n\n{TIMES}\n\n{writes}\n\n{ERRORS}"
     )
 }
 
@@ -472,7 +472,14 @@ async fn handle(app: &Pigeon, w: Writes, msg: Value) -> Option<Value> {
                     "structuredContent": if v.is_object() { v.clone() } else { json!({ "result": v }) },
                     "isError": false,
                 }),
-                Err(e) => json!({ "content": [{ "type": "text", "text": e.to_string() }], "isError": true }),
+                Err(e) => {
+                    let (kind, message) = ops::describe(&e);
+                    json!({
+                        "content": [{ "type": "text", "text": message }],
+                        "structuredContent": { "error": { "kind": kind, "message": message } },
+                        "isError": true,
+                    })
+                }
             })
         }
         _ => Err(json!({ "code": -32601, "message": format!("method not found: {method}") })),
