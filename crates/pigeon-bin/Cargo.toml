@@ -9,6 +9,7 @@ name = "pigeon-app"
 path = "src/main.rs"
 
 [dependencies]
+base64.workspace = true
 chrono.workspace = true
 dioxus = { version = "0.7.9", features = ["desktop"] }
 open.workspace = true

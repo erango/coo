@@ -3,6 +3,7 @@
 
 mod bridge;
 mod dock;
+mod fonts;
 mod format;
 mod meeting;
 mod menu;
@@ -103,8 +104,9 @@ fn main() {
     };
     let palette = if themes::is_known(&prefs.palette) { prefs.palette.as_str() } else { themes::DEFAULT };
     let head = format!(
-        "<style>{}\n{}\n{platform_css}\n{zoom_css}</style><script>document.documentElement.dataset.theme={theme_mode:?};\
+        "<style>{}\n{}\n{}\n{platform_css}\n{zoom_css}</style><script>document.documentElement.dataset.theme={theme_mode:?};\
          document.documentElement.dataset.palette={palette:?};</script>",
+        fonts::css(),
         CSS.join("\n"),
         themes::css()
     );
