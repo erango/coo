@@ -353,6 +353,13 @@ pub fn Privacy() -> Element {
                 }
                 span { class: "settings-field__hint", "Remote images let senders see when you open a message." }
             }
+            label { class: "settings-field",
+                span { class: "settings-field__label", "Sender photos" }
+                input { class: "switch", r#type: "checkbox", checked: cur.photos_gravatar,
+                    onchange: move |_| { prefs::update(|x| x.photos_gravatar = !x.photos_gravatar); p.set(prefs::get()); } }
+                span { class: "settings-field__hint",
+                    "Show photos from Gravatar. Coo sends Gravatar a one-way hash of each sender's address (never the address itself); off by default." }
+            }
             if !always {
                 div { class: "settings-field settings-field--top",
                     span { class: "settings-field__label", "Trusted senders" }

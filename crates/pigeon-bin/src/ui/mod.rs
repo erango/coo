@@ -1,4 +1,5 @@
 mod agent_setup;
+mod avatar;
 pub mod calendar;
 pub mod compose;
 pub mod compose_window;

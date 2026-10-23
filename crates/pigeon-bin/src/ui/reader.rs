@@ -155,7 +155,7 @@ fn Thread(view: ReaderView) -> Element {
                             let who = m.from.as_ref().map(|a| a.display().to_string()).unwrap_or_default();
                             rsx! {
                                 div { class: "msg-collapsed", key: "{m.id}", onclick: move |_| { expanded.write().insert(id.clone()); },
-                                    span { class: "avatar", "data-hue": "{hue}", "{format::initials(&who)}" }
+                                    super::avatar::Avatar { email: m.from.as_ref().map(|a| a.email.clone()).unwrap_or_default(), label: who.clone(), hue }
                                     span { class: "msg-collapsed__who", dir: "auto", "{who}" }
                                     span { class: "msg-collapsed__snip", dir: "auto", "{m.snippet}" }
                                     span { class: "msg-collapsed__time", "{format::row_time(m.received_at, chrono::Local::now())}" }
@@ -226,7 +226,7 @@ fn Message(account_id: String, header: MessageHeader) -> Element {
     rsx! {
         article { class: "msg",
             div { class: "msg-head",
-                span { class: "avatar avatar--32 avatar--ring", "data-hue": "{hue}", "{format::initials(from.display())}" }
+                super::avatar::Avatar { email: from.email.clone(), label: from.display().to_string(), hue, class: "avatar--32 avatar--ring" }
                 div {
                     div { class: "msg-head__from", dir: "auto",
                         super::sender_card::Person { account_id: account_id.clone(), message_id: Some(header.id.clone()), addr: from.clone(), sender: true,

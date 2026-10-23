@@ -147,6 +147,11 @@ pub enum Cmd {
         account_id: String,
         email: String,
     },
+    /// A sender photo from the on-disk cache or Gravatar (the UI only asks
+    /// when the user turned Gravatar photos on). Answered with `Delta::Photo`.
+    Photo {
+        email: String,
+    },
     StartReply {
         account_id: String,
         message_id: String,
@@ -313,6 +318,11 @@ pub enum Delta {
         account_id: String,
         email: String,
         count: u32,
+    },
+    /// A sender photo as a `data:` URI, or None (use initials).
+    Photo {
+        email: String,
+        uri: Option<String>,
     },
     Draft(Draft),
     Sent {
@@ -802,6 +812,31 @@ impl Service {
             Cmd::SenderSeen { account_id, email } => {
                 let count = self.app.store().messages_from(&account_id, &email)?;
                 self.send(Delta::SenderSeen { account_id, email, count });
+            }
+            Cmd::Photo { email } => {
+                let svc = self.clone();
+                tokio::spawn(async move {
+                    use pigeon_core::photos::{self, Cached};
+                    let dir = svc.app.data_dir.join("photos");
+                    let bytes = match photos::cached(&dir, &email, std::time::SystemTime::now()) {
+                        Cached::Photo(b) => Some(b),
+                        Cached::None => None,
+                        Cached::Miss => match photos::gravatar(&email).await {
+                            Ok(found) => {
+                                if let Err(e) = photos::store(&dir, &email, found.as_deref()) {
+                                    tracing::warn!(error = %e, "could not cache a sender photo");
+                                }
+                                found
+                            }
+                            // Offline / server trouble: initials now, retry another time.
+                            Err(e) => {
+                                tracing::debug!(error = %e, "photo lookup failed");
+                                None
+                            }
+                        },
+                    };
+                    svc.send(Delta::Photo { email, uri: bytes.as_deref().map(photos::data_uri) });
+                });
             }
             Cmd::StartReply { account_id, message_id, kind } => {
                 let account = self.app.account(&account_id)?;

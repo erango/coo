@@ -192,7 +192,7 @@ pub fn SenderCard() -> Element {
             onfocusin: move |_| keep_open(),
             onfocusout: move |_| close_after(s, CLOSE_DELAY),
             div { class: "sender-card__head",
-                span { class: "avatar avatar--40", "data-hue": "{hue}", "{format::initials(name.as_deref().unwrap_or(&email))}" }
+                super::avatar::Avatar { email: email.clone(), label: name.clone().unwrap_or_else(|| email.clone()), hue, class: "avatar--40" }
                 div { class: "sender-card__who",
                     div { class: "sender-card__name", dir: "auto", "{name.clone().unwrap_or_else(|| email.clone())}" }
                     div { class: "sender-card__addr",

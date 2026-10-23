@@ -13,6 +13,7 @@ pub mod identity;
 pub mod meeting;
 pub mod model;
 pub mod paths;
+pub mod photos;
 pub mod provider;
 pub mod search;
 pub mod store;

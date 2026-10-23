@@ -60,6 +60,8 @@ pub struct Prefs {
     pub thread_newest_first: bool,
     /// Where replies open: "inline" (below the conversation) or "window".
     pub reply_mode: String,
+    /// Show sender photos from Gravatar (sends a hash of each address).
+    pub photos_gravatar: bool,
     /// Closing the main window keeps Coo running in the menu bar (false:
     /// closing quits).
     pub close_to_menu_bar: bool,
@@ -90,6 +92,7 @@ impl Default for Prefs {
             sidebar_width: 0,
             thread_newest_first: true,
             reply_mode: "inline".into(),
+            photos_gravatar: false,
             close_to_menu_bar: true,
             menu_bar_hint_shown: false,
             reminders_time_sensitive: true,

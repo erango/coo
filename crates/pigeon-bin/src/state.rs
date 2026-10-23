@@ -149,6 +149,8 @@ pub struct AppState {
     /// Messages already received from (account id, lowercased address),
     /// for the sender card's "first time" warning.
     pub sender_seen: Signal<HashMap<(String, String), u32>>,
+    /// Sender photos by lowercased address: None = asked / none (initials).
+    pub photos: Signal<HashMap<String, Option<String>>>,
     /// Sender card open on hover: (anchor key, card data).
     pub sender_card: Signal<Option<crate::ui::sender_card::CardState>>,
     pub draft: Signal<Option<Draft>>,
@@ -213,6 +215,7 @@ impl AppState {
             senders: Signal::new(Vec::new()),
             sender_seen: Signal::new(HashMap::new()),
             sender_card: Signal::new(None),
+            photos: Signal::new(HashMap::new()),
             draft: Signal::new(None),
             sending: Signal::new(false),
             compose_notice: Signal::new(None),
@@ -455,6 +458,9 @@ fn apply(s: &mut AppState, delta: Delta) {
             Delta::Senders(v) => s.senders.set(v),
             Delta::SenderSeen { account_id, email, count } => {
                 s.sender_seen.write().insert((account_id, email.to_lowercase()), count);
+            }
+            Delta::Photo { email, uri } => {
+                s.photos.write().insert(email.to_lowercase(), uri);
             }
             Delta::Draft(mut d) => {
                 // An undone send comes back with its signature in body_html;
