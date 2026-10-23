@@ -363,6 +363,19 @@ pub const JS: &str = r#"
 "#;
 
 /// Read an editor's HTML (by element id).
+/// The editor's HTML, or None when it couldn't be read (no such editor in
+/// this window, or the script failed). Sending must not treat that as "".
+pub async fn try_editor_html(id: &str) -> Option<String> {
+    let js = format!("const e = document.getElementById({id:?}); return e ? e.innerHTML : null;");
+    match document::eval(&js).join::<Option<String>>().await {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(error = %e, "could not read the composer editor");
+            None
+        }
+    }
+}
+
 pub async fn editor_html(id: &str) -> String {
     let js = format!("return document.getElementById({id:?})?.innerHTML ?? ''");
     document::eval(&js).join::<String>().await.unwrap_or_default()

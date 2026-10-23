@@ -33,6 +33,35 @@ pub struct ComposeSlot {
     pub windowed: bool,
 }
 
+pub const EMPTY_CONFIRM: &str = "Send without a subject or text? Press Send again to send it anyway.";
+const UNREADABLE: &str = "Coo couldn't read the message text, so it wasn't sent. Try again.";
+
+/// HTML with something a reader would see.
+fn has_text(html: &str) -> bool {
+    !pigeon_core::text::html_to_text(html).trim().is_empty() || html.contains("<img")
+}
+
+/// The typed text to send: the live editor; if it reads back empty or not
+/// at all, the last autosaved text; and if there's neither, an unreadable
+/// editor blocks the send (never "send blank because we couldn't look").
+pub fn typed_for_send(read: Option<&str>, autosaved: &str) -> Result<String, &'static str> {
+    let saved = strip_signature(autosaved);
+    match read {
+        Some(r) if has_text(r) => Ok(r.to_string()),
+        _ if has_text(&saved) => {
+            tracing::warn!("composer editor read back empty at send; using the autosaved body");
+            Ok(saved)
+        }
+        Some(r) => Ok(r.to_string()),
+        None => Err(UNREADABLE),
+    }
+}
+
+/// No subject, no text, nothing quoted or attached: ask before sending.
+pub fn needs_empty_confirm(d: &Draft, typed: &str) -> bool {
+    d.subject.trim().is_empty() && !has_text(typed) && !has_text(&d.html) && d.attachments.is_empty()
+}
+
 /// A draft with nothing in it yet (`typed` is the editor's HTML).
 pub fn is_blank(d: &Draft, typed: &str) -> bool {
     d.to.is_empty()
@@ -206,24 +235,37 @@ pub fn send_at(s: AppState, slot: ComposeSlot, later: Option<i64>) {
         }
         return;
     }
+    // Second Send after "Send without a subject or text?" goes ahead.
+    let confirmed_empty = notice.peek().as_deref() == Some(EMPTY_CONFIRM);
     notice.set(None);
     let mut sending = slot.sending;
     sending.set(true);
     spawn(async move {
-        let read = bridge::editor_html(&editor_id(&draft)).await;
+        let read = bridge::try_editor_html(&editor_id(&draft)).await;
         let mut d = draft;
-        // Never send blank because the editor couldn't be read: fall back to
-        // the last autosaved text.
-        let typed = if pigeon_core::text::html_to_text(&read).trim().is_empty() && !d.body_html.trim().is_empty() {
-            tracing::warn!("composer editor read back empty at send; using the autosaved body");
-            strip_signature(&d.body_html)
-        } else {
-            read
+        let (mut open, mut sending, mut notice) = (slot.draft, slot.sending, slot.notice);
+        let typed = match typed_for_send(read.as_deref(), &d.body_html) {
+            Ok(t) => t,
+            Err(message) => {
+                sending.set(false);
+                notice.set(Some(message.to_string()));
+                s.push_toast(Toast {
+                    id: crate::state::next_token(),
+                    message: message.into(),
+                    error: true,
+                    ..Default::default()
+                });
+                return;
+            }
         };
+        if needs_empty_confirm(&d, &typed) && !confirmed_empty {
+            sending.set(false);
+            notice.set(Some(EMPTY_CONFIRM.into()));
+            return;
+        }
         d.body_html = compose_html(&typed, &signature_for(&d.from.address.email), "");
         let now = pigeon_core::now_ms();
         let undo_secs = i64::from(crate::prefs::get().undo_send_seconds);
-        let (mut open, mut sending) = (slot.draft, slot.sending);
         match later {
             Some(at) => {
                 s.track_outgoing(d.clone(), OutState::Queued(at));
@@ -838,6 +880,55 @@ pub fn Composer(draft: Draft, #[props(default)] docked: bool) -> Element {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pigeon_core::compose::Sender;
+    use pigeon_core::model::Address;
+
+    fn draft() -> Draft {
+        let mut d =
+            Draft::new(Sender { account_id: "google:me@x.io".into(), address: Address::new(Some("Me"), "me@x.io") }, 0);
+        d.to = vec![Address::new(None, "dana@x.io")];
+        d
+    }
+
+    #[test]
+    fn send_uses_the_latest_editor_content() {
+        // Undo-send schedules what's in the editor now, not an older autosave.
+        let stale = "<div>first draft</div>";
+        assert_eq!(typed_for_send(Some("<div>final text</div>"), stale).unwrap(), "<div>final text</div>");
+        // Editor read back empty though text was autosaved: never send blank.
+        assert_eq!(typed_for_send(Some("<div><br></div>"), stale).unwrap(), stale);
+        assert_eq!(typed_for_send(None, stale).unwrap(), stale);
+        // Unreadable and nothing saved: block, don't send "".
+        assert_eq!(typed_for_send(None, ""), Err(UNREADABLE));
+        // Genuinely empty editor is allowed through (the empty check asks).
+        assert_eq!(typed_for_send(Some(""), "").unwrap(), "");
+    }
+
+    #[test]
+    fn typed_text_never_serializes_to_an_empty_body() {
+        let mut d = draft();
+        d.subject = "פידבקים".into();
+        let typed = typed_for_send(Some("<div dir=\"auto\">הנה הפידבקים שלי</div>"), "").unwrap();
+        d.body_html = compose_html(&typed, "", "");
+        let (_, mime) = pigeon_core::compose::build_mime(&d, &[], 0).unwrap();
+        let text = String::from_utf8_lossy(&mime);
+        // Bodies are quoted-printable or base64; decode the HTML part back.
+        assert!(!d.full_html().is_empty() && d.full_html().contains("הנה הפידבקים שלי"));
+        assert!(text.contains("Content-Type: text/html"), "{text}");
+    }
+
+    #[test]
+    fn empty_subject_and_body_asks_first() {
+        let mut d = draft();
+        assert!(needs_empty_confirm(&d, ""));
+        assert!(needs_empty_confirm(&d, "<div><br></div>"));
+        assert!(!needs_empty_confirm(&d, "<div>hi</div>"));
+        d.subject = "Hi".into();
+        assert!(!needs_empty_confirm(&d, ""));
+        d.subject.clear();
+        d.html = "<blockquote>quoted original</blockquote>".into();
+        assert!(!needs_empty_confirm(&d, ""), "a forward with no note of its own is fine");
+    }
 
     #[test]
     fn rich_signature_swaps_cleanly() {
