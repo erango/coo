@@ -210,8 +210,16 @@ pub fn send_at(s: AppState, slot: ComposeSlot, later: Option<i64>) {
     let mut sending = slot.sending;
     sending.set(true);
     spawn(async move {
-        let typed = bridge::editor_html(&editor_id(&draft)).await;
+        let read = bridge::editor_html(&editor_id(&draft)).await;
         let mut d = draft;
+        // Never send blank because the editor couldn't be read: fall back to
+        // the last autosaved text.
+        let typed = if pigeon_core::text::html_to_text(&read).trim().is_empty() && !d.body_html.trim().is_empty() {
+            tracing::warn!("composer editor read back empty at send; using the autosaved body");
+            strip_signature(&d.body_html)
+        } else {
+            read
+        };
         d.body_html = compose_html(&typed, &signature_for(&d.from.address.email), "");
         let now = pigeon_core::now_ms();
         let undo_secs = i64::from(crate::prefs::get().undo_send_seconds);

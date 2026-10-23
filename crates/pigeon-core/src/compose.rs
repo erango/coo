@@ -327,6 +327,41 @@ mod tests {
         Sender { account_id: account.into(), address: Address::new(Some("Me"), email) }
     }
 
+    /// Hebrew subject, names and mixed RTL/LTR body survive build → parse.
+    #[test]
+    fn hebrew_mime_round_trips() {
+        let subject =
+            "פידבקים על הגרסה החדשה — feedback on v0.1 (סבב שני, ארוך מספיק כדי לפצל את הכותרת לכמה מילים מקודדות)";
+        let mut d = Draft::new(
+            Sender {
+                account_id: "google:me@x.io".into(), address: Address::new(Some("ערן גולדין"), "me@x.io")
+            },
+            0,
+        );
+        d.to = vec![Address::new(Some("דנה כהן"), "dana@x.io")];
+        d.subject = subject.into();
+        let line = "שורה ארוכה מאוד עם עברית ו-English mixed together, ".repeat(8);
+        d.body_html =
+            format!("<div dir=\"auto\">שלום דנה,</div><div dir=\"auto\">{line}</div><div dir=\"ltr\">v0.1.0 ✓</div>");
+        let (_, mime) = build_mime(&d, &[], 1_792_800_000).unwrap();
+
+        let raw = String::from_utf8_lossy(&mime);
+        assert!(raw.contains("\r\n"), "CRLF line endings");
+        for l in raw.split("\r\n") {
+            assert!(l.len() <= 998, "RFC 5322 line limit: {} bytes", l.len());
+        }
+
+        let m = mail_parser::MessageParser::default().parse(&mime).expect("parses");
+        assert_eq!(m.subject(), Some(subject));
+        let from = m.from().and_then(|a| a.first()).unwrap();
+        assert_eq!(from.name(), Some("ערן גולדין"));
+        assert_eq!(m.to().and_then(|a| a.first()).and_then(|a| a.name()), Some("דנה כהן"));
+        let html = m.body_html(0).expect("html part");
+        assert!(html.contains("שלום דנה,") && html.contains(line.trim_end()) && html.contains("dir=\"ltr\""), "{html}");
+        let text = m.body_text(0).expect("text part");
+        assert!(text.contains("שלום דנה,") && text.contains("v0.1.0 ✓"), "{text}");
+    }
+
     fn original() -> MessageHeader {
         MessageHeader {
             id: "m1".into(),

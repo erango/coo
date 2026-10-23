@@ -435,36 +435,34 @@ impl Pigeon {
     }
 
     /// Send a draft from whichever account its From belongs to, then drop
-    /// it here and on the server. A server copy on the From account is sent
-    /// through the provider's draft API (Gmail keeps the thread); a copy on
-    /// another account is deleted. Returns the Message-ID.
+    /// it here and on the server. Returns the Message-ID.
+    ///
+    /// Always sends the MIME built right here from `draft`, never the
+    /// server's draft copy: a background draft sync that read an older
+    /// snapshot could update that copy between our update and the
+    /// provider's "send draft" call, and the stale (empty) version went out
+    /// (Gmail re-serialized it, so the recipient got a blank message).
+    /// Threading is kept by passing the thread to the send call.
     pub async fn send(&self, draft: &Draft) -> Result<String> {
         let (message_id, mime) = self.draft_mime(draft).await?;
         let account = self.account(&draft.from.account_id)?;
         let stored_server = self.store().draft(&draft.id)?.and_then(|d| d.server);
         let server = draft.server.clone().or(stored_server);
         let thread = draft.thread_hint();
-        match server.as_ref().filter(|s| s.account_id == account.id) {
-            Some(sd) => match &*self.backend(&account)? {
-                Backend::Microsoft(p) => p.send_draft(&sd.id, &mime, thread).await?,
-                Backend::Google(p) => p.send_draft(&sd.id, &mime, thread).await?,
-                Backend::ICloud(p) => p.mail.send_draft(&sd.id, &mime, thread).await?,
-            },
-            None => {
-                match &*self.backend(&account)? {
-                    Backend::Microsoft(p) => p.send_mime(&mime, thread).await?,
-                    Backend::Google(p) => p.send_mime(&mime, thread).await?,
-                    Backend::ICloud(p) => p.mail.send_mime(&mime, thread).await?,
-                }
-                if let Some(other) = &server
-                    && let Ok(other_account) = self.account(&other.account_id)
-                    && let Err(e) = self.delete_server_draft(&other_account, &other.id).await
-                {
-                    tracing::warn!(error = %e, "sent, but could not remove the draft from the other account");
-                }
-            }
+        match &*self.backend(&account)? {
+            Backend::Microsoft(p) => p.send_mime(&mime, thread).await?,
+            Backend::Google(p) => p.send_mime(&mime, thread).await?,
+            Backend::ICloud(p) => p.mail.send_mime(&mime, thread).await?,
         }
+        // Gone locally first, so an in-flight draft sync removes whatever it
+        // writes (it re-reads the store and finds nothing).
         self.store().delete_draft(&draft.id)?;
+        if let Some(sd) = &server
+            && let Ok(server_account) = self.account(&sd.account_id)
+            && let Err(e) = self.delete_server_draft(&server_account, &sd.id).await
+        {
+            tracing::warn!(error = %e, "sent, but could not remove the server copy of the draft");
+        }
         Ok(message_id)
     }
 
