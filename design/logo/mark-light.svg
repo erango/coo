@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="4 4 60 56" role="img" aria-label="Pigeon">
+  <!-- Full-color mark for light backgrounds, fixed colors. -->
+  <path d="M22 9C28 9 30 14 31 20C36 22 48 26 60 33L58 38C50 42 40 46 30 45C20 44 13 38 13 30C13 25 15 22 16 20C14 18 13 15 14 13C15 10 18 9 22 9Z" fill="#16171A"/>
+  <path d="M30 26C38 27 48 30 56 35C46 38 36 38 30 34Z" fill="#4A4E57"/>
+  <path d="M16 20C18 24 22 26 27 25" fill="none" stroke="#0A7A64" stroke-width="3" stroke-linecap="round"/>
+  <path d="M14 13.8L8 16.4L14 17.6Z" fill="#C98A1A"/>
+  <circle cx="19.5" cy="14" r="1.5" fill="#FFFFFF"/>
+  <path d="M28 45V54M35 45V54" stroke="#C98A1A" stroke-width="2.4" stroke-linecap="round"/>
+</svg>

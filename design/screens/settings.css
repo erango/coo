@@ -1,0 +1,32 @@
+/*
+ * Settings › Accounts: reorderable account list, status per account,
+ * expanded detail for the selected account (actions, color, toggles).
+ */
+
+.settings { height: 100%; display: flex; flex-direction: column; gap: 16px; padding: 20px 28px 24px; background: var(--bg-1); overflow-y: auto; }
+.settings__crumbs { display: flex; align-items: baseline; gap: 10px; font-size: var(--fs-ui); color: var(--text-3); }
+.settings__title { font-size: 18px; font-weight: var(--fw-semibold); letter-spacing: -0.01em; color: var(--text-1); }
+.settings__hint { font-size: 12.5px; color: var(--text-3); margin-top: -8px; }
+
+.account-list { display: flex; flex-direction: column; border-radius: var(--radius-lg); background: var(--bg-0); box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
+.account-row { height: 54px; display: flex; align-items: center; gap: 12px; padding: 0 14px 0 8px; box-shadow: inset 0 -1px 0 var(--line); }
+.account-row[aria-selected="true"] { background: var(--selection); }
+.account-row__grip { color: var(--text-3); cursor: grab; }
+.account-row__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.account-row__name { font-size: 13.5px; font-weight: var(--fw-semibold); }
+.account-row__addr { font-size: var(--fs-caption); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.account-row__status { width: 132px; display: flex; align-items: center; justify-content: flex-end; gap: 6px; font-size: var(--fs-caption); font-weight: var(--fw-medium); color: var(--text-3); }
+.account-row__status[data-state="syncing"] { color: var(--text-2); }
+.account-row__status[data-state="auth"] { color: var(--warning); }
+.account-row__key { width: 28px; text-align: right; font: 11.5px var(--font-mono); color: var(--text-3); }
+.account-row[data-dragging] { background: var(--bg-3); box-shadow: var(--shadow-overlay); border-radius: var(--radius-md); }
+
+.account-detail { padding: 14px 16px 16px 60px; display: flex; flex-direction: column; gap: 14px; background: var(--selection); box-shadow: inset 0 -1px 0 var(--line); }
+.account-detail__msg { font-size: var(--fs-ui); line-height: 19px; color: var(--text-2); }
+.account-detail__actions { display: flex; gap: 8px; }
+.account-detail__toggles { display: flex; gap: 24px; }
+.setting-label { width: 52px; font-size: var(--fs-caption); font-weight: var(--fw-semibold); color: var(--text-3); }
+
+.swatches { display: flex; gap: 8px; }
+.swatch { width: 20px; height: 20px; border: 0; border-radius: 50%; padding: 0; background: var(--hue); }
+.swatch[aria-checked="true"] { box-shadow: 0 0 0 2px var(--bg-1), 0 0 0 3.5px var(--hue); }

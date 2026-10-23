@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="4 4 60 56">
+  <!-- Single-color silhouette for 16–24 px: menu bar template image (black on
+       transparent; macOS tints it), favicon, notifications. No wing, legs or eye. -->
+  <path d="M22 9C28 9 30 14 31 20C36 22 48 26 60 33L58 38C50 42 40 46 30 45C20 44 13 38 13 30C13 25 15 22 16 20C14 18 13 15 14 13C15 10 18 9 22 9Z" fill="#000000"/>
+  <path d="M14 13.8L8 16.4L14 17.6Z" fill="#000000"/>
+</svg>

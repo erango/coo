@@ -1,0 +1,33 @@
+/*
+ * Injected into the sandboxed srcdoc of a "simple" email (data-render="adapted")
+ * so it follows the app theme. The host substitutes the four values below
+ * from tokens.css when building the srcdoc (the iframe can't see the app's
+ * custom properties). Complex HTML (own background colors, layout tables)
+ * skips this file and renders as a light "paper" card instead.
+ */
+
+:root {
+  --mail-bg: transparent;
+  --mail-fg: #EDEEF0;       /* --text-1 */
+  --mail-muted: #A3A6AE;    /* --text-2 */
+  --mail-link: #7AAEFF;     /* --info   */
+  color-scheme: light dark;
+}
+
+html, body {
+  margin: 0;
+  background: var(--mail-bg);
+  color: var(--mail-fg);
+  font: 15px/24px "Inter", -apple-system, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow-wrap: anywhere;
+}
+body > * { unicode-bidi: plaintext; }
+a { color: var(--mail-link); text-underline-offset: 2px; }
+blockquote { margin: 8px 0; padding-left: 12px; border-left: 2px solid var(--mail-muted); color: var(--mail-muted); }
+img { max-width: 100%; height: auto; }
+/* Neutralize authored colors on text only; images and backgrounds of
+   images are left alone. */
+p, div, span, td, li, font, h1, h2, h3, h4 { color: inherit !important; background-color: transparent !important; }
+pre, code { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; }
+hr { border: 0; height: 1px; background: rgba(128, 128, 128, 0.3); }

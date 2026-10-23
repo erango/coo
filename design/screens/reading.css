@@ -1,0 +1,91 @@
+/*
+ * Reading pane: toolbar, thread header, collapsed + expanded messages,
+ * email body frame (adapted vs paper), remote-images banner, attachments,
+ * invite card with mini day view, conversation link (unthreaded mode).
+ */
+
+.reader-toolbar { height: var(--toolbar-h); flex: none; display: flex; align-items: center; gap: 2px; padding: 0 16px; position: relative; }
+.reader-toolbar__sep { width: 1px; height: 18px; margin: 0 8px; background: var(--line-strong); }
+.reader-toolbar__pos { font-size: var(--fs-caption); color: var(--text-3); margin-right: 6px; }
+
+.reader { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 48px 24px; display: flex; flex-direction: column; user-select: text; }
+.thread-subject { font-size: var(--fs-title); line-height: var(--lh-title); font-weight: var(--fw-semibold); letter-spacing: var(--ls-title); unicode-bidi: plaintext; }
+.thread-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.thread-meta__people { margin-left: 6px; font-size: 12.5px; color: var(--text-3); }
+.thread { margin-top: 18px; display: flex; flex-direction: column; }
+
+/* Collapsed earlier message */
+.msg-collapsed { height: 42px; display: flex; align-items: center; gap: 12px; box-shadow: inset 0 -1px 0 var(--line); }
+.msg-collapsed:hover { background: var(--bg-1); }
+.msg-collapsed__who { width: 120px; flex: none; font-size: 13.5px; font-weight: var(--fw-semibold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.msg-collapsed__snip { flex: 1; min-width: 0; font-size: var(--fs-snippet); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; unicode-bidi: plaintext; }
+.msg-collapsed__time { font-size: var(--fs-caption); color: var(--text-3); }
+
+/* Expanded message */
+.msg { padding-top: 18px; display: flex; flex-direction: column; gap: 14px; }
+.msg-head { display: flex; align-items: center; gap: 12px; }
+.msg-head__from { font-size: 14px; font-weight: var(--fw-semibold); }
+.msg-head__addr { font-weight: var(--fw-regular); color: var(--text-3); }
+.msg-head__to { font-size: 12.5px; color: var(--text-3); }
+.msg-head__time { margin-left: auto; font-size: 12.5px; color: var(--text-3); white-space: nowrap; }
+
+/* Unthreaded mode: single message + link to the whole conversation */
+.conversation-link { margin-top: 16px; height: 36px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-radius: var(--radius-md); background: var(--bg-1); color: var(--text-2); font-size: var(--fs-ui); }
+.conversation-link__action { margin-left: auto; color: var(--accent); font-weight: var(--fw-semibold); }
+
+/*
+ * Email body. Sanitized HTML renders in <iframe class="mail-frame" sandbox srcdoc>.
+ *  - data-render="adapted": simple mail; inject adapted.css into the srcdoc
+ *    (text/bg follow theme, links use --info, images untouched).
+ *  - data-render="paper": complex HTML (own colors, layout tables); keep the
+ *    author's white background on a card.
+ * The per-message toggle flips between them.
+ */
+.mail-body { max-width: 680px; display: flex; flex-direction: column; gap: 8px; }
+.mail-body__toggle { align-self: flex-end; }
+.mail-frame { width: 100%; border: 0; display: block; background: transparent; color-scheme: normal; }
+.mail-frame[data-render="paper"] { background: #FFFFFF; border-radius: 10px; box-shadow: 0 0 0 1px var(--line); padding: 0; }
+:root[data-theme="light"] .mail-frame[data-render="paper"] { box-shadow: 0 0 0 1px var(--line-strong); }
+.plain-body { font-size: var(--fs-body); line-height: var(--lh-body); max-width: 640px; display: flex; flex-direction: column; gap: 10px; white-space: pre-wrap; unicode-bidi: plaintext; }
+.plain-body a { color: var(--info); text-decoration: underline; text-underline-offset: 2px; }
+
+.images-banner { max-width: 680px; }
+
+/* Attachments */
+.attachments { display: flex; gap: 8px; flex-wrap: wrap; }
+.attachment {
+  width: 220px; height: 48px; display: flex; align-items: center; gap: 10px; padding: 0 8px 0 12px;
+  border-radius: 9px; box-shadow: inset 0 0 0 1px var(--line-strong); position: relative; overflow: hidden;
+}
+.attachment:hover { background: var(--bg-1); }
+.attachment__icon { width: 28px; height: 28px; flex: none; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; background: var(--bg-2); color: var(--text-2); }
+.attachment__icon[data-kind="pdf"]   { background: var(--error-soft); color: var(--error); }
+.attachment__icon[data-kind="doc"]   { background: rgba(var(--hue-1-rgb), 0.16); color: var(--hue-1); }
+.attachment__icon[data-kind="sheet"] { background: rgba(85, 207, 128, 0.14); color: var(--success); }
+.attachment__name { font-size: 12.5px; font-weight: var(--fw-semibold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.attachment__size { font-size: 11.5px; color: var(--text-3); }
+.attachment__progress { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--accent); }
+.attachment-tile { width: 132px; border-radius: 10px; overflow: hidden; box-shadow: inset 0 0 0 1px var(--line-strong); display: flex; flex-direction: column; }
+.attachment-tile__thumb { height: 72px; background: var(--bg-2) center / cover no-repeat; display: flex; align-items: flex-end; justify-content: flex-end; padding: 6px; }
+.attachment-tile__meta { padding: 6px 8px; display: flex; flex-direction: column; }
+
+/* Invite card (in the thread) */
+.invite-card { display: flex; gap: 20px; padding: 16px; border-radius: var(--radius-lg); background: var(--bg-2); max-width: 640px; }
+.invite-card__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.invite-card__title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: var(--fw-semibold); }
+.invite-card__title .icon { color: var(--hue); }
+.invite-card__facts { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-ui); color: var(--text-2); }
+.invite-card__facts b { color: var(--text-1); font-weight: var(--fw-semibold); }
+.invite-card__actions { display: flex; gap: 6px; margin-top: 4px; }
+.invite-card__actions .btn--secondary { background: var(--bg-3); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.invite-card__answered { height: 28px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 7px; background: var(--accent-soft); color: var(--accent); font-size: 12.5px; font-weight: var(--fw-semibold); }
+
+/* Mini day view: the invite's slot over your own calendar, 40 px per hour */
+.mini-day { width: 172px; height: 150px; flex: none; position: relative; --mini-hour: 40px; }
+.mini-day__hour { position: absolute; left: 0; right: 0; display: flex; align-items: center; gap: 6px; transform: translateY(-7px); }
+.mini-day__hour span { width: 30px; font-size: 10.5px; color: var(--text-3); }
+.mini-day__hour::after { content: ""; flex: 1; height: 1px; background: var(--line-strong); }
+.mini-day__event { position: absolute; left: 36px; padding: 3px 6px; border-radius: 5px; font-size: 10.5px; font-weight: var(--fw-semibold); overflow: hidden;
+  background: rgba(var(--hue-rgb), var(--event-fill-a)); box-shadow: inset 0 0 0 1px rgba(var(--hue-rgb), var(--event-border-a)); color: var(--hue-text); }
+.mini-day__event--proposed { background: repeating-linear-gradient(135deg, var(--accent-soft) 0 4px, transparent 4px 8px); box-shadow: inset 0 0 0 1px var(--accent); color: var(--text-1); }
+.mini-day__conflict { position: absolute; left: 36px; right: 0; bottom: 0; display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: var(--fw-medium); color: var(--warning); }

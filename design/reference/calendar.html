@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pigeon · Calendar week</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../base.css">
+<link rel="stylesheet" href="../screens/shell.css">
+<link rel="stylesheet" href="../screens/calendar.css">
+<script src="theme.js"></script>
+<style>
+  /* Reference-page only: 8:00 is the first visible hour. The app computes
+     top/height from the event times with the same formula. */
+  .grid__hours { height: calc(12 * var(--hour-h)); }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar__top"><div class="traffic"><span></span><span></span><span></span></div></div>
+    <div class="sidebar__controls">
+      <button class="search-field" type="button"><svg class="icon icon--sm"><use href="../icons.svg#i-search"/></svg><span class="spacer" style="text-align:left">Search</span><kbd class="kbd">⌘K</kbd></button>
+      <div class="segmented segmented--block" role="tablist" aria-label="Mode"><button role="tab" aria-selected="false">Mail</button><button role="tab" aria-selected="true">Calendar</button></div>
+    </div>
+
+    <div class="mini-month">
+      <div class="mini-month__head"><span class="spacer">October 2026</span>
+        <button class="icon-btn icon-btn--xs" aria-label="Previous month"><svg class="icon icon--sm"><use href="../icons.svg#i-chev-left"/></svg></button>
+        <button class="icon-btn icon-btn--xs" aria-label="Next month"><svg class="icon icon--sm"><use href="../icons.svg#i-chev-right"/></svg></button></div>
+      <div class="mini-month__grid" id="mini"></div>
+    </div>
+
+    <div class="cal-list">
+      <div class="nav-section"><span class="spacer">Halyard</span><span class="nav-section__meta">M365</span></div>
+      <label class="cal-list__item" data-hue="1"><input class="check check--hue" type="checkbox" checked>Calendar</label>
+      <label class="cal-list__item" data-hue="1"><input class="check check--hue" type="checkbox" checked>Team offsites</label>
+      <div class="nav-section"><span class="spacer">Personal</span><span class="nav-section__meta">Gmail</span></div>
+      <label class="cal-list__item" data-hue="2"><input class="check check--hue" type="checkbox" checked>Personal</label>
+      <label class="cal-list__item" data-hue="2"><input class="check check--hue" type="checkbox">Holidays in Germany</label>
+      <div class="nav-section"><span class="spacer">Field Notes</span><span class="nav-section__meta">Workspace</span></div>
+      <label class="cal-list__item" data-hue="3"><input class="check check--hue" type="checkbox" checked>Editorial</label>
+    </div>
+    <div class="sidebar__footer"><div class="sync-status"><svg class="icon icon--sm"><use href="../icons.svg#i-globe"/></svg>Europe/Berlin · CEST</div></div>
+  </aside>
+
+  <main class="pane pane--reader">
+    <header class="cal-header">
+      <h1 class="cal-header__title">October 2026</h1><span class="cal-header__week">Week 43</span>
+      <span class="spacer"></span>
+      <button class="btn btn--secondary btn--sm" type="button" style="height:30px">Today</button>
+      <button class="icon-btn" aria-label="Previous week"><svg class="icon"><use href="../icons.svg#i-chev-left"/></svg></button>
+      <button class="icon-btn" aria-label="Next week"><svg class="icon"><use href="../icons.svg#i-chev-right"/></svg></button>
+      <div class="segmented" role="tablist" aria-label="View" style="margin:0 8px"><button role="tab" aria-selected="false">Day</button><button role="tab" aria-selected="true">Week</button><button role="tab" aria-selected="false">Month</button></div>
+      <button class="btn btn--primary" type="button" style="height:30px"><svg class="icon icon--sm"><use href="../icons.svg#i-plus"/></svg>New event<kbd class="kbd">C</kbd></button>
+    </header>
+
+    <div class="week">
+      <div class="day-heads">
+        <div class="day-head"><span class="day-head__dow">Mon</span><span class="day-head__num">19</span></div>
+        <div class="day-head"><span class="day-head__dow">Tue</span><span class="day-head__num">20</span></div>
+        <div class="day-head"><span class="day-head__dow">Wed</span><span class="day-head__num">21</span></div>
+        <div class="day-head"><span class="day-head__dow">Thu</span><span class="day-head__num">22</span></div>
+        <div class="day-head" aria-current="date"><span class="day-head__dow">Fri</span><span class="day-head__num">23</span></div>
+        <div class="day-head" data-weekend><span class="day-head__dow">Sat</span><span class="day-head__num">24</span></div>
+        <div class="day-head" data-weekend><span class="day-head__dow">Sun</span><span class="day-head__num">25</span></div>
+      </div>
+      <div class="allday"><span class="allday__label">all-day</span>
+        <div class="allday__track">
+          <div class="allday-chip" data-hue="1" style="--day:3">Lena out of office</div>
+          <div class="allday-chip" data-hue="2" style="--day:5;--span:2">Lisbon · Ava &amp; Sam</div>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="grid__hours" id="hours">
+          <div class="grid__days">
+            <div class="day-col">
+              <div class="event" data-hue="1" data-rsvp="pending" style="top:90px;height:28px" data-short><div class="event__title"><svg class="icon icon--xs"><use href="../icons.svg#i-video"/></svg>Hiring sync</div></div>
+              <div class="event" data-hue="1" style="top:180px;height:58px"><div class="event__title">Product weekly</div><div class="event__time">11:00–12:00</div></div>
+              <div class="event" data-hue="2" style="top:300px;height:58px"><div class="event__title">Lunch with Ava</div><div class="event__time">13:00–14:00</div></div>
+            </div>
+            <div class="day-col">
+              <div class="event" data-hue="1" style="top:60px;height:28px" data-short><div class="event__title">Standup</div></div>
+              <div class="event" data-hue="3" style="top:120px;height:88px"><div class="event__title">Editorial planning</div><div class="event__time">10:00–11:30</div></div>
+              <div class="event" data-hue="1" style="top:360px;height:58px;--cols:2"><div class="event__title">Vendor call</div><div class="event__time">14:00–15:00</div></div>
+              <div class="event" data-hue="2" style="top:390px;height:58px;--col:1;--cols:2"><div class="event__title">Dentist</div><div class="event__time">14:30–15:30</div></div>
+            </div>
+            <div class="day-col">
+              <div class="event" data-hue="1" style="top:60px;height:28px" data-short><div class="event__title">Standup</div></div>
+              <div class="event" data-hue="1" style="top:240px;height:58px"><div class="event__title">Interview · Staff designer</div><div class="event__time">12:00–13:00</div></div>
+              <div class="event" data-hue="1" data-rsvp="declined" style="top:480px;height:58px"><div class="event__title">Board prep</div><div class="event__time">16:00–17:00</div></div>
+            </div>
+            <div class="day-col">
+              <div class="event" data-hue="1" style="top:60px;height:28px" data-short><div class="event__title">Standup</div></div>
+              <div class="event" data-hue="1" style="top:330px;height:43px;--cols:2"><div class="event__title">Vendor call</div><div class="event__time">13:30–14:15</div></div>
+              <div class="event" data-hue="1" data-rsvp="tentative" style="top:360px;height:58px;--col:1;--cols:2"><div class="event__title">Roadmap review</div><div class="event__time">14:00–15:00</div></div>
+            </div>
+            <div class="day-col">
+              <div class="event" data-hue="1" data-past style="top:60px;height:28px" data-short><div class="event__title">Standup</div></div>
+              <div class="event" data-hue="1" aria-selected="true" style="top:170px;height:38px"><div class="event__title"><svg class="icon icon--xs"><use href="../icons.svg#i-video"/></svg>Design review</div><div class="event__time">10:50–11:30</div></div>
+              <div class="event" data-hue="2" style="top:270px;height:58px"><div class="event__title">Lunch</div><div class="event__time">12:30–13:30</div></div>
+              <div class="event" data-hue="3" style="top:480px;height:58px"><div class="event__title">Proofing · issue 12</div><div class="event__time">16:00–17:00</div></div>
+              <div class="now-line" style="top:159px"></div>
+            </div>
+            <div class="day-col" data-weekend><div class="event" data-hue="2" style="top:0;height:118px"><div class="event__title">Flight to Lisbon</div><div class="event__time">8:00–10:00</div></div></div>
+            <div class="day-col" data-weekend></div>
+          </div>
+          <div class="now-line now-line--week" style="top:160px"></div>
+          <div class="now-label" style="top:160px">10:40</div>
+
+          <div class="event-popover popover" role="dialog" aria-label="Design review" style="left:352px;top:96px">
+            <div class="event-popover__section">
+              <div style="display:flex;align-items:flex-start;gap:8px">
+                <div class="spacer"><div class="event-popover__title">Design review</div><div class="event-popover__when">Fri, Oct 23 · 10:50–11:30 · <span class="event-popover__soon">in 10 min</span></div></div>
+                <button class="icon-btn icon-btn--sm" aria-label="Edit"><svg class="icon icon--sm"><use href="../icons.svg#i-edit"/></svg></button>
+              </div>
+              <a class="btn btn--primary join-btn" href="#"><svg class="icon"><use href="../icons.svg#i-video"/></svg>Join Google Meet<kbd class="kbd">J</kbd></a>
+              <span class="event-popover__link">meet.google.com/dzw-pkno-rta</span>
+            </div>
+            <div class="event-popover__section">
+              <div class="event-popover__fact" data-hue="1"><span class="dot"></span>Halyard · Calendar</div>
+              <div class="event-popover__fact"><svg class="icon icon--sm"><use href="../icons.svg#i-pin"/></svg>Room 4B, Halyard HQ</div>
+            </div>
+            <div class="event-popover__section">
+              <span class="t-label">3 guests · 2 yes, 1 maybe</span>
+              <div class="guest" data-rsvp="yes"><span class="avatar avatar--22" data-hue="1">PR<span class="rsvp" data-rsvp="yes"><svg class="icon"><use href="../icons.svg#i-check"/></svg></span></span><span class="guest__name">Priya Raman</span><span class="guest__note">Organizer</span></div>
+              <div class="guest" data-rsvp="maybe"><span class="avatar avatar--22" data-hue="2">LF<span class="rsvp" data-rsvp="maybe"><svg class="icon"><use href="../icons.svg#i-question"/></svg></span></span><span class="guest__name">Lena Fischer</span><span class="guest__note">Joining late</span></div>
+              <div class="guest" data-rsvp="no"><span class="avatar avatar--22" data-hue="3">TP<span class="rsvp" data-rsvp="no"><svg class="icon"><use href="../icons.svg#i-x"/></svg></span></span><span class="guest__name">Theo Park</span><span class="guest__note">Conflict</span></div>
+            </div>
+            <div class="event-popover__rsvp"><span class="spacer t-2" style="font-size:12.5px">Going?</span>
+              <button class="btn btn--soft btn--sm" aria-pressed="true">Yes</button><button class="btn btn--secondary btn--sm">Maybe</button><button class="btn btn--secondary btn--sm">No</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+<script>
+  // Reference-page scaffolding only: hour lines and the mini month.
+  const hours = document.getElementById("hours");
+  for (let h = 8; h <= 20; h++) {
+    const line = document.createElement("div");
+    line.className = "hour-line";
+    line.style.top = (h - 8) * 60 + "px";
+    line.innerHTML = '<span class="hour-line__label">' + (h === 8 ? "" : h + ":00") + "</span>";
+    hours.prepend(line);
+  }
+  const mini = document.getElementById("mini");
+  for (const d of "MTWTFSS") mini.insertAdjacentHTML("beforeend", '<span class="mini-month__dow">' + d + "</span>");
+  for (let i = 0; i < 35; i++) {
+    const date = new Date(2026, 8, 28 + i), n = date.getDate(), inMonth = date.getMonth() === 9, col = i % 7;
+    const attrs = [!inMonth && "data-outside", inMonth && n >= 19 && n <= 25 && "data-in-range", inMonth && n === 19 && "data-range-start", inMonth && n === 25 && "data-range-end", inMonth && n === 23 && 'aria-current="date"'].filter(Boolean).join(" ");
+    mini.insertAdjacentHTML("beforeend", '<span class="mini-month__day" ' + attrs + "><span>" + n + "</span></span>");
+  }
+</script>
+</body>
+</html>

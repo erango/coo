@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pigeon · Unified inbox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../base.css">
+<link rel="stylesheet" href="../screens/shell.css">
+<link rel="stylesheet" href="../screens/mail-list.css">
+<link rel="stylesheet" href="../screens/reading.css">
+<link rel="stylesheet" href="../screens/composer.css">
+<script src="theme.js"></script>
+</head>
+<body>
+<div class="app">
+
+  <!-- ================= Sidebar ================= -->
+  <aside class="sidebar">
+    <div class="sidebar__top"><div class="traffic"><span></span><span></span><span></span></div></div>
+    <div class="sidebar__controls">
+      <button class="search-field" type="button">
+        <svg class="icon icon--sm"><use href="../icons.svg#i-search"/></svg><span class="spacer" style="text-align:left">Search</span><kbd class="kbd">⌘K</kbd>
+      </button>
+      <div class="segmented segmented--block" role="tablist" aria-label="Mode">
+        <button role="tab" aria-selected="true">Mail</button>
+        <button role="tab" aria-selected="false">Calendar</button>
+      </div>
+    </div>
+
+    <nav class="sidebar__nav" aria-label="Mailboxes">
+      <a class="nav-item" href="#" aria-current="page"><svg class="icon"><use href="../icons.svg#i-inbox"/></svg><span class="nav-item__label">Inbox</span><span class="count">12</span></a>
+      <a class="nav-item" href="#"><svg class="icon"><use href="../icons.svg#i-flag"/></svg><span class="nav-item__label">Flagged</span><span class="count">3</span></a>
+      <a class="nav-item" href="#"><svg class="icon"><use href="../icons.svg#i-send"/></svg><span class="nav-item__label">Sent</span></a>
+      <a class="nav-item" href="#"><svg class="icon"><use href="../icons.svg#i-file"/></svg><span class="nav-item__label">Drafts</span><span class="count">2</span></a>
+
+      <div class="nav-section" data-hue="1" style="margin-top:18px"><span class="dot"></span>Halyard<span class="nav-section__meta">M365</span></div>
+      <a class="nav-item nav-item--child" href="#"><svg class="icon icon--sm"><use href="../icons.svg#i-inbox"/></svg><span class="nav-item__label">Inbox</span><span class="count">8</span></a>
+      <a class="nav-item nav-item--child" href="#"><svg class="icon icon--sm"><use href="../icons.svg#i-folder"/></svg><span class="nav-item__label">Q4 Planning</span></a>
+      <a class="nav-item nav-item--child" href="#"><svg class="icon icon--sm"><use href="../icons.svg#i-archive"/></svg><span class="nav-item__label">Archive</span></a>
+
+      <div class="nav-section" data-hue="2"><span class="dot"></span>Personal<span class="nav-section__meta">Gmail</span></div>
+      <a class="nav-item nav-item--child" href="#"><svg class="icon icon--sm"><use href="../icons.svg#i-inbox"/></svg><span class="nav-item__label">Inbox</span><span class="count">3</span></a>
+      <a class="nav-item nav-item--child" href="#"><svg class="icon icon--sm"><use href="../icons.svg#i-tag"/></svg><span class="nav-item__label">Travel</span></a>
+    </nav>
+
+    <div class="next-up">
+      <span class="t-label" style="padding:0 4px">Next up</span>
+      <div class="next-up__card">
+        <div class="next-up__item" data-hue="1">
+          <span class="next-up__bar"></span>
+          <div><div class="next-up__title">Design review</div><div class="next-up__when">10:50–11:30 · <span class="next-up__soon">in 8 min</span></div></div>
+        </div>
+        <a class="btn btn--primary" href="#" style="height:30px"><svg class="icon icon--sm"><use href="../icons.svg#i-video"/></svg>Join Google Meet<kbd class="kbd">J</kbd></a>
+      </div>
+    </div>
+    <div class="sidebar__footer">
+      <div class="sync-status" data-state="synced"><svg class="icon icon--sm"><use href="../icons.svg#i-cloud-check"/></svg>Synced · just now</div>
+    </div>
+  </aside>
+
+  <!-- ================= List ================= -->
+  <section class="pane pane--list" aria-label="Inbox">
+    <header class="pane-header">
+      <h1 class="pane-header__title">Inbox</h1>
+      <span class="pane-header__sub">All accounts</span>
+      <span class="spacer"></span>
+      <div class="segmented segmented--sm" role="tablist" aria-label="Grouping">
+        <button role="tab" aria-selected="true">Threads</button>
+        <button role="tab" aria-selected="false">Messages</button>
+      </div>
+      <button class="icon-btn icon-btn--sm" type="button" aria-label="Filter"><svg class="icon"><use href="../icons.svg#i-filter"/></svg></button>
+    </header>
+
+    <div class="list" role="listbox" aria-label="Conversations">
+      <div class="list-group">Today</div>
+
+      <div class="row" role="option" data-hue="1" data-unread aria-selected="true" data-focused>
+        <div class="row__line"><span class="dot"></span><span class="row__who" dir="auto">Priya Raman, Jonah, Lena</span><span class="row__count">4</span>
+          <span class="row__meta"><svg class="icon"><use href="../icons.svg#i-cal"/></svg><svg class="icon"><use href="../icons.svg#i-clip"/></svg><time class="row__time">10:24</time></span></div>
+        <div class="row__subject" dir="auto">Q4 roadmap review — Thursday</div>
+        <div class="row__snippet" dir="auto">Updated the deck with Jonah’s notes on hiring. I moved the review…</div>
+      </div>
+
+      <div class="row" role="option" data-hue="1" data-unread>
+        <div class="row__line"><span class="dot"></span><span class="row__who">Marcus Lee</span>
+          <span class="row__meta"><svg class="icon"><use href="../icons.svg#i-cal"/></svg><time class="row__time">10:02</time></span></div>
+        <div class="row__subject">Invitation: Hiring sync</div>
+        <div class="row__invite"><span class="row__invite-when">Mon, Oct 26 · 09:30–10:00 · Teams</span>
+          <button class="btn btn--soft" type="button">Accept</button><button class="btn btn--secondary" type="button">Maybe</button><button class="btn btn--secondary" type="button">Decline</button></div>
+      </div>
+
+      <div class="row" role="option" data-hue="2" data-unread data-flagged>
+        <div class="row__line"><span class="dot"></span><span class="row__who">Ava Chen</span><span class="row__count">2</span>
+          <span class="row__meta"><svg class="icon row__flag"><use href="../icons.svg#i-flag"/></svg><time class="row__time">9:51</time></span></div>
+        <div class="row__subject">Flights for Lisbon</div>
+        <div class="row__snippet">Booked the 7:40 out of Newark, seat 14C. Return is the 2nd…</div>
+      </div>
+
+      <div class="row" role="option" data-hue="3" data-hover>
+        <div class="row__line"><span class="dot"></span><span class="row__who">Theo Park</span>
+          <span class="row__meta"><time class="row__time">9:12</time></span>
+          <span class="row__actions">
+            <button class="icon-btn icon-btn--sm" aria-label="Archive (E)"><svg class="icon"><use href="../icons.svg#i-archive"/></svg></button>
+            <button class="icon-btn icon-btn--sm" aria-label="Delete (#)"><svg class="icon"><use href="../icons.svg#i-trash"/></svg></button>
+            <button class="icon-btn icon-btn--sm" aria-label="Flag (S)"><svg class="icon"><use href="../icons.svg#i-flag"/></svg></button>
+            <button class="icon-btn icon-btn--sm" aria-label="Snooze (H)"><svg class="icon"><use href="../icons.svg#i-clock"/></svg></button>
+            <button class="icon-btn icon-btn--sm" aria-label="Mark unread (U)"><svg class="icon"><use href="../icons.svg#i-mailopen"/></svg></button>
+          </span></div>
+        <div class="row__subject">Proofs for issue 12</div>
+        <div class="row__snippet">Pages 4–9 are ready. The pull quote on 6 still runs long…</div>
+      </div>
+
+      <div class="row" role="option" data-hue="1" data-state="sending">
+        <div class="row__line"><span class="dot"></span><span class="row__who">To: Jonah Weiss</span><span class="row__meta"><time class="row__time">9:04</time></span></div>
+        <div class="row__subject">Re: Contractor invoice</div>
+        <div class="row__snippet">Sending…</div>
+      </div>
+
+      <div class="row" role="option" data-hue="1" data-state="failed">
+        <div class="row__line"><span class="dot"></span><span class="row__who">To: Lena Fischer</span><span class="row__meta"><time class="row__time">8:58</time></span></div>
+        <div class="row__subject">Re: Venue options for the offsite</div>
+        <div class="row__snippet">Failed to send · <a href="#">Retry</a> <span class="t-3" style="font-weight:400">· Saved to Drafts</span></div>
+      </div>
+
+      <div class="list-group">Yesterday</div>
+      <div class="row" role="option" data-hue="1" data-state="draft">
+        <div class="row__line"><span class="dot"></span><span class="row__who">Draft</span><span class="row__meta"><time class="row__time">Thu</time></span></div>
+        <div class="row__subject">October update for the board</div>
+        <div class="row__snippet">To: board@halyard.co — Three things moved this month. First…</div>
+      </div>
+      <div class="row" role="option" data-hue="1">
+        <div class="row__line"><span class="dot"></span><span class="row__who">Jonah Weiss, Sam</span><span class="row__count">3</span><span class="row__meta"><svg class="icon"><use href="../icons.svg#i-clip"/></svg><time class="row__time">Thu</time></span></div>
+        <div class="row__subject">Contractor invoice</div>
+        <div class="row__snippet">Attached the revised one — hours for the week of the 12th were…</div>
+      </div>
+    </div>
+
+    <div class="toast-stack">
+      <div class="toast" role="status"><svg class="icon"><use href="../icons.svg#i-archive"/></svg><span class="toast__msg">Archived <b>Weekly ops digest</b></span><button class="btn btn--ghost btn--sm" type="button" style="color:var(--text-1)">Undo<kbd class="kbd">Z</kbd></button></div>
+    </div>
+  </section>
+
+  <!-- ================= Reader ================= -->
+  <main class="pane pane--reader">
+    <div class="reader-toolbar">
+      <button class="icon-btn" aria-label="Archive (E)"><svg class="icon icon--lg"><use href="../icons.svg#i-archive"/></svg></button>
+      <button class="icon-btn" aria-label="Delete (#)"><svg class="icon icon--lg"><use href="../icons.svg#i-trash"/></svg></button>
+      <button class="icon-btn" aria-label="Flag (S)"><svg class="icon icon--lg"><use href="../icons.svg#i-flag"/></svg></button>
+      <button class="icon-btn" aria-label="Move (V)"><svg class="icon icon--lg"><use href="../icons.svg#i-folder"/></svg></button>
+      <button class="icon-btn" aria-label="Snooze (H)"><svg class="icon icon--lg"><use href="../icons.svg#i-clock"/></svg></button>
+      <span class="spacer"></span>
+      <span class="reader-toolbar__pos">1 of 12</span>
+      <button class="icon-btn icon-btn--sm" aria-label="Previous (K)"><svg class="icon"><use href="../icons.svg#i-chev-up"/></svg></button>
+      <button class="icon-btn icon-btn--sm" aria-label="Next (J)"><svg class="icon"><use href="../icons.svg#i-chev-down"/></svg></button>
+      <span class="reader-toolbar__sep"></span>
+      <button class="icon-btn" aria-label="Reply (R)"><svg class="icon icon--lg"><use href="../icons.svg#i-reply"/></svg></button>
+      <button class="icon-btn" aria-label="Reply all (A)"><svg class="icon icon--lg"><use href="../icons.svg#i-replyall"/></svg></button>
+      <button class="icon-btn" aria-label="Forward (F)"><svg class="icon icon--lg"><use href="../icons.svg#i-forward"/></svg></button>
+      <button class="icon-btn" aria-label="More"><svg class="icon icon--lg"><use href="../icons.svg#i-more"/></svg></button>
+    </div>
+
+    <div class="reader">
+      <h2 class="thread-subject" dir="auto">Q4 roadmap review — Thursday</h2>
+      <div class="thread-meta">
+        <span class="tag" data-hue="1"><span class="dot dot--sm"></span>Halyard</span>
+        <span class="tag">Inbox</span>
+        <span class="tag"><svg class="icon icon--xs"><use href="../icons.svg#i-folder"/></svg>Q4 Planning</span>
+        <span class="thread-meta__people">Priya Raman, Jonah Weiss, Lena Fischer, you · 4 messages</span>
+      </div>
+
+      <div class="thread">
+        <div class="msg-collapsed"><span class="avatar" data-hue="1">PR</span><span class="msg-collapsed__who">Priya Raman</span><span class="msg-collapsed__snip">Kicking off the Q4 review thread — draft deck attached, comments welcome by…</span><span class="msg-collapsed__time">Mon</span></div>
+        <div class="msg-collapsed"><span class="avatar" data-hue="3">JW</span><span class="msg-collapsed__who">Jonah Weiss</span><span class="msg-collapsed__snip">Two notes on hiring: we should push the staff designer req to January and…</span><span class="msg-collapsed__time">Tue</span></div>
+        <div class="msg-collapsed"><span class="avatar avatar--self">SO</span><span class="msg-collapsed__who">You</span><span class="msg-collapsed__snip">Works for me. Thursday afternoon is clear on my side, Lena is at…</span><span class="msg-collapsed__time">Yesterday</span></div>
+
+        <article class="msg">
+          <div class="msg-head">
+            <span class="avatar avatar--32 avatar--ring" data-hue="1">PR</span>
+            <div><div class="msg-head__from">Priya Raman <span class="msg-head__addr">priya@halyard.co</span></div><div class="msg-head__to">to Jonah, Lena, me</div></div>
+            <span class="msg-head__time">10:24 · 18 min ago</span>
+          </div>
+          <div class="plain-body" dir="auto"><p>Updated the deck with Jonah’s notes on hiring. I moved the review to Thursday afternoon so Lena can join from Berlin — invite below.</p><p>Can we lock the agenda before Wednesday?</p></div>
+
+          <div class="invite-card" data-hue="1">
+            <div class="invite-card__main">
+              <div class="invite-card__title"><svg class="icon"><use href="../icons.svg#i-cal"/></svg>Roadmap review</div>
+              <div class="invite-card__facts">
+                <span><b>Thu, Oct 29</b> · 14:00–15:00 CET</span>
+                <span style="display:flex;align-items:center;gap:6px"><svg class="icon icon--sm"><use href="../icons.svg#i-video"/></svg>Google Meet · <span class="t-mono">meet.google.com/qrv-hmtz-kpa</span></span>
+                <span>Priya (organizer), Jonah, Lena +2</span>
+              </div>
+              <div class="invite-card__actions">
+                <button class="btn btn--primary" type="button"><svg class="icon icon--sm"><use href="../icons.svg#i-check"/></svg>Accept</button>
+                <button class="btn btn--secondary" type="button">Maybe</button>
+                <button class="btn btn--secondary" type="button">Decline</button>
+                <button class="btn btn--ghost" type="button">Propose time</button>
+              </div>
+            </div>
+            <div class="mini-day" aria-label="Your Thursday, 13:00 to 16:00">
+              <div class="mini-day__hour" style="top:0"><span>13:00</span></div>
+              <div class="mini-day__hour" style="top:40px"><span>14:00</span></div>
+              <div class="mini-day__hour" style="top:80px"><span>15:00</span></div>
+              <div class="mini-day__hour" style="top:120px"><span>16:00</span></div>
+              <div class="mini-day__event" style="top:20px;height:30px;width:64px">Vendor call</div>
+              <div class="mini-day__event mini-day__event--proposed" style="top:40px;height:40px;left:104px;right:0">Roadmap</div>
+              <div class="mini-day__conflict"><svg class="icon icon--xs"><use href="../icons.svg#i-alert"/></svg>Overlaps 15 min</div>
+            </div>
+          </div>
+
+          <div class="attachments">
+            <div class="attachment"><span class="attachment__icon" data-kind="pdf"><svg class="icon icon--sm"><use href="../icons.svg#i-pdf"/></svg></span><div style="min-width:0"><div class="attachment__name">Q4-roadmap-v3.pdf</div><div class="attachment__size">2.4 MB</div></div></div>
+            <div class="attachment"><span class="attachment__icon" data-kind="doc"><svg class="icon icon--sm"><use href="../icons.svg#i-file"/></svg></span><div style="min-width:0"><div class="attachment__name">Agenda draft.docx</div><div class="attachment__size">48 KB</div></div></div>
+          </div>
+        </article>
+      </div>
+    </div>
+
+    <div style="padding:12px 48px 20px;flex:none">
+      <div class="inline-reply">
+        <div class="inline-reply__editor" contenteditable="true" data-placeholder="Reply to Priya…  ⇧R reply all" dir="auto"></div>
+        <div class="inline-reply__footer">
+          <span class="tag" data-hue="1"><span class="pip">H</span>sam@halyard.co</span>
+          <button class="icon-btn icon-btn--sm" aria-label="Attach"><svg class="icon"><use href="../icons.svg#i-clip"/></svg></button>
+          <span class="spacer"></span>
+          <span class="t-caption" style="margin-right:6px">Draft saved</span>
+          <div class="split"><button class="btn btn--primary" type="button">Send<kbd class="kbd">⌘↵</kbd></button><button class="btn btn--primary split__more" type="button" aria-label="Send later"><svg class="icon icon--sm"><use href="../icons.svg#i-chev-down"/></svg></button></div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

@@ -1,0 +1,283 @@
+/*
+ * Pigeon design tokens.
+ *
+ * Theme: set data-theme="dark" | "light" on <html>. With no attribute (or
+ * data-theme="system") the theme follows macOS appearance live via
+ * prefers-color-scheme. Density: data-density="compact" on <html> (v1 ships
+ * comfortable only; the hook is here so compact is a token swap later).
+ *
+ * Every component reads these custom properties; nothing below this file
+ * hard-codes a color.
+ */
+
+:root {
+  /* ---------- Type ---------- */
+  --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace;
+  --font-features: "cv11" 1, "tnum" 1;
+
+  --fs-display: 28px;   --lh-display: 34px;  --ls-display: -0.02em;
+  --fs-title: 22px;     --lh-title: 28px;    --ls-title: -0.015em;
+  --fs-heading: 15px;   --lh-heading: 20px;
+  --fs-sender: 14px;    --lh-sender: 20px;
+  --fs-subject: 13.5px; --lh-subject: 18px;
+  --fs-snippet: 13px;   --lh-snippet: 18px;
+  --fs-body: 15px;      --lh-body: 24px;     --measure-body: 68ch;
+  --fs-ui: 13px;        --lh-ui: 18px;
+  --fs-caption: 12px;   --lh-caption: 16px;
+  --fs-micro: 11px;     --lh-micro: 14px;
+  --fs-event: 12px;     --lh-event: 15px;
+  --fs-mono: 12px;      --lh-mono: 18px;
+
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+
+  /* ---------- Space (4 px base) ---------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* ---------- Sizes ---------- */
+  --titlebar-inset: 28px;   /* traffic lights live here */
+  --toolbar-h: 52px;
+  --control-h: 32px;
+  --control-h-sm: 28px;
+  --control-h-lg: 36px;
+  --nav-item-h: 30px;
+  --row-h: 76px;            /* virtualized list rows are fixed height */
+  --sidebar-w: 244px;
+  --list-w: 432px;
+  --hour-h: 60px;           /* calendar grid */
+  --gutter-w: 56px;
+
+  /* ---------- Radius ---------- */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-pill: 999px;
+
+  /* ---------- Motion ---------- */
+  --dur-instant: 0ms;       /* navigation, selection: never animated */
+  --dur-fast: 120ms;        /* hover, press, focus */
+  --dur-base: 180ms;        /* toast, popover, tooltip */
+  --dur-collapse: 240ms;    /* archived row: fade + height to 0 */
+  --dur-palette-in: 160ms;
+  --dur-palette-out: 100ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+}
+
+[data-density="compact"] {
+  --row-h: 56px;
+  --nav-item-h: 26px;
+  --control-h: 28px;
+  --toolbar-h: 44px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0ms;
+    --dur-base: 0ms;
+    --dur-collapse: 0ms;
+    --dur-palette-in: 0ms;
+    --dur-palette-out: 0ms;
+  }
+}
+
+/* =====================================================================
+ * Dark
+ * ===================================================================== */
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg-0: #0D0E10;          /* canvas, reading pane, list */
+  --bg-1: #131417;          /* sidebar, sunken fields */
+  --bg-2: #1A1C20;          /* raised: hover, chips, cards */
+  --bg-3: #23252B;          /* overlay: popover, menu, toast */
+  --line: rgba(255, 255, 255, 0.07);
+  --line-strong: rgba(255, 255, 255, 0.13);
+
+  --text-1: #EDEEF0;
+  --text-2: #A3A6AE;
+  --text-3: #80848E;        /* 4.6:1 on bg-2, still AA */
+
+  --accent: #3CCFAE;
+  --on-accent: #04251E;
+  --accent-soft: rgba(60, 207, 174, 0.14);
+  --selection: rgba(60, 207, 174, 0.09);
+  --focus-ring: #3CCFAE;
+  --focus-halo: rgba(60, 207, 174, 0.12);
+  --unread: #3CCFAE;
+  --highlight: rgba(242, 180, 75, 0.28);   /* search match */
+
+  --success: #55CF80;
+  --warning: #F2B44B;
+  --warning-soft: rgba(242, 180, 75, 0.12);
+  --on-warning: #2A1C00;
+  --error: #F47A73;
+  --error-soft: rgba(244, 122, 115, 0.12);
+  --on-error: #2A0A08;
+  --info: #7AAEFF;
+  --info-soft: rgba(122, 174, 255, 0.12);
+
+  --tooltip-bg: #EDEEF0;
+  --tooltip-fg: #0D0E10;
+  --scrim: rgba(0, 0, 0, 0.45);
+
+  --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.07);
+  --shadow-overlay: 0 16px 40px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  --shadow-dialog: 0 24px 64px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.08);
+
+  /* Event derivation strengths (applied to --hue-rgb, see below) */
+  --event-fill-a: 0.18;
+  --event-border-a: 0.42;
+  --event-tent-a: 0.16;
+  --event-tent-border-a: 0.60;
+  --event-selected-a: 0.34;
+  --event-declined-opacity: 0.55;
+  --pip-bg-a: 0.20;
+
+  /* Account / calendar hues: --hue-N is the mark color, --hue-N-rgb feeds
+     rgba() fills, --hue-N-text is legible text on its own tinted fill. */
+  --hue-1: #7B93FF; --hue-1-rgb: 123, 147, 255; --hue-1-text: #C4CEFF; /* indigo  */
+  --hue-2: #F0B04A; --hue-2-rgb: 240, 176, 74;  --hue-2-text: #F8D9A3; /* amber   */
+  --hue-3: #F27596; --hue-3-rgb: 242, 117, 150; --hue-3-text: #F9BACB; /* rose    */
+  --hue-4: #B08CFF; --hue-4-rgb: 176, 140, 255; --hue-4-text: #D9C7FF; /* violet  */
+  --hue-5: #9BD255; --hue-5-rgb: 155, 210, 85;  --hue-5-text: #CDE8AA; /* lime    */
+  --hue-6: #F5874F; --hue-6-rgb: 245, 135, 79;  --hue-6-text: #FAC3A7; /* orange  */
+  --hue-7: #5EC2F2; --hue-7-rgb: 94, 194, 242;  --hue-7-text: #B0E0F8; /* sky     */
+  --hue-8: #E07AE0; --hue-8-rgb: 224, 122, 224; --hue-8-text: #F0BDF0; /* magenta */
+
+  /* Brand mark */
+  --mark-body: #EDEEF0;
+  --mark-wing: #B9C3CF;
+  --mark-neck: #3CCFAE;
+  --mark-beak: #F2B44B;
+  --mark-tile: #1F3A5C;
+}
+
+/* =====================================================================
+ * Light
+ * ===================================================================== */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg-0: #FFFFFF;
+  --bg-1: #F5F5F3;
+  --bg-2: #EFEFEC;
+  --bg-3: #FFFFFF;
+  --line: rgba(15, 17, 20, 0.08);
+  --line-strong: rgba(15, 17, 20, 0.15);
+
+  --text-1: #16171A;
+  --text-2: #52555C;
+  --text-3: #686B73;
+
+  --accent: #0A7A64;
+  --on-accent: #FFFFFF;
+  --accent-soft: rgba(10, 122, 100, 0.10);
+  --selection: rgba(10, 122, 100, 0.07);
+  --focus-ring: #0A7A64;
+  --focus-halo: rgba(10, 122, 100, 0.10);
+  --unread: #0A7A64;
+  --highlight: rgba(242, 180, 75, 0.38);
+
+  --success: #1F7A3D;
+  --warning: #9A5B00;
+  --warning-soft: rgba(214, 150, 30, 0.14);
+  --on-warning: #FFFFFF;
+  --error: #C2362F;
+  --error-soft: rgba(194, 54, 47, 0.08);
+  --on-error: #FFFFFF;
+  --info: #2459C7;
+  --info-soft: rgba(36, 89, 199, 0.08);
+
+  --tooltip-bg: #16171A;
+  --tooltip-fg: #FFFFFF;
+  --scrim: rgba(20, 22, 26, 0.18);
+
+  --shadow-popover: 0 8px 24px rgba(20, 22, 26, 0.10), 0 0 0 1px rgba(20, 22, 26, 0.07);
+  --shadow-overlay: 0 16px 40px rgba(20, 22, 26, 0.14), 0 0 0 1px rgba(20, 22, 26, 0.08);
+  --shadow-dialog: 0 24px 64px rgba(20, 22, 26, 0.18), 0 0 0 1px rgba(20, 22, 26, 0.08);
+
+  --event-fill-a: 0.12;
+  --event-border-a: 0.35;
+  --event-tent-a: 0.12;
+  --event-tent-border-a: 0.50;
+  --event-selected-a: 1;
+  --event-declined-opacity: 0.6;
+  --pip-bg-a: 0.13;
+
+  --hue-1: #3A57D6; --hue-1-rgb: 58, 87, 214;  --hue-1-text: #2A43B0;
+  --hue-2: #A86500; --hue-2-rgb: 168, 101, 0;  --hue-2-text: #7E4C00;
+  --hue-3: #C7365F; --hue-3-rgb: 199, 54, 95;  --hue-3-text: #9E2448;
+  --hue-4: #7046D1; --hue-4-rgb: 112, 70, 209; --hue-4-text: #5532A8;
+  --hue-5: #4C7A12; --hue-5-rgb: 76, 122, 18;  --hue-5-text: #39600A;
+  --hue-6: #B84A12; --hue-6-rgb: 184, 74, 18;  --hue-6-text: #8F390C;
+  --hue-7: #0B6FA3; --hue-7-rgb: 11, 111, 163; --hue-7-text: #085780;
+  --hue-8: #9C2E9C; --hue-8-rgb: 156, 46, 156; --hue-8-text: #7A2079;
+
+  --mark-body: #16171A;
+  --mark-wing: #4A4E57;
+  --mark-neck: #0A7A64;
+  --mark-beak: #C98A1A;
+  --mark-tile: #1F3A5C;
+}
+
+/* System appearance when no explicit theme is chosen. Kept in sync with the
+   light block above. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]):not([data-theme="light"]) {
+    color-scheme: light;
+    --bg-0: #FFFFFF; --bg-1: #F5F5F3; --bg-2: #EFEFEC; --bg-3: #FFFFFF;
+    --line: rgba(15, 17, 20, 0.08); --line-strong: rgba(15, 17, 20, 0.15);
+    --text-1: #16171A; --text-2: #52555C; --text-3: #686B73;
+    --accent: #0A7A64; --on-accent: #FFFFFF; --accent-soft: rgba(10, 122, 100, 0.10);
+    --selection: rgba(10, 122, 100, 0.07); --focus-ring: #0A7A64; --focus-halo: rgba(10, 122, 100, 0.10);
+    --unread: #0A7A64; --highlight: rgba(242, 180, 75, 0.38);
+    --success: #1F7A3D; --warning: #9A5B00; --warning-soft: rgba(214, 150, 30, 0.14); --on-warning: #FFFFFF;
+    --error: #C2362F; --error-soft: rgba(194, 54, 47, 0.08); --on-error: #FFFFFF;
+    --info: #2459C7; --info-soft: rgba(36, 89, 199, 0.08);
+    --tooltip-bg: #16171A; --tooltip-fg: #FFFFFF; --scrim: rgba(20, 22, 26, 0.18);
+    --shadow-popover: 0 8px 24px rgba(20, 22, 26, 0.10), 0 0 0 1px rgba(20, 22, 26, 0.07);
+    --shadow-overlay: 0 16px 40px rgba(20, 22, 26, 0.14), 0 0 0 1px rgba(20, 22, 26, 0.08);
+    --shadow-dialog: 0 24px 64px rgba(20, 22, 26, 0.18), 0 0 0 1px rgba(20, 22, 26, 0.08);
+    --event-fill-a: 0.12; --event-border-a: 0.35; --event-tent-a: 0.12; --event-tent-border-a: 0.50;
+    --event-selected-a: 1; --event-declined-opacity: 0.6; --pip-bg-a: 0.13;
+    --hue-1: #3A57D6; --hue-1-rgb: 58, 87, 214;  --hue-1-text: #2A43B0;
+    --hue-2: #A86500; --hue-2-rgb: 168, 101, 0;  --hue-2-text: #7E4C00;
+    --hue-3: #C7365F; --hue-3-rgb: 199, 54, 95;  --hue-3-text: #9E2448;
+    --hue-4: #7046D1; --hue-4-rgb: 112, 70, 209; --hue-4-text: #5532A8;
+    --hue-5: #4C7A12; --hue-5-rgb: 76, 122, 18;  --hue-5-text: #39600A;
+    --hue-6: #B84A12; --hue-6-rgb: 184, 74, 18;  --hue-6-text: #8F390C;
+    --hue-7: #0B6FA3; --hue-7-rgb: 11, 111, 163; --hue-7-text: #085780;
+    --hue-8: #9C2E9C; --hue-8-rgb: 156, 46, 156; --hue-8-text: #7A2079;
+    --mark-body: #16171A; --mark-wing: #4A4E57; --mark-neck: #0A7A64; --mark-beak: #C98A1A;
+  }
+}
+
+/*
+ * Account hue binding. Put data-hue="1".."8" on any element that represents
+ * an account or calendar (row, pip, event, chip). Components then read
+ * --hue / --hue-rgb / --hue-text without knowing which account it is.
+ * The engine picks N = hash(address) % 8 + 1; users can override in Settings.
+ */
+[data-hue="1"] { --hue: var(--hue-1); --hue-rgb: var(--hue-1-rgb); --hue-text: var(--hue-1-text); }
+[data-hue="2"] { --hue: var(--hue-2); --hue-rgb: var(--hue-2-rgb); --hue-text: var(--hue-2-text); }
+[data-hue="3"] { --hue: var(--hue-3); --hue-rgb: var(--hue-3-rgb); --hue-text: var(--hue-3-text); }
+[data-hue="4"] { --hue: var(--hue-4); --hue-rgb: var(--hue-4-rgb); --hue-text: var(--hue-4-text); }
+[data-hue="5"] { --hue: var(--hue-5); --hue-rgb: var(--hue-5-rgb); --hue-text: var(--hue-5-text); }
+[data-hue="6"] { --hue: var(--hue-6); --hue-rgb: var(--hue-6-rgb); --hue-text: var(--hue-6-text); }
+[data-hue="7"] { --hue: var(--hue-7); --hue-rgb: var(--hue-7-rgb); --hue-text: var(--hue-7-text); }
+[data-hue="8"] { --hue: var(--hue-8); --hue-rgb: var(--hue-8-rgb); --hue-text: var(--hue-8-text); }
