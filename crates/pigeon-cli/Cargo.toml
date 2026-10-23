@@ -14,4 +14,6 @@ clap.workspace = true
 pigeon-core.workspace = true
 pigeon-engine.workspace = true
 tokio.workspace = true
+serde_json.workspace = true
+serde.workspace = true
 tracing.workspace = true

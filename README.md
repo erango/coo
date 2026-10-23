@@ -35,6 +35,9 @@ cargo cli sync
 cargo cli ls --threads
 ```
 
+Using Pigeon from Claude or another agent (CLI `--json`, `pigeon mcp`): see
+[docs/agents.md](docs/agents.md).
+
 Optional crash reporting: `export PIGEON_SENTRY_DSN=<dsn>` (Sentry project,
 platform Rust). Off when unset; `PIGEON_TELEMETRY=off` disables it regardless.
 

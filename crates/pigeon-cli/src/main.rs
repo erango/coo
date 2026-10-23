@@ -1,17 +1,41 @@
-//! `pigeon` — dev harness for the engine: sign in, sync, and inspect the local
-//! store without the desktop UI.
+//! `pigeon` — command-line access to the engine, for people and agents.
+//!
+//! Every command takes `--json` for machine-readable output (shapes in
+//! `out.rs`). Writes from a non-interactive caller need `--yes`;
+//! `PIGEON_AGENT_READONLY=1` blocks them entirely. `pigeon mcp` serves the
+//! same operations over the Model Context Protocol.
+//!
+//! Exit codes: 0 ok, 1 error, 2 usage, 3 sign-in required, 4 write blocked.
+
+mod mcp;
+mod ops;
+mod out;
 
 use std::process::ExitCode;
 
-use chrono::{Local, TimeZone};
 use clap::{Parser, Subcommand};
-use pigeon_core::model::{FolderRole, MessageHeader, ProviderKind};
-use pigeon_core::store::{FolderSel, ListQuery};
-use pigeon_engine::{MailAction, Pigeon};
+use pigeon_core::compose::ReplyKind;
+use pigeon_core::model::ProviderKind;
+use pigeon_engine::Pigeon;
+use serde::Serialize;
+
+use crate::ops::Writes;
+use crate::out::*;
 
 #[derive(Parser)]
-#[command(name = "pigeon", about = "Pigeon engine harness")]
+#[command(
+    name = "pigeon",
+    about = "Pigeon mail + calendar from the command line",
+    after_help = "Agents: add --json for structured output; writes need --yes when not run from a terminal; \
+                  `pigeon mcp` starts an MCP server (read-only unless --allow-write)."
+)]
 struct Cli {
+    /// Machine-readable JSON on stdout (errors too, with a non-zero exit code).
+    #[arg(long, global = true)]
+    json: bool,
+    /// Allow writes (send, act, rsvp, ...) from a non-interactive caller.
+    #[arg(long, global = true)]
+    yes: bool,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -24,12 +48,12 @@ enum Cmd {
     Logout { account: String },
     /// List signed-in accounts.
     Accounts,
-    /// Sync one account, or all of them concurrently.
+    /// Pull new mail and events (one account, or all concurrently).
     Sync { account: Option<String> },
-    /// Show an account's folders/labels with local counts.
+    /// An account's folders/labels with unread/total counts.
     Folders { account: String },
-    /// List messages. Folder is a role (inbox, sent, drafts, trash, spam,
-    /// archive, starred, important) or, with --account, a folder name/id.
+    /// List a mailbox. Folder is a role across accounts (inbox, sent, drafts,
+    /// trash, spam, archive, starred, important) or, with --account, a name/id.
     Ls {
         #[arg(short, long)]
         account: Option<String>,
@@ -38,40 +62,75 @@ enum Cmd {
         /// Group into conversations.
         #[arg(short, long)]
         threads: bool,
+        #[arg(long)]
+        unread: bool,
         #[arg(short = 'n', long, default_value_t = 30)]
         limit: u32,
     },
-    /// Local full-text search.
+    /// Search: free text plus from: to: has:attachment is:unread is:flagged
+    /// in: account: before: after:
     Search {
         query: Vec<String>,
+        /// Also ask the servers for older matches.
+        #[arg(long)]
+        server: bool,
         #[arg(short = 'n', long, default_value_t = 30)]
         limit: u32,
     },
-    /// Print a message body (fetched on first use) and its attachments.
-    Show {
+    /// One message with its plain-text body (fetched on first use).
+    #[command(alias = "show")]
+    Get {
         account: String,
         message_id: String,
-        /// Print the sanitized HTML instead of the text part.
-        #[arg(long)]
-        html: bool,
+        #[arg(long, default_value_t = 20_000)]
+        max_chars: usize,
+    },
+    /// A whole conversation, oldest first, with bodies.
+    Thread {
+        account: String,
+        thread_id: String,
+        #[arg(long, default_value_t = 20_000)]
+        max_chars: usize,
     },
     /// Download an attachment and print its local path.
     Attachment { account: String, message_id: String, attachment_id: String },
-    /// Change messages on the server: read | unread | flag | unflag | archive |
-    /// trash | move. Applied locally first, then sent. Prints an undo handle.
+    /// Events in a range. Times: now, today, tomorrow, +7d, -6h, YYYY-MM-DD,
+    /// YYYY-MM-DDTHH:MM, RFC 3339.
+    #[command(alias = "events")]
+    Agenda {
+        #[arg(long, default_value = "now")]
+        from: String,
+        #[arg(long, default_value = "+7d")]
+        to: String,
+        #[arg(short, long)]
+        account: Option<String>,
+    },
+    /// Busy intervals for people, as seen by one of your accounts.
+    Freebusy {
+        account: String,
+        #[arg(value_delimiter = ',')]
+        emails: Vec<String>,
+        #[arg(long, default_value = "now")]
+        from: String,
+        #[arg(long, default_value = "+1d")]
+        to: String,
+    },
+    /// Every address you can send from (all accounts + aliases).
+    Senders,
+    /// Change messages: read | unread | flag | unflag | archive | trash | move.
     Act {
         action: String,
         account: String,
         message_ids: Vec<String>,
-        /// Target folder/label (name or id) for `move`.
+        /// Target folder/label (name, id or role) for `move`.
         #[arg(long)]
         to: Option<String>,
         /// Folder being viewed (Gmail `move` removes this label).
         #[arg(long)]
         from: Option<String>,
     },
-    /// List every address you can send from (all accounts + aliases).
-    Senders,
+    /// Undo an action by its handle.
+    Undo { account: String, handle: i64 },
     /// Compose and send a new message.
     Send {
         /// Sender address (see `senders`).
@@ -90,9 +149,11 @@ enum Cmd {
         body: String,
         #[arg(long)]
         attach: Vec<String>,
+        /// Save a draft instead of sending.
+        #[arg(long)]
+        dry_run: bool,
     },
-    /// Reply (or reply-all / forward) to a message, optionally from another
-    /// account's address, and send it.
+    /// Reply / reply-all / forward, optionally from another account's address.
     Reply {
         account: String,
         message_id: String,
@@ -100,7 +161,6 @@ enum Cmd {
         all: bool,
         #[arg(long)]
         forward: bool,
-        /// Send from this address instead of the default.
         #[arg(long)]
         from: Option<String>,
         /// Recipients (required for --forward).
@@ -108,18 +168,16 @@ enum Cmd {
         to: Vec<String>,
         #[arg(long)]
         body: String,
-        /// Build and print the draft without sending.
+        /// Save a draft instead of sending.
         #[arg(long)]
         dry_run: bool,
     },
-    /// Undo an action by its handle.
-    Undo { account: String, handle: i64 },
     /// Create an event (invites are sent to attendees).
     EventCreate {
         account: String,
         #[arg(long)]
         title: String,
-        /// Local start, `YYYY-MM-DDTHH:MM` (or `YYYY-MM-DD` with --all-day).
+        /// Start (see `agenda` for formats; a date with --all-day).
         #[arg(long)]
         start: String,
         /// Minutes (timed) or days (all-day).
@@ -148,39 +206,63 @@ enum Cmd {
         #[arg(long)]
         comment: Option<String>,
     },
-    /// Busy times of people over the next N hours, as seen by an account.
-    Freebusy {
-        account: String,
-        #[arg(value_delimiter = ',')]
-        emails: Vec<String>,
-        #[arg(long, default_value_t = 24)]
-        hours: i64,
+    /// Serve mail and calendar over MCP on stdio (for Claude and other agents).
+    Mcp {
+        /// Expose write tools (mail actions, reply/send, RSVP, create event).
+        #[arg(long)]
+        allow_write: bool,
     },
     /// Send a test error to Sentry (verifies PIGEON_SENTRY_DSN + scrubbing).
     TelemetryTest,
-    /// Upcoming events across all calendars.
-    Events {
-        #[arg(short, long, default_value_t = 7)]
-        days: i64,
-    },
 }
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    let _telemetry =
-        pigeon_engine::telemetry::init(concat!("pigeon-cli@", env!("CARGO_PKG_VERSION")), "warn,pigeon=info");
-    match run(Cli::parse()).await {
+    let cli = Cli::parse();
+    // Agents read stdout; keep stderr quiet unless RUST_LOG says otherwise.
+    let quiet = cli.json || matches!(cli.cmd, Cmd::Mcp { .. });
+    let _telemetry = pigeon_engine::telemetry::init(
+        concat!("pigeon-cli@", env!("CARGO_PKG_VERSION")),
+        if quiet { "warn" } else { "warn,pigeon=info" },
+    );
+    let json = cli.json;
+    match run(cli).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("error: {e}");
-            ExitCode::FAILURE
+            let (code, kind) = classify(&e);
+            if json {
+                let err = serde_json::json!({ "error": { "kind": kind, "message": e.to_string() } });
+                println!("{err}");
+            } else {
+                eprintln!("error: {e}");
+            }
+            ExitCode::from(code)
         }
     }
 }
 
+fn classify(e: &pigeon_core::Error) -> (u8, &'static str) {
+    match e {
+        pigeon_core::Error::SignInRequired(_) => (3, "sign_in_required"),
+        e if e.to_string().starts_with(ops::WRITE_BLOCKED) => (4, "write_blocked"),
+        _ => (1, "error"),
+    }
+}
+
+/// Print `value` as JSON, or with the human formatter.
+fn emit<T: Serialize>(json: bool, value: &T, human: impl FnOnce(&T)) {
+    if json {
+        println!("{}", serde_json::to_string_pretty(value).unwrap_or_default());
+    } else {
+        human(value);
+    }
+}
+
 async fn run(cli: Cli) -> pigeon_core::Result<()> {
+    let json = cli.json;
+    let w = Writes::for_cli(cli.yes);
     if let Cmd::TelemetryTest = cli.cmd {
-        if !sentry_enabled() {
+        if !pigeon_engine::telemetry::enabled() {
             return Err(pigeon_core::Error::Other("telemetry is off: set PIGEON_SENTRY_DSN".into()));
         }
         // The address below must arrive as <email> in Sentry.
@@ -192,346 +274,274 @@ async fn run(cli: Cli) -> pigeon_core::Result<()> {
         return Ok(());
     }
     let app = Pigeon::open()?;
+    let now = chrono::Local::now();
     match cli.cmd {
         Cmd::TelemetryTest => unreachable!(),
+        Cmd::Mcp { allow_write } => mcp::serve(app, allow_write).await?,
         Cmd::Login { provider } => {
             let kind = ProviderKind::parse(&provider)
                 .ok_or_else(|| pigeon_core::Error::Other(format!("unknown provider {provider:?}")))?;
             let account = app
                 .login(kind, |url| eprintln!("Opening the browser to sign in. If it does not open, visit:\n{url}\n"))
                 .await?;
-            println!("Signed in as {} ({})", account.email, account.id);
+            emit(json, &AccountOut::from(&account), |a| println!("Signed in as {} ({})", a.email, a.id));
         }
         Cmd::Logout { account } => {
+            w.check()?;
             let a = app.find_account(&account)?;
             app.logout(&a.id)?;
-            println!("Removed {}", a.email);
+            emit(json, &serde_json::json!({"removed": a.id}), |_| println!("Removed {}", a.email));
         }
-        Cmd::Accounts => {
-            for a in app.accounts()? {
-                println!("{:<10} {:<36} {}", a.provider.as_str(), a.email, a.display_name);
+        Cmd::Accounts => emit(json, &ops::accounts(&app)?, |v| {
+            for a in v {
+                println!("{:<10} {:<36} {}", a.provider, a.email, a.name);
             }
-        }
+        }),
         Cmd::Sync { account } => {
             let started = std::time::Instant::now();
-            let reports = match account {
-                Some(a) => vec![app.sync_account(&app.find_account(&a)?).await],
-                None => app.sync_all().await?,
-            };
-            for r in reports {
-                match &r.mail {
-                    Ok(s) => println!(
-                        "{}: mail {} folders, {} pages, {} changes",
-                        r.account.email, s.folders, s.pages, s.changes
-                    ),
-                    Err(e) => println!("{}: mail FAILED: {e}", r.account.email),
+            let reports = ops::sync(&app, account.as_deref()).await?;
+            emit(json, &reports, |v| {
+                for r in v {
+                    let part = |name: &str, p: &SyncPartOut| match &p.error {
+                        None => println!("{}: {name} {}", r.account, p.stats),
+                        Some(e) => println!("{}: {name} FAILED: {e}", r.account),
+                    };
+                    part("mail", &r.mail);
+                    part("calendar", &r.calendar);
                 }
-                match &r.calendar {
-                    Ok(s) => println!("{}: calendar {} calendars, {} events", r.account.email, s.calendars, s.events),
-                    Err(e) => println!("{}: calendar FAILED: {e}", r.account.email),
-                }
-            }
-            println!("done in {:.1}s", started.elapsed().as_secs_f64());
+                println!("done in {:.1}s", started.elapsed().as_secs_f64());
+            });
         }
-        Cmd::Folders { account } => {
-            let a = app.find_account(&account)?;
-            for f in app.store().folders(&a.id)? {
-                let role = f.folder.role.map(FolderRole::as_str).unwrap_or("");
-                println!("{:>6} {:>6}  {:<10} {:<32} {}", f.unread, f.total, role, f.folder.name, f.folder.id);
+        Cmd::Folders { account } => emit(json, &ops::folders(&app, &account)?, |v| {
+            for f in v {
+                println!("{:>6} {:>6}  {:<10} {:<32} {}", f.unread, f.total, f.role.unwrap_or(""), f.name, f.id);
             }
-        }
-        Cmd::Ls { account, folder, threads, limit } => {
-            let account = account.map(|a| app.find_account(&a)).transpose()?;
-            let sel = match FolderRole::parse(&folder) {
-                Some(role) => FolderSel::Role(role),
-                None => {
-                    let a = account
-                        .as_ref()
-                        .ok_or_else(|| pigeon_core::Error::Other("--account is required for a named folder".into()))?;
-                    let folders = app.store().folders(&a.id)?;
-                    let f = folders
-                        .iter()
-                        .find(|f| f.folder.id == folder || f.folder.name.eq_ignore_ascii_case(&folder))
-                        .ok_or_else(|| pigeon_core::Error::Other(format!("no folder {folder:?}")))?;
-                    FolderSel::Id(f.folder.id.clone())
-                }
-            };
-            let q = ListQuery { account_id: account.map(|a| a.id), folder: sel, limit, before: None };
-            if threads {
-                for t in app.store().list_threads(&q)? {
-                    let who = t.participants.join(", ");
-                    let count = if t.message_count > 1 { format!("({})", t.message_count) } else { String::new() };
-                    println!(
-                        "{} {} {:<28} {:<5} {}  {}",
-                        if t.unread_count > 0 { '*' } else { ' ' },
-                        when(t.latest.received_at),
-                        clip(&who, 28),
-                        count,
-                        clip(&t.latest.subject, 60),
-                        short_account(&t.account_id)
-                    );
-                }
-            } else {
-                for r in app.store().list_messages(&q)? {
-                    print_message(&r.header, Some(&r.account_id));
-                }
+        }),
+        Cmd::Ls { account, folder, threads, unread, limit } => {
+            match ops::list(&app, account.as_deref(), &folder, threads, unread, limit)? {
+                ops::Listing::Threads(t) => emit(json, &t, |v| {
+                    for t in v {
+                        let count = if t.message_count > 1 { format!("({})", t.message_count) } else { String::new() };
+                        println!(
+                            "{} {} {:<28} {:<5} {}  {}  {}",
+                            if t.unread_count > 0 { '*' } else { ' ' },
+                            short_time(&t.latest.received_at),
+                            clip(&t.participants.join(", "), 28),
+                            count,
+                            clip(&t.subject, 60),
+                            short_account(&t.account),
+                            t.thread_id
+                        );
+                    }
+                }),
+                ops::Listing::Messages(m) => emit(json, &m, |v| v.iter().for_each(print_message)),
             }
         }
-        Cmd::Search { query, limit } => {
-            for r in app.store().search(&query.join(" "), limit)? {
-                print_message(&r.header, Some(&r.account_id));
-            }
+        Cmd::Search { query, server, limit } => {
+            emit(json, &ops::search(&app, &query.join(" "), server, limit).await?, |v| v.iter().for_each(print_message))
         }
-        Cmd::Show { account, message_id, html } => {
-            let a = app.find_account(&account)?;
-            let body = app.body(&a, &message_id).await?;
-            if body.has_remote_content {
-                eprintln!("[remote content blocked]");
-            }
-            let content = if html { body.html.or(body.text) } else { body.text.or(body.html) };
-            println!("{}", content.unwrap_or_default());
-            for att in &body.attachments {
-                let m = &att.meta;
-                println!(
-                    "[{}] {} {} {}{}",
-                    m.id,
-                    m.name,
-                    m.content_type.as_deref().unwrap_or("?"),
-                    m.size.map(|s| format!("{s}B")).unwrap_or_default(),
-                    if m.is_inline { " inline" } else { "" }
-                );
-            }
+        Cmd::Get { account, message_id, max_chars } => {
+            emit(json, &ops::get_message(&app, &account, &message_id, max_chars).await?, print_full)
+        }
+        Cmd::Thread { account, thread_id, max_chars } => {
+            emit(json, &ops::get_thread(&app, &account, &thread_id, max_chars).await?, |v| {
+                for m in v {
+                    print_full(m);
+                    println!("{}", "-".repeat(72));
+                }
+            })
         }
         Cmd::Attachment { account, message_id, attachment_id } => {
             let a = app.find_account(&account)?;
-            println!("{}", app.attachment(&a, &message_id, &attachment_id).await?.display());
+            let path = app.attachment(&a, &message_id, &attachment_id).await?;
+            emit(json, &serde_json::json!({"path": path}), |_| println!("{}", path.display()));
         }
-        Cmd::Act { action, account, message_ids, to, from } => {
-            let a = app.find_account(&account)?;
-            let folder_id = |name: &str| -> pigeon_core::Result<String> {
-                let folders = app.store().folders(&a.id)?;
-                folders
-                    .iter()
-                    .find(|f| {
-                        f.folder.id == name
-                            || f.folder.name.eq_ignore_ascii_case(name)
-                            || f.folder.role.is_some_and(|r| r.as_str() == name)
-                    })
-                    .map(|f| f.folder.id.clone())
-                    .ok_or_else(|| pigeon_core::Error::Other(format!("no folder {name:?}")))
-            };
-            let action = match action.as_str() {
-                "read" => MailAction::MarkRead,
-                "unread" => MailAction::MarkUnread,
-                "flag" | "star" => MailAction::Flag,
-                "unflag" | "unstar" => MailAction::Unflag,
-                "archive" => MailAction::Archive,
-                "trash" | "delete" => MailAction::Trash,
-                "move" => MailAction::MoveTo(folder_id(
-                    to.as_deref().ok_or_else(|| pigeon_core::Error::Other("move needs --to".into()))?,
-                )?),
-                other => return Err(pigeon_core::Error::Other(format!("unknown action {other:?}"))),
-            };
-            let from = from.as_deref().map(folder_id).transpose()?;
-            let handle = app.act(&a, &message_ids, from.as_deref(), &action)?;
-            print_flush(&app.flush(&a).await?);
-            println!("undo handle: {handle}");
+        Cmd::Agenda { from, to, account } => {
+            let (from, to) = (ops::parse_when(&from, now)?, ops::parse_when(&to, now)?);
+            emit(json, &ops::agenda(&app, from, to, account.as_deref())?, |v| {
+                for e in v {
+                    let time = if e.all_day { format!("{}  all-day", e.start) } else { short_time(&e.start) };
+                    println!(
+                        "{}  {:<50} {:<9} {:<7} {}  {} {}",
+                        time,
+                        clip(&e.title, 50),
+                        e.my_response,
+                        if e.online_url.is_some() { "[video]" } else { "" },
+                        short_account(&e.account),
+                        e.calendar_id,
+                        e.id
+                    );
+                }
+            })
+        }
+        Cmd::Freebusy { account, emails, from, to } => {
+            let (from, to) = (ops::parse_when(&from, now)?, ops::parse_when(&to, now)?);
+            emit(json, &ops::free_busy(&app, &account, &emails, from, to).await?, |v| {
+                for b in v {
+                    let spans: Vec<String> =
+                        b.busy.iter().map(|s| format!("{}–{}", short_time(&s.start), short_time(&s.end))).collect();
+                    println!("{}: {}", b.email, if spans.is_empty() { "free".into() } else { spans.join(", ") });
+                }
+            })
         }
         Cmd::Senders => {
-            for s in app.senders().await? {
-                println!("{:<40} {:<24} {}", s.address.email, s.address.name.unwrap_or_default(), s.account_id);
-            }
+            let senders: Vec<serde_json::Value> = app
+                .senders()
+                .await?
+                .into_iter()
+                .map(|s| serde_json::json!({"email": s.address.email, "name": s.address.name, "account": s.account_id}))
+                .collect();
+            emit(json, &senders, |v| {
+                for s in v {
+                    println!(
+                        "{:<40} {:<24} {}",
+                        s["email"].as_str().unwrap_or_default(),
+                        s["name"].as_str().unwrap_or_default(),
+                        s["account"].as_str().unwrap_or_default()
+                    );
+                }
+            });
         }
-        Cmd::Send { from, to, cc, bcc, subject, body, attach } => {
-            let sender = find_sender(&app, &from).await?;
-            let mut d = pigeon_core::compose::Draft::new(sender, pigeon_core::now_ms());
-            d.to = addresses(&to);
-            d.cc = addresses(&cc);
-            d.bcc = addresses(&bcc);
-            d.subject = subject;
-            d.html = pigeon_core::text::text_to_html(&body);
-            for path in attach {
-                let name = std::path::Path::new(&path).file_name().map(|n| n.to_string_lossy().into_owned());
-                d.attachments.push(pigeon_core::compose::DraftAttachment {
-                    name: name.unwrap_or_else(|| "attachment".into()),
-                    content_type: None,
-                    source: pigeon_core::compose::AttachmentSource::File { path },
-                });
-            }
-            println!("sent {}", app.send(&d).await?);
+        Cmd::Act { action, account, message_ids, to, from } => {
+            let r = ops::act(&app, w, &account, &message_ids, &action, to.as_deref(), from.as_deref()).await?;
+            emit(json, &r, print_act);
+        }
+        Cmd::Undo { account, handle } => emit(json, &ops::undo(&app, w, &account, handle).await?, print_act),
+        Cmd::Send { from, to, cc, bcc, subject, body, attach, dry_run } => {
+            let m = ops::NewMail {
+                from: &from,
+                to: &to,
+                cc: &cc,
+                bcc: &bcc,
+                subject: &subject,
+                body: &body,
+                attach: &attach,
+            };
+            emit(json, &ops::send(&app, w, m, dry_run).await?, print_draft);
         }
         Cmd::Reply { account, message_id, all, forward, from, to, body, dry_run } => {
-            let a = app.find_account(&account)?;
             let kind = match (all, forward) {
-                (_, true) => pigeon_core::compose::ReplyKind::Forward,
-                (true, false) => pigeon_core::compose::ReplyKind::ReplyAll,
-                _ => pigeon_core::compose::ReplyKind::Reply,
+                (_, true) => ReplyKind::Forward,
+                (true, false) => ReplyKind::ReplyAll,
+                _ => ReplyKind::Reply,
             };
-            let from = match from {
-                Some(f) => Some(find_sender(&app, &f).await?),
-                None => None,
+            let r = ops::Reply {
+                account: &account,
+                message_id: &message_id,
+                kind,
+                from: from.as_deref(),
+                to: &to,
+                body: &body,
             };
-            let mut d = app.reply(&a, &message_id, kind, from).await?;
-            d.html.insert_str(0, &pigeon_core::text::text_to_html(&body));
-            if !to.is_empty() {
-                d.to = addresses(&to);
-            }
-            app.save_draft(&mut d)?;
-            let list =
-                |v: &[pigeon_core::model::Address]| v.iter().map(|x| x.email.clone()).collect::<Vec<_>>().join(", ");
-            println!("from:    {} ({})", d.from.address.email, d.from.account_id);
-            if d.crosses_accounts() {
-                println!("         replying from a different account than the one that received it");
-            }
-            println!("to:      {}\ncc:      {}\nsubject: {}", list(&d.to), list(&d.cc), d.subject);
-            if dry_run {
-                println!("draft saved: {}", d.id);
-            } else {
-                println!("sent {}", app.send(&d).await?);
-            }
-        }
-        Cmd::Undo { account, handle } => {
-            let a = app.find_account(&account)?;
-            app.undo(&a, handle)?;
-            print_flush(&app.flush(&a).await?);
+            emit(json, &ops::reply(&app, w, r, dry_run).await?, print_draft);
         }
         Cmd::EventCreate { account, title, start, duration, all_day, attendees, location, description, calendar } => {
-            let a = app.find_account(&account)?;
-            let (start_at, end_at) = if all_day {
+            let start_at = if all_day {
                 let d = chrono::NaiveDate::parse_from_str(&start, "%Y-%m-%d")
                     .map_err(|e| pigeon_core::Error::Other(format!("bad --start date: {e}")))?;
-                let s = d.and_hms_opt(0, 0, 0).expect("midnight").and_utc().timestamp_millis();
-                (s, s + duration.max(1) * 86_400_000)
+                d.and_hms_opt(0, 0, 0).expect("midnight").and_utc().timestamp_millis()
             } else {
-                let naive = chrono::NaiveDateTime::parse_from_str(&start, "%Y-%m-%dT%H:%M")
-                    .map_err(|e| pigeon_core::Error::Other(format!("bad --start: {e}")))?;
-                let local = Local
-                    .from_local_datetime(&naive)
-                    .single()
-                    .ok_or_else(|| pigeon_core::Error::Other("ambiguous local time".into()))?;
-                let s = local.timestamp_millis();
-                (s, s + duration * 60_000)
+                ops::parse_when(&start, now)?
             };
-            let draft = pigeon_core::model::EventDraft {
-                calendar_id: match calendar {
-                    Some(c) => c,
-                    None => app.primary_calendar(&a)?,
+            let end_at = start_at + if all_day { duration.max(1) * 86_400_000 } else { duration * 60_000 };
+            let e = ops::create_event(
+                &app,
+                w,
+                ops::NewEvent {
+                    account: &account,
+                    title: &title,
+                    start: start_at,
+                    end: end_at,
+                    all_day,
+                    attendees: &attendees,
+                    location: location.as_deref(),
+                    description: description.as_deref(),
+                    calendar: calendar.as_deref(),
                 },
-                title,
-                start_at,
-                end_at,
-                all_day,
-                timezone: None,
-                location,
-                description,
-                attendees: addresses(&attendees)
-                    .into_iter()
-                    .map(|address| pigeon_core::model::Attendee {
-                        address,
-                        response: pigeon_core::model::Response::None,
-                        optional: false,
-                    })
-                    .collect(),
-                conferencing: Default::default(),
-            };
-            let e = app.create_event(&a, &draft).await?;
-            println!("created {} in {}", e.id, e.calendar_id);
+            )
+            .await?;
+            emit(json, &e, |e| println!("created {} in {}", e.id, e.calendar_id));
         }
         Cmd::EventDelete { account, calendar_id, event_id } => {
-            let a = app.find_account(&account)?;
-            app.delete_event(&a, &calendar_id, &event_id).await?;
-            println!("deleted");
+            ops::delete_event(&app, w, &account, &calendar_id, &event_id).await?;
+            emit(json, &serde_json::json!({"deleted": event_id}), |_| println!("deleted"));
         }
         Cmd::Rsvp { account, calendar_id, event_id, response, comment } => {
-            let a = app.find_account(&account)?;
-            let r = match response.as_str() {
-                "accept" | "yes" => pigeon_core::model::Response::Accepted,
-                "tentative" | "maybe" => pigeon_core::model::Response::Tentative,
-                "decline" | "no" => pigeon_core::model::Response::Declined,
-                other => return Err(pigeon_core::Error::Other(format!("unknown response {other:?}"))),
-            };
-            app.rsvp(&a, &calendar_id, &event_id, r, comment.as_deref()).await?;
-            println!("responded {}", r.as_str());
-        }
-        Cmd::Freebusy { account, emails, hours } => {
-            let a = app.find_account(&account)?;
-            let now = chrono::Utc::now().timestamp_millis();
-            for (email, busy) in app.free_busy(&a, &emails, now, now + hours * 3_600_000).await? {
-                let spans: Vec<String> = busy.iter().map(|(s, e)| format!("{}–{}", when(*s), when(*e))).collect();
-                println!("{email}: {}", if spans.is_empty() { "free".into() } else { spans.join(", ") });
-            }
-        }
-        Cmd::Events { days } => {
-            let now = chrono::Utc::now();
-            let to = now + chrono::Duration::days(days);
-            for row in app.store().events_between(now.timestamp_millis(), to.timestamp_millis())? {
-                let e = row.event;
-                let time = if e.all_day { format!("{}  all-day", day(e.start_at)) } else { when(e.start_at) };
-                let join = if e.online_url.is_some() { "[video]" } else { "" };
-                println!(
-                    "{}  {:<50} {:<9} {:<7} {}  {} {}",
-                    time,
-                    clip(&e.title, 50),
-                    e.my_response.as_str(),
-                    join,
-                    short_account(&row.account_id),
-                    e.calendar_id,
-                    e.id
-                );
-            }
+            let r = ops::rsvp(&app, w, &account, &calendar_id, &event_id, &response, comment.as_deref()).await?;
+            emit(json, &r, |r| println!("responded {}", r["response"].as_str().unwrap_or_default()));
         }
     }
     Ok(())
 }
 
-async fn find_sender(app: &Pigeon, email: &str) -> pigeon_core::Result<pigeon_core::compose::Sender> {
-    app.senders().await?.into_iter().find(|s| s.address.email.eq_ignore_ascii_case(email)).ok_or_else(|| {
-        pigeon_core::Error::Other(format!("{email} is not one of your sending addresses (see `senders`)"))
-    })
-}
-
-fn addresses(list: &[String]) -> Vec<pigeon_core::model::Address> {
-    list.iter().flat_map(|s| pigeon_core::text::parse_address_list(s)).collect()
-}
-
-fn sentry_enabled() -> bool {
-    pigeon_engine::telemetry::enabled()
-}
-
-fn print_flush(r: &pigeon_core::actions::FlushReport) {
+fn print_act(r: &ActOut) {
     println!("sent {}, deferred {}", r.sent, r.deferred);
-    for (op, err) in &r.rejected {
-        println!("rejected (rolled back): {op:?}: {err}");
+    for e in &r.rejected {
+        println!("rejected (rolled back): {e}");
     }
     if r.needs_sign_in {
         println!("sign-in required: run `pigeon login` again");
     }
+    println!("undo handle: {}", r.undo_handle);
 }
 
-fn print_message(h: &MessageHeader, account_id: Option<&str>) {
+fn print_draft(d: &DraftOut) {
+    let list = |v: &[AddrOut]| v.iter().map(|x| x.email.clone()).collect::<Vec<_>>().join(", ");
+    println!("from:    {} ({})", d.from.email, d.from_account);
+    if d.crosses_accounts {
+        println!("         replying from a different account than the one that received it");
+    }
+    println!("to:      {}\ncc:      {}\nsubject: {}", list(&d.to), list(&d.cc), d.subject);
+    match &d.message_id {
+        Some(id) => println!("sent {id}"),
+        None => println!("draft saved: {} (not sent)", d.draft_id),
+    }
+}
+
+fn print_message(m: &MessageOut) {
     let flags = format!(
         "{}{}{}",
-        if h.is_read { ' ' } else { '*' },
-        if h.is_flagged { '!' } else { ' ' },
-        if h.has_attachments { '@' } else { ' ' }
+        if m.unread { '*' } else { ' ' },
+        if m.flagged { '!' } else { ' ' },
+        if m.has_attachments { '@' } else { ' ' }
     );
-    let from = h.from.as_ref().map(|a| a.display()).unwrap_or("(unknown)");
+    let from = m.from.as_ref().map(|a| a.name.clone().unwrap_or_else(|| a.email.clone())).unwrap_or_default();
     println!(
         "{flags} {} {:<28} {}  {}  {}",
-        when(h.received_at),
-        clip(from, 28),
-        clip(&h.subject, 70),
-        account_id.map(short_account).unwrap_or_default(),
-        h.id
+        short_time(&m.received_at),
+        clip(&from, 28),
+        clip(&m.subject, 70),
+        short_account(&m.account),
+        m.id
     );
 }
 
-fn when(ms: i64) -> String {
-    Local.timestamp_millis_opt(ms).single().map(|d| d.format("%b %d %H:%M").to_string()).unwrap_or_default()
+fn print_full(m: &FullMessageOut) {
+    let h = &m.message;
+    let who = |a: &AddrOut| match &a.name {
+        Some(n) => format!("{n} <{}>", a.email),
+        None => a.email.clone(),
+    };
+    println!("From:    {}", h.from.as_ref().map(who).unwrap_or_default());
+    println!("To:      {}", h.to.iter().map(who).collect::<Vec<_>>().join(", "));
+    if !h.cc.is_empty() {
+        println!("Cc:      {}", h.cc.iter().map(who).collect::<Vec<_>>().join(", "));
+    }
+    println!("Date:    {}\nSubject: {}\n", h.received_at, h.subject);
+    println!("{}", m.text);
+    if m.truncated {
+        println!("[… truncated; use --max-chars]");
+    }
+    for a in m.attachments.iter().filter(|a| !a.inline) {
+        println!("[attachment {}] {} {}", a.id, a.name, a.content_type.as_deref().unwrap_or(""));
+    }
 }
 
-fn day(ms: i64) -> String {
-    chrono::DateTime::from_timestamp_millis(ms).map(|d| d.format("%b %d").to_string()).unwrap_or_default()
+/// `Oct 23 10:24` from an RFC 3339 string (dates pass through).
+fn short_time(iso: &str) -> String {
+    chrono::DateTime::parse_from_rfc3339(iso)
+        .map(|d| d.with_timezone(&chrono::Local).format("%b %d %H:%M").to_string())
+        .unwrap_or_else(|_| iso.to_string())
 }
 
 fn short_account(id: &str) -> String {
