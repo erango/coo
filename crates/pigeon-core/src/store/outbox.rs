@@ -166,8 +166,8 @@ fn snapshot(conn: &Connection, account_id: &str, ids: &[String]) -> Result<Vec<M
 
 fn add_folder(conn: &Connection, account_id: &str, id: &str, folder_id: &str) -> Result<()> {
     conn.prepare_cached(
-        "INSERT OR IGNORE INTO message_folders (message_pk, account_id, folder_id, received_at)
-         SELECT pk, account_id, ?3, received_at FROM messages WHERE account_id = ?1 AND id = ?2",
+        "INSERT OR IGNORE INTO message_folders (message_pk, account_id, folder_id, received_at, unread)
+         SELECT pk, account_id, ?3, received_at, NOT is_read FROM messages WHERE account_id = ?1 AND id = ?2",
     )?
     .execute(params![account_id, id, folder_id])?;
     Ok(())

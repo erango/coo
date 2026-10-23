@@ -21,6 +21,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("003_outbox.sql"),
     include_str!("004_drafts.sql"),
     include_str!("005_invites.sql"),
+    include_str!("006_folder_counts.sql"),
 ];
 
 /// Which folder a list query reads.
@@ -131,12 +132,10 @@ impl Store {
     /// Folders with locally computed counts; role folders first.
     pub fn folders(&self, account_id: &str) -> Result<Vec<FolderInfo>> {
         let mut stmt = self.conn.prepare_cached(
-            "SELECT f.id, f.name, f.parent_id, f.role, f.kind, COUNT(m.pk), COALESCE(SUM(m.is_read = 0), 0)
+            "SELECT f.id, f.name, f.parent_id, f.role, f.kind, COALESCE(c.total, 0), COALESCE(c.unread, 0)
              FROM folders f
-             LEFT JOIN message_folders mf ON mf.account_id = f.account_id AND mf.folder_id = f.id
-             LEFT JOIN messages m ON m.pk = mf.message_pk
+             LEFT JOIN folder_counts c ON c.account_id = f.account_id AND c.folder_id = f.id
              WHERE f.account_id = ?1
-             GROUP BY f.id
              ORDER BY f.role IS NULL, f.name COLLATE NOCASE",
         )?;
         let rows = stmt.query_map([account_id], |r| {
@@ -953,10 +952,11 @@ fn upsert_message(tx: &Transaction, account_id: &str, h: &MessageHeader) -> Resu
         )?;
     tx.prepare_cached("DELETE FROM message_folders WHERE message_pk = ?1")?.execute([pk])?;
     let mut ins = tx.prepare_cached(
-        "INSERT OR IGNORE INTO message_folders (message_pk, account_id, folder_id, received_at) VALUES (?1, ?2, ?3, ?4)",
+        "INSERT OR IGNORE INTO message_folders (message_pk, account_id, folder_id, received_at, unread)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
     )?;
     for folder_id in &h.folder_ids {
-        ins.execute(params![pk, account_id, folder_id, h.received_at])?;
+        ins.execute(params![pk, account_id, folder_id, h.received_at, !h.is_read])?;
     }
     Ok(())
 }

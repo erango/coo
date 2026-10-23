@@ -573,6 +573,67 @@ fn flag_and_retain_changes() {
     assert!(a.is_read && a.is_flagged);
 }
 
+/// Trigger-maintained counters must equal a fresh recount.
+fn assert_counts_consistent(s: &Store) {
+    let recount: Vec<(String, String, i64, i64)> = s
+        .conn
+        .prepare(
+            "SELECT mf.account_id, mf.folder_id, COUNT(*), SUM(NOT m.is_read)
+             FROM message_folders mf JOIN messages m ON m.pk = mf.message_pk
+             GROUP BY mf.account_id, mf.folder_id ORDER BY 1, 2",
+        )
+        .unwrap()
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    let kept: Vec<(String, String, i64, i64)> = s
+        .conn
+        .prepare("SELECT account_id, folder_id, total, unread FROM folder_counts WHERE total > 0 ORDER BY 1, 2")
+        .unwrap()
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert_eq!(kept, recount);
+    let negative: i64 =
+        s.conn.query_row("SELECT COUNT(*) FROM folder_counts WHERE total < 0 OR unread < 0", [], |r| r.get(0)).unwrap();
+    assert_eq!(negative, 0);
+}
+
+#[test]
+fn folder_counters_track_every_mutation() {
+    let (mut s, ms, g) = setup();
+    let mut read = msg("r", "t", 3, &["in-ms"]);
+    read.is_read = true;
+    s.apply_mail(
+        &ms.id,
+        "f",
+        &[
+            MailChange::Upsert(msg("a", "t", 1, &["in-ms"])),
+            MailChange::Upsert(msg("b", "t", 2, &["proj"])),
+            MailChange::Upsert(read),
+        ],
+        "1",
+    )
+    .unwrap();
+    s.apply_mail(&g.id, "mail", &[MailChange::Upsert(msg("c", "u", 4, &["INBOX", "STARRED"]))], "1").unwrap();
+    assert_counts_consistent(&s);
+    // Move, read flip via re-upsert, optimistic ops, rollback, delete, unlink.
+    s.apply_mail(&ms.id, "f", &[MailChange::Upsert(msg("a", "t", 1, &["proj"]))], "2").unwrap();
+    let id = s.enqueue(&ms.id, &MailOp::SetRead { ids: vec!["b".into()], read: true }).unwrap();
+    assert_counts_consistent(&s);
+    s.rollback_op(id).unwrap();
+    s.enqueue(&g.id, &MailOp::Relabel { ids: vec!["c".into()], add: vec![], remove: vec!["INBOX".into()] }).unwrap();
+    s.apply_mail(&ms.id, "f", &[MailChange::Unlink { id: "r".into(), folder_id: "in-ms".into() }], "3").unwrap();
+    s.apply_mail(&g.id, "mail", &[MailChange::Delete { id: "c".into() }], "2").unwrap();
+    assert_counts_consistent(&s);
+    let proj = s.folders(&ms.id).unwrap().into_iter().find(|f| f.folder.id == "proj").unwrap();
+    assert_eq!((proj.total, proj.unread), (2, 2));
+    s.delete_account(&ms.id).unwrap();
+    assert_counts_consistent(&s);
+}
+
 #[test]
 fn threads_found_past_a_long_thread_and_paged_with_before() {
     let (mut s, ms, g) = setup();
