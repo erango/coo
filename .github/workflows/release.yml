@@ -42,10 +42,11 @@ jobs:
           API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
         run: |
-          if [ -z "$CERT_P12" ]; then
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "No signing secrets: building **unsigned** (ad-hoc)." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+          if [ -z "$CERT_P12" ] || [ -z "$CERT_PASSWORD" ] || [ -z "$API_KEY_P8" ]; then
+            # A public release must be signed + notarized: an unsigned build
+            # is blocked by Gatekeeper and Sparkle won't install it.
+            echo "::error::Signing secrets missing or empty (MACOS_CERT_P12, MACOS_CERT_PASSWORD, APPLE_API_KEY_P8): refusing to publish an unsigned release."
+            exit 1
           fi
           KC="$RUNNER_TEMP/signing.keychain-db"
           KC_PW="$(uuidgen)"
@@ -54,6 +55,8 @@ jobs:
           security set-keychain-settings -lut 21600 "$KC"
           security unlock-keychain -p "$KC_PW" "$KC"
           security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security find-identity -v -p codesigning "$KC" | grep -q "Developer ID Application" \
+            || { echo "::error::The .p12 in MACOS_CERT_P12 has no Developer ID Application identity."; exit 1; }
           security set-key-partition-list -S apple-tool:,apple: -k "$KC_PW" "$KC" >/dev/null
           security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
           rm -f "$RUNNER_TEMP/cert.p12"
