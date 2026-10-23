@@ -68,6 +68,14 @@ pub fn window(l: &Layout, scroll_top: f64, viewport: f64) -> (usize, usize, f64,
     (start, end, top_pad, bottom_pad)
 }
 
+/// The first item at least partly visible at `scroll_top`.
+pub fn first_visible_item(l: &Layout, scroll_top: f64) -> Option<usize> {
+    l.slots.iter().find_map(|(s, top)| match s {
+        Slot::Item(i) if top + ROW_H > scroll_top => Some(*i),
+        _ => None,
+    })
+}
+
 /// Top and bottom offsets of item `i`.
 pub fn item_span(l: &Layout, i: usize) -> Option<(f64, f64)> {
     l.slots.iter().find(|(s, _)| *s == Slot::Item(i)).map(|(_, t)| (*t, t + ROW_H))
@@ -118,6 +126,15 @@ mod tests {
         let (_, end, _, bottom) = window(&l, l.total, 800.0);
         assert_eq!((end, bottom), (l.slots.len(), 0.0));
         assert_eq!(window(&layout(std::iter::empty()), 0.0, 800.0), (0, 0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn first_visible_item_skips_rows_scrolled_past() {
+        let l = sample(10);
+        assert_eq!(first_visible_item(&l, 0.0), Some(0));
+        // Past the Today header and rows 0-1 (header 30 + 2 rows), into row 2.
+        assert_eq!(first_visible_item(&l, GROUP_H + 2.0 * ROW_H + 10.0), Some(2));
+        assert_eq!(first_visible_item(&layout(std::iter::empty()), 0.0), None);
     }
 
     #[test]

@@ -6,6 +6,7 @@ pub mod event_editor;
 mod icloud;
 mod invite;
 mod list;
+mod list_motion;
 pub mod mailframe;
 mod move_picker;
 mod onboarding;
@@ -119,6 +120,26 @@ pub fn App() -> Element {
                         "month" => v.set(crate::state::CalView::Month),
                         _ => {}
                     }
+                }
+                // anim-demo — take the 2nd row out and put it back every 1.6 s,
+                // so screenshots can catch the collapse / slide-in mid-way.
+                "anim-demo" => {
+                    let mut list = s.list;
+                    spawn(async move {
+                        let mut held: Option<(usize, pigeon_engine::service::ListItem)> = None;
+                        loop {
+                            tokio::time::sleep(std::time::Duration::from_millis(1600)).await;
+                            let mut l = list.write();
+                            match held.take() {
+                                Some((i, item)) => {
+                                    let at = i.min(l.len());
+                                    l.insert(at, item);
+                                }
+                                None if l.len() > 2 => held = Some((1, l.remove(1))),
+                                None => {}
+                            }
+                        }
+                    });
                 }
                 // scroll:<row> — scroll the message list to roughly that row.
                 "scroll" => {

@@ -57,6 +57,39 @@ fn title(s: &AppState, mb: &Mailbox) -> (String, String) {
     }
 }
 
+/// What the list drew last, and the motion in flight (see list_motion).
+#[derive(Default)]
+struct Motion {
+    view: String,
+    keys: Vec<String>,
+    items: Vec<ListItem>,
+    /// Display order of live rows and ghosts.
+    order: Vec<super::list_motion::Entry>,
+    /// (index in `items` before the change, the removed row).
+    ghosts: Vec<(usize, ListItem)>,
+    entering: std::collections::HashSet<String>,
+    generation: u64,
+}
+
+/// Live rows interleaved with collapsing ghosts, as (item, is_ghost).
+fn merged_items(
+    items: &[ListItem],
+    order: &[super::list_motion::Entry],
+    ghosts: &[(usize, ListItem)],
+) -> Vec<(ListItem, bool)> {
+    use super::list_motion::Entry;
+    if ghosts.is_empty() || order.is_empty() {
+        return items.iter().map(|i| (i.clone(), false)).collect();
+    }
+    order
+        .iter()
+        .filter_map(|e| match *e {
+            Entry::Live(i) => items.get(i).map(|i| (i.clone(), false)),
+            Entry::Ghost(g) => ghosts.iter().find(|(j, _)| *j == g).map(|(_, i)| (i.clone(), true)),
+        })
+        .collect()
+}
+
 #[component]
 pub fn MailList() -> Element {
     let s = use_context::<AppState>();
@@ -100,9 +133,80 @@ pub fn MailList() -> Element {
     let mut scroll_top = use_signal(|| 0.0f64);
     let mut viewport = use_signal(|| 1200.0f64);
     let mut asked_for = use_signal(|| 0usize);
-    let layout = vlist::layout(items.iter().map(|i| format::group(i.header().received_at, now)));
     // Outgoing (sending/failed) rows sit above the virtualized rows.
     let out_h = outgoing.len() as f64 * vlist::ROW_H;
+
+    // Insert/remove motion. Diffed here, during render, against the last
+    // list this component drew (a non-reactive cell), so a removed row is
+    // replaced by its collapsing ghost in the same frame it leaves `items`.
+    let motion = use_hook(|| std::rc::Rc::new(std::cell::RefCell::new(Motion::default())));
+    let mut motion_tick = use_signal(|| 0u64);
+    let _ = motion_tick.read();
+    let keys: Vec<String> = items.iter().map(AppState::key).collect();
+    let view = format!("{mailbox:?}|{}|{}", *threaded.read(), s.search.read().is_some());
+    {
+        let mut m = motion.borrow_mut();
+        if m.keys != keys || m.view != view {
+            let same_view = m.view == view;
+            let list_top = (*scroll_top.peek() - out_h).max(0.0);
+            let at_top = list_top < vlist::ROW_H / 2.0;
+            let old_layout = vlist::layout(m.items.iter().map(|i| format::group(i.header().received_at, now)));
+            let first_visible = vlist::first_visible_item(&old_layout, list_top).unwrap_or(0);
+            let plan = super::list_motion::plan(&m.keys, &keys, same_view, at_top, first_visible);
+            let ghosts: Vec<(usize, ListItem)> = plan.ghosts.iter().map(|&g| (g, m.items[g].clone())).collect();
+            let order = super::list_motion::merge(&m.keys, &keys, &plan.ghosts);
+            // Scrolled down: keep the anchor row where it is on screen.
+            if let Some(anchor) = plan.anchor.as_deref() {
+                let old_top = m
+                    .items
+                    .iter()
+                    .position(|i| AppState::key(i) == anchor)
+                    .and_then(|i| vlist::item_span(&old_layout, i));
+                let merged = merged_items(&items, &order, &ghosts);
+                let new_layout = vlist::layout(merged.iter().map(|(i, _)| format::group(i.header().received_at, now)));
+                let new_top = merged
+                    .iter()
+                    .position(|(i, _)| AppState::key(i) == anchor)
+                    .and_then(|i| vlist::item_span(&new_layout, i));
+                if let (Some((o, _)), Some((n, _))) = (old_top, new_top) {
+                    let delta = n - o;
+                    if delta.abs() > 0.5 {
+                        document::eval(&format!(
+                            "requestAnimationFrame(()=>{{const l=document.querySelector('.pane--list .list[role=listbox]'); if(l) l.scrollTop+={delta};}})"
+                        ));
+                    }
+                }
+            }
+            m.generation += 1;
+            let animating = plan.animates();
+            m.entering = plan.entering.into_iter().collect();
+            m.ghosts = ghosts;
+            m.order = order;
+            m.items = items.clone();
+            m.keys = keys.clone();
+            m.view = view;
+            if animating {
+                let (generation, cell) = (m.generation, motion.clone());
+                spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(super::list_motion::CLEAR_AFTER_MS)).await;
+                    let mut m = cell.borrow_mut();
+                    if m.generation == generation {
+                        m.entering.clear();
+                        m.ghosts.clear();
+                        m.order = (0..m.items.len()).map(super::list_motion::Entry::Live).collect();
+                        drop(m);
+                        motion_tick += 1;
+                    }
+                });
+            }
+        }
+    }
+    let (display, entering) = {
+        let m = motion.borrow();
+        (merged_items(&items, &m.order, &m.ghosts), m.entering.clone())
+    };
+
+    let layout = vlist::layout(display.iter().map(|(i, _)| format::group(i.header().received_at, now)));
     let (start, end, top_pad, bottom_pad) =
         vlist::window(&layout, (*scroll_top.read() - out_h).max(0.0), *viewport.read());
     let rows: Vec<Element> = layout.slots[start..end]
@@ -110,8 +214,17 @@ pub fn MailList() -> Element {
         .map(|(slot, _)| match *slot {
             vlist::Slot::Group(g) => rsx! { div { class: "list-group", key: "g-{g}", "{g}" } },
             vlist::Slot::Item(i) => {
-                let item = &items[i];
-                rsx! { Row { key: "{AppState::key(item)}", item: item.clone(), many } }
+                let (item, ghost) = &display[i];
+                let key = AppState::key(item);
+                let motion = if *ghost {
+                    Some("leaving")
+                } else if entering.contains(&key) {
+                    Some("entering")
+                } else {
+                    None
+                };
+                let rkey = if *ghost { format!("ghost-{key}") } else { key };
+                rsx! { Row { key: "{rkey}", item: item.clone(), many, motion } }
             }
         })
         .collect();
@@ -119,7 +232,8 @@ pub fn MailList() -> Element {
     let count = items.len();
 
     // Keep the keyboard selection visible (it may not be rendered at all).
-    let selected_index = s.selected.read().as_ref().and_then(|k| items.iter().position(|i| AppState::key(i) == *k));
+    let selected_index =
+        s.selected.read().as_ref().and_then(|k| display.iter().position(|(i, g)| !g && AppState::key(i) == *k));
     let span = selected_index.and_then(|i| vlist::item_span(&layout, i)).map(|(t, b)| (t + out_h, b + out_h));
     use_effect(use_reactive!(|span| {
         if let Some((top, bottom)) = span
@@ -274,7 +388,7 @@ fn Empty(syncing: bool) -> Element {
 }
 
 #[component]
-pub fn Row(item: ListItem, many: bool) -> Element {
+pub fn Row(item: ListItem, many: bool, #[props(default)] motion: Option<&'static str>) -> Element {
     let s = use_context::<AppState>();
     let key = AppState::key(&item);
     let selected = s.selected.read().as_deref() == Some(key.as_str());
@@ -314,6 +428,9 @@ pub fn Row(item: ListItem, many: bool) -> Element {
 
     rsx! {
         div { class: "row", role: "option", "data-hue": "{hue}",
+            "data-entering": (motion == Some("entering")).then_some("true"),
+            "data-leaving": (motion == Some("leaving")).then_some("true"),
+            "aria-hidden": (motion == Some("leaving")).then_some("true"),
             "data-unread": unread.then_some("true"),
             "data-flagged": flagged.then_some("true"),
             "data-state": h.is_draft.then_some("draft"),

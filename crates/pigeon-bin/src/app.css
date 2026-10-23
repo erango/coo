@@ -289,3 +289,8 @@ input, textarea, [contenteditable="true"] { cursor: text; }
 }
 .thread-order:hover { background: var(--bg-2); color: var(--text-2); }
 .thread-order:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* List motion (ui/list_motion.rs): new rows grow in, removed rows use the
+   design's data-leaving collapse. Tokens drop to 0 with reduced motion. */
+.row[data-entering] { overflow: hidden; animation: coo-row-in var(--dur-collapse) var(--ease-standard) both; }
+@keyframes coo-row-in { from { opacity: 0; height: 0; padding-top: 0; padding-bottom: 0; } }
+.row[data-leaving] { overflow: hidden; pointer-events: none; }
