@@ -368,9 +368,7 @@ fn Body(account_id: String, message_id: String, sender: String, body: StoredBody
 
     let terms = search_terms(&s);
     let content = match mailframe::shown(body.html.as_deref(), body.text.as_deref()) {
-        mailframe::Shown::Empty => rsx! {
-            div { class: "plain-body body-empty", Icon { name: "mail", class: "icon--sm" } "This message has no text." }
-        },
+        mailframe::Shown::Empty => rsx! { div { class: "plain-body" } },
         mailframe::Shown::Html(html) => {
             let adapted = mailframe::is_complex(html) == flipped;
             let (marked, _) = mailframe::highlight_html(html, &terms);
