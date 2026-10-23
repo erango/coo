@@ -45,3 +45,16 @@ input.input--bare { border: 0; outline: none; }
 .palette { max-height: calc(100vh / var(--ui-zoom, 1) - 144px); }
 .composer-overlay > .composer { width: min(760px, calc(92vw / var(--ui-zoom, 1))); height: min(640px, calc(88vh / var(--ui-zoom, 1))); }
 .editor-overlay > .event-editor { width: min(760px, calc(94vw / var(--ui-zoom, 1))); max-height: calc(92vh / var(--ui-zoom, 1)); }
+
+/* One indicator per row: the account dot doubles as the unread marker
+   (filled = unread, ring = read) instead of a separate unread dot. */
+.row[data-unread]::before { display: none; }
+.row .row__line > .dot { width: 8px; height: 8px; }
+.row:not([data-unread]) .row__line > .dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--hue); opacity: 0.55; }
+.row:not([data-unread]) .row__line > .pip { opacity: 0.6; }
+
+/* Mailbox navigation: a little more air between items. */
+.sidebar__nav { gap: 2px; }
+.sidebar__nav .nav-item { height: calc(var(--nav-item-h) + 4px); }
+.sidebar__nav .nav-item--child { height: 32px; }
+.sidebar__nav .nav-section { margin-top: 16px; }
