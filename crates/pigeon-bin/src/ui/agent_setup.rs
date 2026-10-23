@@ -30,7 +30,13 @@ const TABS: [(Tab, &str); 4] = [
 
 fn toast(s: AppState, message: impl Into<String>, error: bool) {
     static SEQ: AtomicU64 = AtomicU64::new((1 << 62) + (1 << 40));
-    s.push_toast(Toast { id: SEQ.fetch_add(1, Ordering::Relaxed), message: message.into(), error, undo: None });
+    s.push_toast(Toast {
+        id: SEQ.fetch_add(1, Ordering::Relaxed),
+        message: message.into(),
+        error,
+        undo: None,
+        cancel_send: None,
+    });
 }
 
 /// Copy to the clipboard from the web view (falls back to execCommand when

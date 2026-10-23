@@ -80,8 +80,7 @@ pub enum OutState {
     /// Sent at (ms); dropped once a later sync has run.
     Sent(i64),
     Failed(String),
-    /// Scheduled to go out at (ms) — send later / undo-send window.
-    #[allow(dead_code)] // constructed once send-later lands
+    /// Scheduled to go out at (ms) by send later.
     Queued(i64),
 }
 
@@ -100,6 +99,8 @@ pub struct AppState {
     pub outgoing: Signal<Vec<Outgoing>>,
     /// Settings should open the iCloud password form (re-sign-in).
     pub icloud_form: Signal<bool>,
+    /// Draft id whose send was just cancelled (its Draft delta reopens it).
+    pub reopening: Signal<Option<String>>,
     /// Event editor form while open.
     pub editor: Signal<Option<crate::ui::event_editor::EventForm>>,
     /// Latest free/busy answer: (request token, result).
@@ -157,6 +158,7 @@ impl AppState {
             window_focused: Signal::new(true),
             outgoing: Signal::new(Vec::new()),
             icloud_form: Signal::new(false),
+            reopening: Signal::new(None),
             editor: Signal::new(None),
             free_busy: Signal::new((0, Vec::new())),
             search: Signal::new(None),
@@ -238,7 +240,7 @@ impl AppState {
     pub fn local_toast(&self, message: impl Into<String>, error: bool) {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1 << 40);
         let id = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        self.push_toast(Toast { id, message: message.into(), error, undo: None });
+        self.push_toast(Toast { id, message: message.into(), error, undo: None, cancel_send: None });
     }
 
     pub fn push_toast(&self, t: Toast) {
@@ -356,7 +358,36 @@ pub async fn pump(mut s: AppState) {
                 s.calendar.set(CalendarData { from, to, events, calendars })
             }
             Delta::Senders(v) => s.senders.set(v),
-            Delta::Draft(d) => s.draft.set(Some(d)),
+            Delta::Draft(mut d) => {
+                // An undone send comes back with its signature in body_html;
+                // drop it (the composer shows it separately and re-adds it).
+                if s.reopening.peek().as_deref() == Some(d.id.as_str()) {
+                    s.reopening.set(None);
+                    d.body_html = crate::ui::compose::strip_signature(&d.body_html);
+                }
+                s.draft.set(Some(d))
+            }
+            Delta::Scheduled(drafts) => {
+                let mut out = s.outgoing.write();
+                // Scheduled entries come from the engine; drop ones it no longer has.
+                out.retain(|o| !matches!(o.state, OutState::Queued(_)) || drafts.iter().any(|d| d.id == o.draft.id));
+                for d in drafts {
+                    let state = match d.scheduled_at {
+                        Some(_) if d.undo_window => OutState::Sending,
+                        Some(at) => OutState::Queued(at),
+                        None => continue,
+                    };
+                    match out.iter_mut().find(|o| o.draft.id == d.id) {
+                        Some(o) => o.state = state,
+                        None => out.insert(0, Outgoing { draft: d, state }),
+                    }
+                }
+            }
+            Delta::Unscheduled { draft_id } => {
+                s.outgoing.write().retain(|o| o.draft.id != draft_id);
+                s.reopening.set(Some(draft_id));
+                s.sending.set(false);
+            }
             Delta::Sent { draft_id } => {
                 if let Some(o) = s.outgoing.write().iter_mut().find(|o| o.draft.id == draft_id) {
                     o.state = OutState::Sent(pigeon_core::now_ms());

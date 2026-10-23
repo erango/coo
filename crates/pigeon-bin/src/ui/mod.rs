@@ -1,6 +1,6 @@
 mod agent_setup;
 mod calendar;
-mod compose;
+pub mod compose;
 pub mod event_editor;
 mod icloud;
 mod invite;
@@ -13,6 +13,7 @@ mod reader;
 mod recipients;
 mod search;
 mod settings;
+mod settings_sections;
 mod sidebar;
 mod toasts;
 pub mod zoom;

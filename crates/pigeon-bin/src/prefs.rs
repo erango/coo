@@ -31,6 +31,10 @@ pub struct Prefs {
     pub event_reminder_minutes: u32,
     /// Account ids that never notify.
     pub notify_accounts_muted: Vec<String>,
+    /// Undo-send window in seconds (0 = send immediately).
+    pub undo_send_seconds: u32,
+    /// Plain-text signature per sending address (lowercased email).
+    pub signatures: std::collections::BTreeMap<String, String>,
 }
 
 impl Default for Prefs {
@@ -45,6 +49,8 @@ impl Default for Prefs {
             notify_events: true,
             event_reminder_minutes: 10,
             notify_accounts_muted: Vec::new(),
+            undo_send_seconds: 10,
+            signatures: Default::default(),
         }
     }
 }

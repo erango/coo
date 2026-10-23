@@ -277,7 +277,7 @@ fn OutgoingRow(out: Outgoing, many: bool) -> Element {
         OutState::Queued(_) => "queued",
     };
     let letter = d.from.address.email.chars().next().map(|c| c.to_ascii_uppercase()).unwrap_or('?');
-    let (retry, open) = (d.clone(), d.clone());
+    let (retry, open, cancel) = (d.clone(), d.clone(), d.id.clone());
     rsx! {
         div { class: "row", role: "option", "data-hue": "{hue}", "data-state": "{state}",
             onclick: move |_| { let mut dr = s.draft; dr.set(Some(open.clone())); },
@@ -306,7 +306,16 @@ fn OutgoingRow(out: Outgoing, many: bool) -> Element {
                     }
                 },
                 OutState::Queued(at) => rsx! {
-                    div { class: "row__snippet", "Scheduled · {format::long_time(at, chrono::Local::now())}" }
+                    div { class: "row__snippet",
+                        "Scheduled · {format::long_time(at, chrono::Local::now())} · "
+                        a { href: "#", onclick: move |e| {
+                                e.prevent_default();
+                                e.stop_propagation();
+                                send_cmd(Cmd::CancelScheduled { draft_id: cancel.clone() });
+                            },
+                            "Cancel"
+                        }
+                    }
                 },
             }
         }

@@ -46,7 +46,13 @@ pub fn change(s: AppState, step: Step) {
     let id = SEQ.fetch_add(1, Ordering::Relaxed);
     let mut toasts = s.toasts;
     toasts.write().retain(|t| !t.message.starts_with("Text size"));
-    s.push_toast(Toast { id, message: format!("Text size {}%", (scale * 100.0).round()), error: false, undo: None });
+    s.push_toast(Toast {
+        id,
+        message: format!("Text size {}%", (scale * 100.0).round()),
+        error: false,
+        undo: None,
+        cancel_send: None,
+    });
 }
 
 #[cfg(test)]

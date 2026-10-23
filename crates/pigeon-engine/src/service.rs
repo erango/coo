@@ -65,6 +65,17 @@ impl Mailbox {
 
 #[derive(Debug, Clone)]
 pub enum Cmd {
+    /// Send `draft` at `at` (ms). `undo_window`: the undo-send grace period
+    /// rather than a chosen time.
+    Schedule {
+        draft: Draft,
+        at: i64,
+        undo_window: bool,
+    },
+    /// Cancel a scheduled send; the draft reopens in the composer.
+    CancelScheduled {
+        draft_id: String,
+    },
     /// Recipient autocomplete; `token` lets the UI drop stale results.
     SuggestContacts {
         query: String,
@@ -221,12 +232,14 @@ pub struct ReaderView {
     pub single: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Toast {
     pub id: u64,
     pub message: String,
     pub error: bool,
     pub undo: Option<(String, i64)>,
+    /// Draft id whose scheduled send this toast can cancel ("Sending… Undo").
+    pub cancel_send: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -245,6 +258,11 @@ pub enum Delta {
     /// Unread inbox mail that arrived since the last sync (never on first
     /// sync), newest first. The UI decides whether to notify.
     NewMail(Vec<MessageRow>),
+    /// Drafts waiting for their scheduled send (send later / undo window).
+    Scheduled(Vec<Draft>),
+    Unscheduled {
+        draft_id: String,
+    },
     Accounts(Vec<AccountNav>),
     List {
         mailbox: Mailbox,
@@ -300,6 +318,15 @@ pub enum ServerSearch {
     Loading,
     /// Done; this many messages came back from the servers.
     Done(usize),
+}
+
+fn local_when(ms: i64) -> String {
+    use chrono::TimeZone;
+    chrono::Local
+        .timestamp_millis_opt(ms)
+        .single()
+        .map(|t| t.format("%a %-d %b, %H:%M").to_string())
+        .unwrap_or_default()
 }
 
 /// Stable 1..=8 color slot for an account address.
@@ -374,6 +401,8 @@ struct Service {
     draft_sending: std::sync::Mutex<std::collections::HashSet<String>>,
     /// New-mail watermarks per account (see `notify.rs`).
     notify_marks: std::sync::Mutex<crate::notify::Marks>,
+    /// Scheduled drafts currently being sent (guards the 1 s due-check).
+    in_flight: Mutex<std::collections::HashSet<String>>,
 }
 
 /// How many newest inbox rows per account are checked for new mail.
@@ -441,7 +470,7 @@ impl Service {
 
     fn toast(&self, message: impl Into<String>, error: bool, undo: Option<(String, i64)>) {
         let id = self.toast_seq.fetch_add(1, Ordering::Relaxed);
-        self.send(Delta::Toast(Toast { id, message: message.into(), error, undo }));
+        self.send(Delta::Toast(Toast { id, message: message.into(), error, undo, cancel_send: None }));
     }
 
     fn fail(&self, context: &str, e: &Error) {
@@ -493,6 +522,8 @@ impl Service {
             };
             (accounts, items, next_up, cal)
         };
+        let scheduled = self.app.store().drafts()?.into_iter().filter(|d| d.scheduled_at.is_some()).collect();
+        self.send(Delta::Scheduled(scheduled));
         self.send(Delta::Accounts(accounts));
         self.send(Delta::List { mailbox, threaded, items });
         self.send(Delta::NextUp(next_up.into_iter().filter(|e| !e.event.all_day).take(3).collect()));
@@ -717,21 +748,41 @@ impl Service {
                 self.send(Delta::Draft(draft));
             }
             Cmd::Send(mut draft) => {
+                draft.scheduled_at = None;
+                draft.undo_window = false;
                 self.app.save_draft(&mut draft)?;
-                self.draft_sending.lock().unwrap_or_else(|p| p.into_inner()).insert(draft.id.clone());
-                let sent = self.app.send(&draft).await;
-                self.draft_sending.lock().unwrap_or_else(|p| p.into_inner()).remove(&draft.id);
-                match sent {
-                    Ok(_) => {
-                        self.send(Delta::Sent { draft_id: draft.id.clone() });
-                        self.toast(format!("Sent from {}", draft.from.address.email), false, None);
-                        tokio::spawn(self.clone().sync());
+                self.send_now(draft).await;
+            }
+            Cmd::Schedule { mut draft, at, undo_window } => {
+                draft.scheduled_at = Some(at);
+                draft.undo_window = undo_window;
+                self.app.save_draft(&mut draft)?;
+                let id = self.toast_seq.fetch_add(1, Ordering::Relaxed);
+                let message =
+                    if undo_window { "Sending…".to_string() } else { format!("Scheduled for {}", local_when(at)) };
+                self.send(Delta::Toast(Toast {
+                    id,
+                    message,
+                    cancel_send: Some(draft.id.clone()),
+                    ..Default::default()
+                }));
+                self.publish().await;
+            }
+            Cmd::CancelScheduled { draft_id } => {
+                let busy = self.in_flight.lock().await.contains(&draft_id);
+                let draft = self.app.store().draft(&draft_id)?;
+                match draft {
+                    Some(mut d) if !busy && d.scheduled_at.is_some() => {
+                        d.scheduled_at = None;
+                        d.undo_window = false;
+                        self.app.save_draft(&mut d)?;
+                        self.send(Delta::Unscheduled { draft_id: d.id.clone() });
+                        self.send(Delta::Draft(d));
+                        self.toast("Not sent — back in the composer", false, None);
                     }
-                    Err(e) => {
-                        self.send(Delta::SendFailed { draft_id: draft.id.clone(), error: e.to_string() });
-                        self.fail("Send failed, saved to Drafts", &e);
-                    }
+                    _ => self.toast("Too late to undo: it's already on its way", true, None),
                 }
+                self.publish().await;
             }
             Cmd::OpenAttachment { account_id, message_id, attachment_id } => {
                 let account = self.app.account(&account_id)?;
@@ -804,6 +855,45 @@ impl Service {
         Ok(())
     }
 
+    /// Send a saved draft now; reports Sent / SendFailed.
+    async fn send_now(self: Arc<Self>, draft: Draft) {
+        // While sending, the draft's server copy must not be re-created.
+        self.draft_sending.lock().unwrap_or_else(|p| p.into_inner()).insert(draft.id.clone());
+        let sent = self.app.send(&draft).await;
+        self.draft_sending.lock().unwrap_or_else(|p| p.into_inner()).remove(&draft.id);
+        match sent {
+            Ok(_) => {
+                self.send(Delta::Sent { draft_id: draft.id.clone() });
+                self.toast(format!("Sent from {}", draft.from.address.email), false, None);
+                tokio::spawn(self.clone().sync());
+            }
+            Err(e) => {
+                self.send(Delta::SendFailed { draft_id: draft.id.clone(), error: e.to_string() });
+                self.fail("Send failed, saved to Drafts", &e);
+            }
+        }
+    }
+
+    /// Send every scheduled draft whose time has come.
+    async fn send_due(self: Arc<Self>) {
+        let due = match self.app.store().drafts() {
+            Ok(d) => pigeon_core::compose::due_drafts(d, now_ms()),
+            Err(_) => return,
+        };
+        for mut draft in due {
+            if !self.in_flight.lock().await.insert(draft.id.clone()) {
+                continue;
+            }
+            draft.scheduled_at = None;
+            draft.undo_window = false;
+            if self.app.save_draft(&mut draft).is_ok() {
+                self.clone().send_now(draft.clone()).await;
+            }
+            self.in_flight.lock().await.remove(&draft.id);
+            self.publish().await;
+        }
+    }
+
     async fn open(
         self: Arc<Self>,
         account: Account,
@@ -861,11 +951,15 @@ pub async fn run(app: Arc<Pigeon>, mut rx: mpsc::UnboundedReceiver<Cmd>, tx: mps
         draft_gen: Default::default(),
         draft_sending: Default::default(),
         notify_marks: Default::default(),
+        in_flight: Mutex::new(Default::default()),
     });
     // Watermark existing mail so only what arrives from now on notifies.
     svc.check_new_mail().await;
     svc.publish().await;
     let mut tick = tokio::time::interval(SYNC_EVERY);
+    // Scheduled sends (send later, undo window); also catches ones that came
+    // due while the app was closed.
+    let mut due = tokio::time::interval(Duration::from_secs(1));
     loop {
         tokio::select! {
             cmd = rx.recv() => match cmd {
@@ -873,6 +967,7 @@ pub async fn run(app: Arc<Pigeon>, mut rx: mpsc::UnboundedReceiver<Cmd>, tx: mps
                 None => break,
             },
             _ = tick.tick() => { tokio::spawn(svc.clone().sync()); }
+            _ = due.tick() => { tokio::spawn(svc.clone().send_due()); }
         }
     }
 }

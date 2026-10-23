@@ -32,6 +32,7 @@ fn ToastItem(toast: Toast) -> Element {
     let tone = if toast.error { "error" } else { "neutral" };
     let id = toast.id;
     let undo = toast.undo.clone();
+    let cancel_send = toast.cancel_send.clone();
     rsx! {
         div { class: "toast", role: "status", "data-tone": tone,
             Icon { name: icon }
@@ -44,6 +45,15 @@ fn ToastItem(toast: Toast) -> Element {
                     },
                     "Undo"
                     kbd { class: "kbd", "Z" }
+                }
+            }
+            if let Some(draft_id) = cancel_send {
+                button { class: "btn btn--ghost btn--sm", r#type: "button", style: "color:var(--text-1)",
+                    onclick: move |_| {
+                        toasts.write().retain(|x| x.id != id);
+                        send_cmd(Cmd::CancelScheduled { draft_id: draft_id.clone() });
+                    },
+                    "Undo"
                 }
             }
         }

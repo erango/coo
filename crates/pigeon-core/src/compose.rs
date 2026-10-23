@@ -77,6 +77,13 @@ pub struct Draft {
     /// The copy saved on the From account's server, if any.
     #[serde(default)]
     pub server: Option<ServerDraft>,
+    /// Send at this time (ms): a chosen "send later" time, or the end of the
+    /// undo-send window.
+    #[serde(default)]
+    pub scheduled_at: Option<i64>,
+    /// The schedule is the undo-send grace period, not a time the user picked.
+    #[serde(default)]
+    pub undo_window: bool,
 }
 
 /// A draft's server-side copy (Gmail draft id, Graph message id, IMAP id).
@@ -101,6 +108,8 @@ impl Draft {
             updated_at: now,
             body_html: String::new(),
             server: None,
+            scheduled_at: None,
+            undo_window: false,
         }
     }
 
@@ -125,6 +134,13 @@ impl Draft {
     pub fn crosses_accounts(&self) -> bool {
         self.reply.as_ref().is_some_and(|r| r.account_id != self.from.account_id)
     }
+}
+
+/// Scheduled drafts whose time has come, earliest first.
+pub fn due_drafts(drafts: Vec<Draft>, now: i64) -> Vec<Draft> {
+    let mut due: Vec<Draft> = drafts.into_iter().filter(|d| d.scheduled_at.is_some_and(|t| t <= now)).collect();
+    due.sort_by_key(|d| d.scheduled_at);
+    due
 }
 
 /// Default sender for answering `original` (received on `account_id`): the
@@ -346,6 +362,25 @@ mod tests {
             ],
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn due_drafts_are_the_past_scheduled_ones_in_order() {
+        let mk = |id: &str, at: Option<i64>| {
+            let mut d = Draft::new(sender("a", "me@x.com"), 0);
+            d.id = id.into();
+            d.scheduled_at = at;
+            d
+        };
+        let due = due_drafts(
+            vec![mk("late", Some(50)), mk("none", None), mk("future", Some(500)), mk("early", Some(10))],
+            100,
+        );
+        assert_eq!(due.iter().map(|d| d.id.as_str()).collect::<Vec<_>>(), ["early", "late"]);
+        // Old drafts without the fields still deserialize.
+        let old = r#"{"id":"x","from":{"account_id":"a","address":{"email":"me@x.com"}},"to":[],"cc":[],"bcc":[],"subject":"","html":"","attachments":[],"reply":null,"updated_at":0}"#;
+        let d: Draft = serde_json::from_str(old).unwrap();
+        assert_eq!((d.scheduled_at, d.undo_window), (None, false));
     }
 
     #[test]

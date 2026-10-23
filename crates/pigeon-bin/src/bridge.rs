@@ -87,6 +87,86 @@ pub const JS: &str = r#"
     ed._pgSave = setTimeout(() => send('draft-input', ed.id), 1500);
   }, true);
 
+  // ---- Composer: floating format bar over a selection ----
+  // Commands go through execCommand on the focused editor; new blocks pick
+  // up dir="auto" from the input handler above, explicit dirs are kept.
+  const BAR_CMDS = [
+    ['bold', '<b>B</b>', 'Bold (⌘B)'], ['italic', '<i>I</i>', 'Italic (⌘I)'], ['link', '🔗', 'Link'], ['sep'],
+    ['insertUnorderedList', '•', 'Bulleted list'], ['insertOrderedList', '1.', 'Numbered list'], ['quote', '❝', 'Quote'],
+  ];
+  let bar = null, barEditor = null;
+  function hideBar() { if (bar) bar.style.display = 'none'; }
+  function ensureBar() {
+    if (bar) return bar;
+    bar = document.createElement('div');
+    bar.className = 'format-bar';
+    bar.style.position = 'fixed';
+    bar.style.zIndex = '60'; // above the composer overlay
+    bar.style.display = 'none';
+    bar.setAttribute('role', 'toolbar');
+    bar.addEventListener('mousedown', (e) => { if (e.target.tagName !== 'INPUT') e.preventDefault(); });
+    for (const [cmd, label, tip] of BAR_CMDS) {
+      if (cmd === 'sep') { const sp = document.createElement('span'); sp.className = 'format-bar__sep'; bar.appendChild(sp); continue; }
+      const b = document.createElement('button');
+      b.type = 'button'; b.innerHTML = label; b.title = tip; b.dataset.cmd = cmd;
+      b.addEventListener('click', () => runBar(cmd));
+      bar.appendChild(b);
+    }
+    document.body.appendChild(bar);
+    return bar;
+  }
+  function runBar(cmd) {
+    if (!barEditor) return;
+    if (cmd === 'link') {
+      const sel = getSelection(); const range = sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
+      const input = document.createElement('input');
+      input.className = 'input input--sm'; input.placeholder = 'https://…'; input.style.width = '200px';
+      bar.replaceChildren(input); input.focus();
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === 'Escape') {
+          e.preventDefault(); e.stopPropagation();
+          const url = input.value.trim();
+          barEditor.focus();
+          if (range) { sel.removeAllRanges(); sel.addRange(range); }
+          if (e.key === 'Enter' && /^(https?:|mailto:)/i.test(url)) document.execCommand('createLink', false, url);
+          bar.remove(); bar = null; hideBar();
+        }
+      });
+      return;
+    }
+    if (cmd === 'quote') document.execCommand('formatBlock', false, 'blockquote');
+    else document.execCommand(cmd, false, null);
+    for (const c of barEditor.querySelectorAll('div,p,li,blockquote,ul,ol')) if (!c.hasAttribute('dir')) c.setAttribute('dir', 'auto');
+    placeBar();
+  }
+  function placeBar() {
+    const sel = getSelection();
+    if (!sel.rangeCount || sel.isCollapsed) return hideBar();
+    const node = sel.anchorNode && (sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement);
+    const ed = node && node.closest && node.closest('[data-editor]');
+    if (!ed) return hideBar();
+    barEditor = ed;
+    const r = sel.getRangeAt(0).getBoundingClientRect();
+    const b = ensureBar(); b.style.display = 'flex';
+    for (const btn of b.querySelectorAll('button[data-cmd]')) {
+      const c = btn.dataset.cmd;
+      try { btn.setAttribute('aria-pressed', ['bold','italic','insertUnorderedList','insertOrderedList'].includes(c) && document.queryCommandState(c) ? 'true' : 'false'); } catch (_) {}
+    }
+    const w = b.offsetWidth || 220;
+    b.style.left = Math.max(8, Math.min(innerWidth - w - 8, r.left + r.width / 2 - w / 2)) + 'px';
+    b.style.top = Math.max(8, r.top - 44) + 'px';
+  }
+  document.addEventListener('selectionchange', () => {
+    if (bar && bar.contains(document.activeElement)) return; // typing a link
+    placeBar();
+  });
+  window.__pigeonFormatBarDemo = (edId) => { // debug screenshots only
+    const ed = document.getElementById(edId); if (!ed) return;
+    ed.innerHTML = '<div dir="auto">Thanks — the <b>revised deck</b> looks great.</div><div dir="auto">שלום, נדבר מחר</div>';
+    const t = ed.querySelector('b'); const range = document.createRange(); range.selectNodeContents(t);
+    ed.focus(); getSelection().removeAllRanges(); getSelection().addRange(range); placeBar();
+  };
+
   // ---- Mail frames: fit height to content, open links in the browser ----
   function wire(f) {
     const fit = () => {
