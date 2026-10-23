@@ -103,6 +103,7 @@ fn main() {
     // Styles in <head> so the first paint is already styled.
     let platform_css = if cfg!(target_os = "macos") { ":root{--titlebar-traffic:62px}" } else { "" };
     let zoom_css = ui::zoom::head_css(prefs.font_scale);
+    let list_css = ui::list_width_css(prefs.list_width);
     // Theme attributes before the body exists, so there's no flash of the
     // default palette.
     let theme_mode = match prefs.theme_mode.as_str() {
@@ -111,7 +112,7 @@ fn main() {
     };
     let palette = if themes::is_known(&prefs.palette) { prefs.palette.as_str() } else { themes::DEFAULT };
     let head = format!(
-        "<style>{}\n{}\n{}\n{platform_css}\n{zoom_css}</style><script>document.documentElement.dataset.theme={theme_mode:?};\
+        "<style>{}\n{}\n{}\n{platform_css}\n{zoom_css}\n{list_css}</style><script>document.documentElement.dataset.theme={theme_mode:?};\
          document.documentElement.dataset.palette={palette:?};</script>",
         fonts::css(),
         CSS.join("\n"),

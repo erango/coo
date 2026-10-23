@@ -43,6 +43,8 @@ pub struct Prefs {
     pub undo_send_seconds: u32,
     /// Plain-text signature per sending address (lowercased email).
     pub signatures: std::collections::BTreeMap<String, String>,
+    /// Message list width in px (0 = the design default).
+    pub list_width: u32,
 }
 
 impl Default for Prefs {
@@ -63,6 +65,7 @@ impl Default for Prefs {
             week_start: None,
             undo_send_seconds: 10,
             signatures: Default::default(),
+            list_width: 0,
         }
     }
 }

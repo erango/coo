@@ -55,8 +55,6 @@ input.input--bare { border: 0; outline: none; }
 
 /* Mailbox navigation: a little more air between items. */
 .sidebar__nav { gap: 2px; }
-.sidebar__nav .nav-item { height: calc(var(--nav-item-h) + 4px); }
-.sidebar__nav .nav-item--child { height: 32px; }
 .sidebar__nav .nav-section { margin-top: 16px; }
 
 /* ---------- Settings › Appearance (app-only; tokens only) ---------- */
@@ -143,3 +141,30 @@ input.input--bare { border: 0; outline: none; }
 .shortcut-list { flex: 1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; row-gap: 6px; }
 .shortcut { display: flex; align-items: center; gap: 8px; font-size: var(--fs-ui); color: var(--text-2); }
 .shortcut__what { flex: 1; min-width: 0; }
+
+
+/* --- Pane polish (user feedback) --- */
+/* 1. The message list sits a shade off the reader so the panes read apart;
+   mixed from the theme's own surfaces so it works in every palette. */
+.pane--list { background: color-mix(in oklab, var(--bg-0) 45%, var(--bg-1)); }
+.app[data-reader="off"] .pane--list { background: var(--bg-0); }
+.splitter { align-self: stretch; }
+.splitter:active::after { content: ""; position: absolute; left: 2px; top: 0; bottom: 0; width: 2px; background: var(--accent); opacity: 0.5; }
+body[data-resizing] { cursor: col-resize; user-select: none; }
+body[data-resizing] iframe { pointer-events: none; }
+
+/* 2. Snippet text shrinks and ellipsizes in its own direction. */
+.row__snippet-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; unicode-bidi: plaintext; }
+
+/* 3. Sidebar rows never shrink (an expanded account squeezed the unified
+   mailboxes); unified and account rows get balanced heights. */
+.sidebar__nav > * { flex-shrink: 0; }
+.sidebar__nav .nav-item { height: 32px; }
+.sidebar__nav .nav-item--child { height: 28px; }
+
+/* 4. Provider marks in account headers. */
+.nav-section__meta .provider-mark { display: inline-flex; align-items: center; opacity: 0.9; }
+.nav-section__meta .provider-mark svg { display: block; }
+
+/* 5. Email bodies use the whole reading pane. */
+.mail-body, .images-banner, .plain-body { max-width: none; }

@@ -299,7 +299,9 @@ pub fn Row(item: ListItem, many: bool) -> Element {
             div { class: "row__subject", dir: "auto", "{subject}" }
             match row_invite {
                 Some(inv) => rsx! { super::invite::RowInvite { invite: inv, event: row_event } },
-                None => rsx! { div { class: "row__snippet", dir: "auto", "{h.snippet}" } },
+                // The text gets its own shrinkable box: the snippet row is a flex
+                // container, and RTL text there overflowed past the edge.
+                None => rsx! { div { class: "row__snippet", dir: "auto", span { class: "row__snippet-text", dir: "auto", "{h.snippet}" } } },
             }
         }
     }

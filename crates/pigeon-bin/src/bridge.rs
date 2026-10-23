@@ -243,6 +243,37 @@ pub const JS: &str = r#"
     document.addEventListener('click', (e) => { if (swallowClick) { e.stopPropagation(); e.preventDefault(); swallowClick = false; } }, true);
   })();
 
+  // ---- Pane splitter: drag to resize the message list, double-click resets ----
+  const LIST_MIN = 300, LIST_MAX = 760;
+  document.addEventListener('mousedown', (e) => {
+    const sp = e.target.closest && e.target.closest('.splitter');
+    if (!sp || e.button !== 0) return;
+    const pane = document.querySelector('.pane--list');
+    if (!pane) return;
+    e.preventDefault();
+    const z = parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
+    const startX = e.clientX, startW = pane.offsetWidth;
+    let w = startW;
+    document.body.dataset.resizing = '1';
+    const move = (m) => {
+      w = Math.round(Math.min(LIST_MAX, Math.max(LIST_MIN, startW + (m.clientX - startX) / z)));
+      document.documentElement.style.setProperty('--list-w', w + 'px');
+    };
+    const up = () => {
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+      delete document.body.dataset.resizing;
+      send('list-w', w);
+    };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  }, true);
+  document.addEventListener('dblclick', (e) => {
+    if (!(e.target.closest && e.target.closest('.splitter'))) return;
+    document.documentElement.style.removeProperty('--list-w');
+    send('list-w', 0);
+  }, true);
+
   // ---- Mail frames: fit height to content, open links in the browser ----
   function wire(f) {
     const fit = () => {

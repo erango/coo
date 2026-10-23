@@ -239,6 +239,8 @@ pub fn App() -> Element {
                     match *s.mode.read() {
                         Mode::Mail => rsx! {
                             list::MailList {}
+                            div { class: "splitter", role: "separator", "aria-orientation": "vertical",
+                                title: "Drag to resize · double-click to reset" }
                             reader::Reader {}
                         },
                         Mode::Calendar => rsx! { calendar::CalendarView {} },
@@ -310,6 +312,15 @@ async fn click_loop(s: AppState) {
     }
 }
 
+/// Message list width bounds (px).
+pub const LIST_W_MIN: u32 = 300;
+pub const LIST_W_MAX: u32 = 760;
+
+/// Head CSS for a saved list width (empty = design default).
+pub fn list_width_css(px: u32) -> String {
+    if px == 0 { String::new() } else { format!(":root{{--list-w:{}px}}", px.clamp(LIST_W_MIN, LIST_W_MAX)) }
+}
+
 async fn bridge_loop(s: AppState) {
     let mut eval = document::eval(bridge::JS);
     while let Ok(msg) = eval.recv::<Msg>().await {
@@ -317,6 +328,10 @@ async fn bridge_loop(s: AppState) {
             "os" => {
                 let mut os = s.os_dark;
                 os.set(msg.v == "dark");
+            }
+            "list-w" => {
+                let px: u32 = msg.v.parse().unwrap_or(0);
+                crate::prefs::update(|p| p.list_width = if px == 0 { 0 } else { px.clamp(LIST_W_MIN, LIST_W_MAX) });
             }
             "link" => {
                 let v = msg.v.to_ascii_lowercase();
