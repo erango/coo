@@ -21,3 +21,10 @@
 /* Long sync errors must stay inside the sidebar. */
 .sidebar__footer { min-width: 0; overflow: hidden; }
 .sidebar__footer .sync-status { flex: 1; min-width: 0; overflow: hidden; cursor: default; }
+
+/* Event editor hosted as a centered panel (the design draws it as a window). */
+.editor-overlay > .event-editor { width: min(760px, 94vw); height: auto; max-height: 92vh; border-radius: 14px; overflow: hidden; box-shadow: var(--shadow-overlay); }
+.editor-overlay .event-editor__body input[type="date"], .editor-overlay .event-editor__body input[type="time"] { width: auto; }
+/* Bare inputs carry no chrome of their own (UA borders/outline off). */
+input.input--bare { border: 0; outline: none; }
+.editor-overlay .event-editor__body { padding-bottom: 16px; }

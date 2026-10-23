@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 
 use dioxus::prelude::*;
 use pigeon_core::compose::{Draft, Sender};
-use pigeon_core::model::{Calendar, EventRow, FolderRole, MessageRow, StoredBody};
+use pigeon_core::model::{Calendar, EventRow, FolderRole, FreeBusy, MessageRow, StoredBody};
 use pigeon_engine::service::{AccountNav, Delta, ListItem, Mailbox, ReaderView, ServerSearch, SyncState, Toast};
 
 use crate::RX;
@@ -47,6 +47,10 @@ pub struct SearchState {
 
 #[derive(Clone, Copy)]
 pub struct AppState {
+    /// Event editor form while open.
+    pub editor: Signal<Option<crate::ui::event_editor::EventForm>>,
+    /// Latest free/busy answer: (request token, result).
+    pub free_busy: Signal<(u64, FreeBusy)>,
     /// Search replaces the list while `Some`.
     pub search: Signal<Option<SearchState>>,
     pub palette_open: Signal<bool>,
@@ -85,6 +89,8 @@ pub struct AppState {
 impl AppState {
     pub fn new() -> Self {
         AppState {
+            editor: Signal::new(None),
+            free_busy: Signal::new((0, Vec::new())),
             search: Signal::new(None),
             palette_open: Signal::new(false),
             palette_token: Signal::new(0),
@@ -205,6 +211,7 @@ pub async fn pump(mut s: AppState) {
                     s.palette_hits.set(items);
                 }
             }
+            Delta::FreeBusy { token, result } => s.free_busy.set((token, result)),
             Delta::AttachmentReady(path) => {
                 if let Err(e) = open::that_detached(&path) {
                     tracing::warn!(error = %e, ?path, "could not open attachment");

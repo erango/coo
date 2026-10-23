@@ -89,7 +89,8 @@ pub fn CalendarView() -> Element {
         .and_then(|(a, id)| data.events.iter().find(|e| &e.account_id == a && &e.event.id == id).cloned());
 
     rsx! {
-        main { class: "pane pane--reader",
+        main { class: "pane pane--reader", style: "position:relative",
+            super::toasts::Toasts {}
             header { class: "cal-header",
                 h1 { class: "cal-header__title", "{first_day.format(\"%B %Y\")}" }
                 span { class: "cal-header__week", "Week {first_day.iso_week().week()}" }
@@ -98,6 +99,12 @@ pub fn CalendarView() -> Element {
                     onclick: move |_| week_start.set(format::week_start(Local::now())), "Today" }
                 button { class: "icon-btn", "aria-label": "Previous week", onclick: move |_| week_start.set(ws - 7 * DAY_MS), Icon { name: "chev-left" } }
                 button { class: "icon-btn", "aria-label": "Next week", onclick: move |_| week_start.set(ws + 7 * DAY_MS), Icon { name: "chev-right" } }
+                button { class: "btn btn--primary", r#type: "button", style: "height:30px;margin-left:8px",
+                    onclick: move |_| super::event_editor::open_new_now(s),
+                    Icon { name: "plus", class: "icon--sm" }
+                    "New event"
+                    kbd { class: "kbd", "C" }
+                }
             }
             div { class: "week",
                 div { class: "day-heads",
@@ -152,8 +159,14 @@ pub fn CalendarView() -> Element {
                                     let spans: Vec<(i64, i64)> = mine.iter().map(|e| (e.event.start_at.max(day_start), e.event.end_at.min(day_end))).collect();
                                     let cols = layout_day(&spans);
                                     let is_today = day_of(ws, i).date_naive() == today;
+                                    let day = day_of(ws, i).date_naive();
                                     rsx! {
                                         div { class: "day-col", key: "d{i}", "data-weekend": (i >= 5).then_some("true"),
+                                            onclick: move |ev| {
+                                                let y = ev.element_coordinates().y;
+                                                selected.set(None);
+                                                super::event_editor::open_new(s, day, super::event_editor::slot_from_offset(y, HOUR_PX));
+                                            },
                                             for (k, e) in mine.into_iter().enumerate() {
                                                 {
                                                     let (start, end) = spans[k];
@@ -172,7 +185,7 @@ pub fn CalendarView() -> Element {
                                                             "data-short": short.then_some("true"),
                                                             "aria-selected": "{is_sel}",
                                                             style: "top:{top}px;height:{height}px;--col:{col};--cols:{ncols}",
-                                                            onclick: move |_| selected.set(Some(key.clone())),
+                                                            onclick: move |ev| { ev.stop_propagation(); selected.set(Some(key.clone())); },
                                                             div { class: "event__title", dir: "auto",
                                                                 if video { Icon { name: "video", class: "icon--xs" } }
                                                                 "{e.event.title}"
@@ -206,6 +219,9 @@ fn EventPopover(row: EventRow, on_close: EventHandler<()>) -> Element {
     let e = row.event.clone();
     let hue = s.hue(&row.account_id);
     let now = pigeon_core::now_ms();
+    let can_edit =
+        s.calendar.read().calendars.iter().any(|(a, c)| a == &row.account_id && c.id == e.calendar_id && c.can_edit);
+    let edit_row = row.clone();
     let when = format!(
         "{} · {}–{}",
         format::local(e.start_at).map(|d| d.format("%a, %b %-d").to_string()).unwrap_or_default(),
@@ -236,11 +252,18 @@ fn EventPopover(row: EventRow, on_close: EventHandler<()>) -> Element {
 
     rsx! {
         div { class: "event-popover popover", role: "dialog", style: "right:24px;top:24px;left:auto",
+            onclick: move |ev| ev.stop_propagation(),
             div { class: "event-popover__section",
                 div { style: "display:flex;align-items:flex-start;gap:8px",
                     div { class: "spacer",
                         div { class: "event-popover__title", dir: "auto", "{row.event.title}" }
                         div { class: "event-popover__when", "{when}" if !soon.is_empty() { " · " span { class: "event-popover__soon", "{soon}" } } }
+                    }
+                    if can_edit {
+                        button { class: "icon-btn icon-btn--sm", "aria-label": "Edit",
+                            onclick: move |_| { super::event_editor::open_edit(s, &edit_row); on_close.call(()); },
+                            Icon { name: "edit", class: "icon--sm" }
+                        }
                     }
                     button { class: "icon-btn icon-btn--sm", "aria-label": "Close", onclick: move |_| on_close.call(()), Icon { name: "x", class: "icon--sm" } }
                 }

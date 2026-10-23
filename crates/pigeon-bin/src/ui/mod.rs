@@ -1,5 +1,6 @@
 mod calendar;
 mod compose;
+pub mod event_editor;
 mod list;
 pub mod mailframe;
 mod onboarding;
@@ -38,7 +39,7 @@ pub fn App() -> Element {
         spawn(state::pump(s));
         spawn(bridge_loop(s));
         // Debug builds: open a surface on launch for screenshots/testing,
-        // e.g. PIGEON_DEBUG_OPEN=palette:inv or PIGEON_DEBUG_OPEN=search:invoice
+        // e.g. PIGEON_DEBUG_OPEN=palette:inv, search:invoice, event-new:a@x.com,b@y.com
         if cfg!(debug_assertions)
             && let Ok(v) = std::env::var("PIGEON_DEBUG_OPEN")
         {
@@ -56,6 +57,23 @@ pub fn App() -> Element {
                 "calendar" => {
                     let mut m = s.mode;
                     m.set(Mode::Calendar);
+                }
+                "event-new" => {
+                    let guests = arg.to_string();
+                    let mut m = s.mode;
+                    m.set(Mode::Calendar);
+                    // Wait for the calendar list so the picker has a default.
+                    spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+                        event_editor::open_new_now(s);
+                        if !guests.is_empty() {
+                            let mut e = s.editor;
+                            if let Some(f) = e.write().as_mut() {
+                                f.title = "Roadmap review".into();
+                                f.guests = guests;
+                            }
+                        }
+                    });
                 }
                 _ => {}
             }
@@ -101,6 +119,7 @@ pub fn App() -> Element {
                 }
             }
             compose::ComposerOverlay {}
+            if s.editor.read().is_some() { event_editor::EventEditor {} }
             if *s.palette_open.read() { palette::Palette {} }
         }
     };
@@ -215,6 +234,7 @@ fn on_key(s: AppState, key: &str) {
         "meta+1" => return mode.set(Mode::Mail),
         "meta+2" => return mode.set(Mode::Calendar),
         "meta+r" => return send_cmd(Cmd::SyncNow),
+        "c" if *s.mode.read() == Mode::Calendar => return event_editor::open_new_now(s),
         "meta+n" | "c" => return send_cmd(Cmd::NewDraft),
         "meta+k" => {
             let mut p = s.palette_open;
@@ -225,6 +245,10 @@ fn on_key(s: AppState, key: &str) {
             if *s.palette_open.read() {
                 let mut p = s.palette_open;
                 return p.set(false);
+            }
+            if s.editor.read().is_some() {
+                let mut e = s.editor;
+                return e.set(None);
             }
             if draft.read().is_none() && s.search.read().is_some() {
                 return search::close(s);

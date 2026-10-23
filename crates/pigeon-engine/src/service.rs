@@ -121,6 +121,19 @@ pub enum Cmd {
         account_id: String,
         draft: EventDraft,
     },
+    UpdateEvent {
+        account_id: String,
+        event_id: String,
+        draft: EventDraft,
+    },
+    /// Busy intervals for guests; answered with `Delta::FreeBusy`.
+    FreeBusy {
+        account_id: String,
+        emails: Vec<String>,
+        from: i64,
+        to: i64,
+        token: u64,
+    },
     DeleteEvent {
         account_id: String,
         calendar_id: String,
@@ -225,6 +238,10 @@ pub enum Delta {
         token: u64,
         items: Vec<MessageRow>,
         server: ServerSearch,
+    },
+    FreeBusy {
+        token: u64,
+        result: FreeBusy,
     },
 }
 
@@ -549,6 +566,17 @@ impl Service {
                 let event = self.app.create_event(&account, &draft).await?;
                 self.toast(format!("Created “{}”", event.title), false, None);
                 self.publish().await;
+            }
+            Cmd::UpdateEvent { account_id, event_id, draft } => {
+                let account = self.app.account(&account_id)?;
+                let event = self.app.update_event(&account, &event_id, &draft).await?;
+                self.toast(format!("Updated “{}”", event.title), false, None);
+                self.publish().await;
+            }
+            Cmd::FreeBusy { account_id, emails, from, to, token } => {
+                let account = self.app.account(&account_id)?;
+                let result = self.app.free_busy(&account, &emails, from, to).await?;
+                self.send(Delta::FreeBusy { token, result });
             }
             Cmd::DeleteEvent { account_id, calendar_id, event_id } => {
                 let account = self.app.account(&account_id)?;
