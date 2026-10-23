@@ -21,8 +21,14 @@ use serde::Deserialize;
 use crate::{GMAIL, Google};
 
 const SCOPE: &str = "mail";
-const FETCH_CONCURRENCY: usize = 10;
-const PAGE_SIZE: &str = "500";
+/// Parallel `messages.get` calls. Gmail allows ~250 quota units/s per user
+/// and a get costs 5, so ~50 req/s; 5 in flight stays under it at normal
+/// latencies instead of tripping 429/403 backoff.
+const FETCH_CONCURRENCY: usize = 5;
+/// Bootstrap page: each page is committed with its cursor, so small pages
+/// make progress visible (and resumable) quickly.
+const BOOT_PAGE_SIZE: &str = "100";
+const HISTORY_PAGE_SIZE: &str = "500";
 
 /// Labels that are flags, not places.
 const HIDDEN_LABELS: [&str; 2] = ["UNREAD", "CHAT"];
@@ -96,7 +102,7 @@ impl Google {
             next_page_token: Option<String>,
         }
         let mut query =
-            vec![("maxResults", PAGE_SIZE.to_string()), ("q", format!("newer_than:{}d", self.mail_window_days))];
+            vec![("maxResults", BOOT_PAGE_SIZE.to_string()), ("q", format!("newer_than:{}d", self.mail_window_days))];
         if let Some(p) = page {
             query.push(("pageToken", p.to_string()));
         }
@@ -113,7 +119,7 @@ impl Google {
     }
 
     async fn history_page(&self, history_id: &str, page: Option<&str>) -> Result<MailPage> {
-        let mut query = vec![("startHistoryId", history_id.to_string()), ("maxResults", PAGE_SIZE.to_string())];
+        let mut query = vec![("startHistoryId", history_id.to_string()), ("maxResults", HISTORY_PAGE_SIZE.to_string())];
         if let Some(p) = page {
             query.push(("pageToken", p.to_string()));
         }
