@@ -56,24 +56,57 @@ def _breath(n=RATE * 3):
 BREATH = _breath()
 
 
-def hoo(u, dur, f, rise=1.07, fall=0.9):
-    """One dove 'hoo': hollow, nearly pure tone that swoops up then sinks,
-    soft attack, rounded end, a little breath. No harmonics swell, so it
-    doesn't turn into a 'wah'."""
-    if u < 0 or u > dur:
-        return 0.0
-    x = u / dur
-    # pitch: up quickly to `rise`, then drift down to `fall`
-    curve = rise - (rise - fall) * x ** 1.5 if x > 0.18 else 1 + (rise - 1) * (x / 0.18)
-    phase = 2 * math.pi * f * u * curve
-    a = min(1.0, u / 0.035) * (1 - x) ** 0.8
-    tone = math.sin(phase) + 0.05 * math.sin(2 * phase)
-    return a * (tone + 0.07 * BREATH[int(u * RATE) % len(BREATH)])
+def hoo_samples(dur, f, rise=1.07, fall=0.9):
+    """One dove 'hoo' as samples: hollow, nearly pure tone that glides up then
+    sinks. Phase is integrated sample by sample and the pitch curve is smooth,
+    so there are no jumps (clicks); attack and release are raised-cosine."""
+    n = int(RATE * dur)
+    out, phase = [], 0.0
+    for i in range(n):
+        x = i / n
+        # smooth glide: up to `rise` by 25%, then ease down to `fall`
+        if x < 0.25:
+            k = 0.5 - 0.5 * math.cos(math.pi * x / 0.25)
+            ratio = 1 + (rise - 1) * k
+        else:
+            k = 0.5 - 0.5 * math.cos(math.pi * (x - 0.25) / 0.75)
+            ratio = rise + (fall - rise) * k
+        phase += 2 * math.pi * f * ratio / RATE
+        att = 0.5 - 0.5 * math.cos(math.pi * min(1.0, x / 0.12))
+        rel = 0.5 + 0.5 * math.cos(math.pi * max(0.0, (x - 0.55) / 0.45))
+        a = att * rel
+        tone = math.sin(phase) + 0.05 * math.sin(2 * phase)
+        out.append(a * (tone + 0.07 * BREATH[i % len(BREATH)]))
+    return out
+
+
+def phrase(notes, total):
+    """Mix (start s, gain, samples) notes into one buffer of `total` seconds."""
+    buf = [0.0] * int(RATE * total)
+    for start, gain, smp in notes:
+        o = int(RATE * start)
+        for k, v in enumerate(smp):
+            if o + k < len(buf):
+                buf[o + k] += gain * v
+    return buf
+
+
+_COO = phrase([(0.0, 0.6, hoo_samples(0.2, 330.0)), (0.2, 1.0, hoo_samples(0.48, 380.0, rise=1.1, fall=0.86))], 0.72)
+_COO_MEETING = phrase(
+    [
+        (0.0, 0.6, hoo_samples(0.2, 330.0)),
+        (0.2, 1.0, hoo_samples(0.52, 400.0, rise=1.1, fall=0.86)),
+        (0.8, 0.7, hoo_samples(0.24, 340.0)),
+        (1.08, 0.6, hoo_samples(0.24, 330.0)),
+    ],
+    1.4,
+)
 
 
 def coo(t):
-    # Mourning-dove style "hoo-HOOOO": a short low note, then a longer swoop.
-    return 0.6 * hoo(t, 0.16, 330.0) + hoo(t - 0.22, 0.46, 380.0, rise=1.1, fall=0.86)
+    # Mourning-dove style "hoo-HOOOO": a short low note flowing into a swoop.
+    i = int(t * RATE)
+    return _COO[i] if i < len(_COO) else 0.0
 
 
 def chime(t):
@@ -97,8 +130,8 @@ def droplet_meeting(t):
 
 def coo_meeting(t):
     # The full dove phrase "hoo-HOOOO hoo hoo", the long note a touch higher.
-    return (0.6 * hoo(t, 0.16, 330.0) + hoo(t - 0.22, 0.5, 400.0, rise=1.1, fall=0.86)
-            + 0.7 * hoo(t - 0.86, 0.2, 340.0) + 0.6 * hoo(t - 1.14, 0.2, 330.0))
+    i = int(t * RATE)
+    return _COO_MEETING[i] if i < len(_COO_MEETING) else 0.0
 
 
 def chime_meeting(t):
