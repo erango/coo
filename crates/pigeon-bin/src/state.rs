@@ -387,6 +387,10 @@ fn apply(s: &mut AppState, delta: Delta) {
                 if a.is_empty() && !*s.loaded.peek() {
                     s.first_run.set(true);
                 }
+                // A new account means the sign-in in progress finished.
+                if a.len() > s.accounts.peek().len() {
+                    s.signing_in.set(false);
+                }
                 let order = crate::prefs::get().account_order;
                 s.accounts.set(order_by(a, &order, |n| n.account.id.as_str()));
                 s.loaded.set(true);

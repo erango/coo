@@ -181,3 +181,7 @@ body[data-resizing] iframe { pointer-events: none; }
 .sig-editor:empty::before { content: attr(data-placeholder); color: var(--text-3); pointer-events: none; }
 .sig-editor img { max-width: 100%; height: auto; }
 .composer__signature img { max-width: 100%; height: auto; }
+
+/* Onboarding grows with each added account: let the stage scroll. */
+.onboard__stage { overflow-y: auto; padding-top: 24px; }
+.provider-choice > .icon:last-child { color: var(--text-3); }

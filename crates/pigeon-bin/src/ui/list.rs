@@ -193,6 +193,8 @@ pub fn MailList() -> Element {
 }
 
 const SLEEPING_BIRD: &str = r##"<path d="M22 9C28 9 30 14 31 20C36 22 48 26 60 33L58 38C50 42 40 46 30 45C20 44 13 38 13 30C13 25 15 22 16 20C14 18 13 15 14 13C15 10 18 9 22 9Z" fill="#EDEEF0" stroke="var(--line-strong)" stroke-width="1"/><path d="M30 26C38 27 48 30 56 35C46 38 36 38 30 34Z" fill="#B9C3CF"/><path d="M16 20C18 24 22 26 27 25" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linecap="round"/><path d="M14 13.8L8 16.4L14 17.6Z" fill="var(--warning)"/><path d="M17.6 14.4Q19.5 16 21.4 14.4" fill="none" stroke="#1F3A5C" stroke-width="1.2" stroke-linecap="round"/><path d="M28 45V54M35 45V54" stroke="var(--warning)" stroke-width="2.4" stroke-linecap="round"/>"##;
+/// Same bird, awake (onboarding).
+pub const AWAKE_BIRD: &str = r##"<path d="M22 9C28 9 30 14 31 20C36 22 48 26 60 33L58 38C50 42 40 46 30 45C20 44 13 38 13 30C13 25 15 22 16 20C14 18 13 15 14 13C15 10 18 9 22 9Z" fill="#EDEEF0" stroke="var(--line-strong)" stroke-width="1"/><path d="M30 26C38 27 48 30 56 35C46 38 36 38 30 34Z" fill="#B9C3CF"/><path d="M16 20C18 24 22 26 27 25" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linecap="round"/><path d="M14 13.8L8 16.4L14 17.6Z" fill="var(--warning)"/><circle cx="19.5" cy="14" r="1.5" fill="#1F3A5C"/><path d="M28 45V54M35 45V54" stroke="var(--warning)" stroke-width="2.4" stroke-linecap="round"/>"##;
 
 /// What an empty mailbox says: only the inbox gets the sleeping pigeon.
 fn empty_copy(role: Option<FolderRole>) -> (&'static str, &'static str) {

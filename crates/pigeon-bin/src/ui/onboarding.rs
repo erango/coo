@@ -19,9 +19,15 @@ pub fn Onboarding() -> Element {
         .as_ref()
         .filter(|(p, _)| *p == ProviderKind::Microsoft)
         .and_then(|(_, e)| pigeon_core::auth::admin_consent_code(e).map(|c| (c, e.clone())));
-    let mut login = move |p: ProviderKind| {
-        signing_in.set(true);
-        send_cmd(Cmd::Login(p));
+    let accounts = s.accounts.read().clone();
+    let done = accounts.iter().filter(|a| a.first_sync_done).count();
+    let mut first_run = s.first_run;
+    let pick = move |p: Option<ProviderKind>| match p {
+        Some(p) => {
+            signing_in.set(true);
+            send_cmd(Cmd::Login(p));
+        }
+        None => icloud.set(true),
     };
 
     rsx! {
@@ -42,27 +48,63 @@ pub fn Onboarding() -> Element {
                         div { class: "onboard__title onboard__title--sm", "Add your iCloud account" }
                         super::icloud::ICloudForm { on_cancel: move |_| icloud.set(false) }
                     }
-                } else {
+                } else if accounts.is_empty() {
                     div { class: "onboard__col",
-                        svg { class: "icon", style: "width:44px;height:44px", r#use { href: "#i-pigeon" } }
+                        svg { view_box: "4 4 60 56", style: "width:52px;height:48px", "aria-hidden": "true", dangerous_inner_html: super::list::AWAKE_BIRD }
                         div { class: "onboard__title", "Welcome to Coo" }
-                        div { class: "onboard__lede", "Add your first account. You can add as many as you like later; they all land in one inbox." }
-                        div { style: "display:flex;flex-direction:column;gap:10px",
-                            button { class: "btn btn--secondary", r#type: "button", style: "height:44px;justify-content:flex-start",
-                                onclick: move |_| login(ProviderKind::Microsoft),
-                                Icon { name: "building" } "Microsoft 365 / Outlook"
-                            }
-                            button { class: "btn btn--secondary", r#type: "button", style: "height:44px;justify-content:flex-start",
-                                onclick: move |_| login(ProviderKind::Google),
-                                Icon { name: "at" } "Google"
-                            }
-                            button { class: "btn btn--secondary", r#type: "button", style: "height:44px;justify-content:flex-start",
-                                onclick: move |_| icloud.set(true),
-                                Icon { name: "cloud" } "iCloud"
-                            }
-                        }
+                        div { class: "onboard__lede", "Add your accounts: work, personal, as many as you like. They all land in one inbox and one calendar." }
+                        ProviderChoices { on_pick: pick }
                         div { class: "onboard__fine", Icon { name: "lock", class: "icon--sm" } "Microsoft and Google sign in on their own page; iCloud uses an app-specific password. Coo keeps credentials in your Keychain." }
                     }
+                } else {
+                    div { class: "onboard__col",
+                        div { class: "onboard__title onboard__title--sm",
+                            if accounts.len() == 1 { "You're connected" } else { "{accounts.len()} accounts connected" }
+                        }
+                        div { class: "onboard__lede", "Add the rest now, so everything is in one place from the start. Recent mail comes first; older messages fill in while you work." }
+                        ConnectedAccounts {}
+                        div { class: "t-label", "Add another account" }
+                        ProviderChoices { on_pick: pick, compact: true }
+                        div { style: "display:flex;align-items:center;gap:12px",
+                            button { class: "btn btn--primary", r#type: "button", style: "height:40px;padding:0 18px",
+                                onclick: move |_| first_run.set(false), "Continue to Coo" }
+                            span { class: "t-caption", "{done} of {accounts.len()} synced · the rest keeps going in the background" }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// One choice per provider (the design's large cards; `compact` for the
+/// "add another" list under connected accounts).
+#[component]
+fn ProviderChoices(on_pick: EventHandler<Option<ProviderKind>>, #[props(default)] compact: bool) -> Element {
+    // None = iCloud (password form, not OAuth).
+    let choices: [(Option<ProviderKind>, &str, &str, &str, u8); 3] = [
+        (
+            Some(ProviderKind::Microsoft),
+            "building",
+            "Microsoft 365 / Outlook",
+            "Work or school accounts, Outlook.com",
+            1,
+        ),
+        (Some(ProviderKind::Google), "at", "Google", "Gmail and Google Workspace", 3),
+        (None, "cloud", "iCloud", "iCloud Mail and Calendar", 7),
+    ];
+    rsx! {
+        div { style: "display:flex;flex-direction:column;gap:10px",
+            for (kind, icon, name, sub, hue) in choices {
+                button { class: "provider-choice", r#type: "button", key: "{name}", "data-hue": "{hue}",
+                    style: if compact { "height:56px" } else { "" },
+                    onclick: move |_| on_pick.call(kind),
+                    span { class: "provider-choice__icon", Icon { name: icon } }
+                    span { class: "provider-choice__text",
+                        span { class: "provider-choice__name", "{name}" }
+                        if !compact { span { class: "provider-choice__sub", "{sub}" } }
+                    }
+                    Icon { name: "chev-right", class: "icon--sm" }
                 }
             }
         }
@@ -132,51 +174,37 @@ fn AdminConsent(code: &'static str, on_back: EventHandler<()>) -> Element {
 
 /// After the first sign-in: per-account first-sync progress until each
 /// account has its first page of mail.
+/// Accounts added so far, each with its first-sync progress.
 #[component]
-pub fn FirstSync() -> Element {
+fn ConnectedAccounts() -> Element {
     let s = use_context::<AppState>();
     let accounts = s.accounts.read().clone();
-    let done = accounts.iter().filter(|a| a.first_sync_done).count();
-    let mut first_run = s.first_run;
     rsx! {
-        div { class: "onboard",
-            div { class: "onboard__chrome" }
-            div { class: "onboard__stage",
-                div { class: "onboard__col",
-                    div { class: "onboard__title onboard__title--sm", "You're connected" }
-                    div { class: "onboard__lede", "Coo is fetching your recent mail first; older messages fill in behind while you work." }
-                    div { class: "sync-steps",
-                        for a in accounts.iter() {
-                            {
-                                let messages: u32 = a.folders.iter().map(|f| f.total).sum();
-                                let meta = if a.first_sync_done {
-                                    format!("{messages} messages")
-                                } else if messages > 0 {
-                                    format!("{messages} so far…")
-                                } else {
-                                    "Starting…".to_string()
-                                };
-                                rsx! {
-                                    div { class: "sync-step", key: "{a.account.id}", "data-hue": "{a.hue}",
-                                        "data-done": a.first_sync_done.then_some("true"),
-                                        div { class: "sync-step__line",
-                                            span { class: "sync-step__dot",
-                                                if a.first_sync_done { Icon { name: "check", class: "icon--xs" } } else { span { class: "dot" } }
-                                            }
-                                            span { class: "sync-step__label", dir: "auto", "{a.account.email}" }
-                                            span { class: "sync-step__meta", "{meta}" }
-                                        }
-                                        if !a.first_sync_done {
-                                            div { class: "progress", span { style: "width:40%;animation:pg-indeterminate 1.4s var(--ease-standard) infinite" } }
-                                        }
-                                    }
+        div { class: "sync-steps",
+            for a in accounts.iter() {
+                {
+                    let messages: u32 = a.folders.iter().map(|f| f.total).sum();
+                    let meta = if a.first_sync_done {
+                        format!("{messages} messages")
+                    } else if messages > 0 {
+                        format!("{messages} so far…")
+                    } else {
+                        "Starting…".to_string()
+                    };
+                    rsx! {
+                        div { class: "sync-step", key: "{a.account.id}", "data-hue": "{a.hue}",
+                            "data-done": a.first_sync_done.then_some("true"),
+                            div { class: "sync-step__line",
+                                span { class: "sync-step__dot",
+                                    if a.first_sync_done { Icon { name: "check", class: "icon--xs" } } else { span { class: "dot" } }
                                 }
+                                span { class: "sync-step__label", dir: "auto", "{a.account.email}" }
+                                span { class: "sync-step__meta", "{meta}" }
+                            }
+                            if !a.first_sync_done {
+                                div { class: "progress", span { style: "width:40%;animation:pg-indeterminate 1.4s var(--ease-standard) infinite" } }
                             }
                         }
-                    }
-                    div { style: "display:flex;align-items:center;gap:12px",
-                        button { class: "btn btn--primary", r#type: "button", onclick: move |_| first_run.set(false), "Open inbox" }
-                        span { class: "t-caption", "{done} of {accounts.len()} ready" }
                     }
                 }
             }

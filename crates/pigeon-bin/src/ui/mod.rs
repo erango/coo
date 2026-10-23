@@ -232,10 +232,9 @@ pub fn App() -> Element {
 
     let body = if !*s.loaded.read() {
         rsx! { div { class: "app" } }
-    } else if s.accounts.read().is_empty() {
+    } else if s.accounts.read().is_empty() || *s.first_run.read() {
+        // Onboarding stays up while accounts are added, until "Continue".
         rsx! { onboarding::Onboarding {} }
-    } else if *s.first_run.read() && s.accounts.read().iter().any(|a| !a.first_sync_done) {
-        rsx! { onboarding::FirstSync {} }
     } else {
         rsx! {
             div { class: "app",
