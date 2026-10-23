@@ -20,13 +20,22 @@ impl AppBroker {
         self.app.accounts().ok()?.into_iter().find(|a| a.id == id)
     }
 
+    /// Keychain reads block (and can wait on securityd): keep them off the
+    /// async workers so one slow read never stalls other requests.
+    async fn read_secret(&self, account_id: String) -> pigeon_core::Result<Option<String>> {
+        let app = self.app.clone();
+        tokio::task::spawn_blocking(move || app.tokens.get(&account_id))
+            .await
+            .map_err(|e| pigeon_core::Error::Other(e.to_string()))?
+    }
+
     async fn answer(&self, req: Request) -> Response {
         match req {
             Request::Ping => Response::pong(),
             Request::Has { account } => match self.account(&account) {
                 None => Response::has(false),
-                Some(a) => match self.app.tokens.has(&a.id) {
-                    Ok(has) => Response::has(has),
+                Some(a) => match self.read_secret(a.id).await {
+                    Ok(secret) => Response::has(secret.is_some()),
                     Err(e) => broker::failure_for(&e),
                 },
             },
@@ -54,7 +63,7 @@ impl AppBroker {
                 Some(a) if a.provider != ProviderKind::ICloud => {
                     Response::fail(Failure::Denied, "this account shares access tokens only")
                 }
-                Some(a) => match self.app.tokens.get(&a.id) {
+                Some(a) => match self.read_secret(a.id.clone()).await {
                     Ok(Some(secret)) => Response { ok: true, token: Some(secret), ..Default::default() },
                     Ok(None) => Response::fail(Failure::SignInRequired, format!("{} needs to sign in again", a.email)),
                     Err(e) => broker::failure_for(&e),
@@ -75,6 +84,15 @@ impl Handler for AppBroker {
 pub fn start(app: Arc<Pigeon>) {
     if app.tokens.kind() != "keychain" || app.tokens.broker().is_some() {
         return;
+    }
+    // Debug builds only: seed a sign-in written by the app itself, so an
+    // end-to-end test never needs real accounts or a Keychain prompt.
+    #[cfg(debug_assertions)]
+    if let Some((account, secret)) =
+        std::env::var("PIGEON_DEBUG_SEED_TOKEN").ok().as_deref().and_then(|v| v.split_once('='))
+        && let Err(e) = if secret.is_empty() { app.tokens.delete(account) } else { app.tokens.set(account, secret) }
+    {
+        tracing::warn!(error = %e, "couldn't seed the debug sign-in");
     }
     let socket = broker::socket_path(&app.data_dir);
     tokio::spawn(async move {

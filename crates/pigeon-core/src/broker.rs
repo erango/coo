@@ -104,7 +104,7 @@ impl Response {
             Some(Failure::SignInRequired) => Error::SignInRequired(account.to_string()),
             Some(Failure::UnknownAccount) => Error::Other(format!("{account} isn't signed in to Coo")),
             Some(Failure::Denied) => Error::TokenStore(msg),
-            _ => Error::Auth(msg),
+            _ => Error::Other(msg),
         }
     }
 }
