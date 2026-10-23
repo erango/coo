@@ -1,0 +1,20 @@
+[package]
+name = "pigeon-bin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "pigeon-app"
+path = "src/main.rs"
+
+[dependencies]
+chrono.workspace = true
+dioxus = { version = "0.7.9", features = ["desktop"] }
+open.workspace = true
+pigeon-core.workspace = true
+pigeon-engine.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true

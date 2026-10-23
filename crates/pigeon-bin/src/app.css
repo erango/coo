@@ -1,0 +1,23 @@
+/* App-only glue on top of the design bundle (no new visual language). */
+
+/* Traffic-light inset: the design shows fake lights; the real ones sit here. */
+.sidebar__top .traffic { display: none; }
+
+/* Composer overlay host for a new message (the design draws it as a window). */
+.composer-overlay { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.35); }
+.composer-overlay > .composer { width: min(760px, 92vw); height: min(640px, 88vh); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow-overlay); }
+
+/* From picker menu */
+.from-menu { position: absolute; z-index: 30; min-width: 280px; max-height: 320px; overflow-y: auto; padding: 6px; border-radius: 10px; background: var(--bg-3); box-shadow: var(--shadow-overlay); }
+.from-menu__group { padding: 6px 8px 2px; font-size: 11px; font-weight: var(--fw-semibold); color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; }
+.from-menu__item { width: 100%; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 7px; background: transparent; color: var(--text-1); font-size: 13px; text-align: left; }
+.from-menu__item:hover, .from-menu__item[aria-selected="true"] { background: var(--bg-2); }
+.from-menu__addr { color: var(--text-3); }
+
+.cross-account-hint { padding: 0 16px 8px; font-size: 12px; color: var(--warning); }
+
+.pane-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--text-3); font-size: var(--fs-ui); }
+
+/* Long sync errors must stay inside the sidebar. */
+.sidebar__footer { min-width: 0; overflow: hidden; }
+.sidebar__footer .sync-status { flex: 1; min-width: 0; overflow: hidden; cursor: default; }
