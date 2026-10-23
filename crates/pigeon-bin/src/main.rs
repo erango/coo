@@ -53,6 +53,28 @@ pub fn send_cmd(cmd: Cmd) {
     }
 }
 
+/// `<head>` for every window (main and compose): styles, so the first paint
+/// is already styled, and the theme attributes before the body exists, so
+/// there's no flash of the default palette.
+pub fn head_html() -> String {
+    let prefs = prefs::get();
+    let platform_css = if cfg!(target_os = "macos") { ":root{--titlebar-traffic:62px}" } else { "" };
+    let zoom_css = ui::zoom::head_css(prefs.font_scale);
+    let list_css = ui::list_width_css(prefs.list_width);
+    let theme_mode = match prefs.theme_mode.as_str() {
+        "dark" | "light" => prefs.theme_mode.as_str(),
+        _ => "system",
+    };
+    let palette = if themes::is_known(&prefs.palette) { prefs.palette.as_str() } else { themes::DEFAULT };
+    format!(
+        "<style>{}\n{}\n{}\n{platform_css}\n{zoom_css}\n{list_css}</style><script>document.documentElement.dataset.theme={theme_mode:?};\
+         document.documentElement.dataset.palette={palette:?};</script>",
+        fonts::css(),
+        CSS.join("\n"),
+        themes::css()
+    )
+}
+
 fn main() {
     perf::mark_start();
     // Crash reporting off in Settings > Privacy: telemetry::init honors this.
@@ -102,24 +124,7 @@ fn main() {
         window = window.with_titlebar_transparent(true).with_fullsize_content_view(true).with_title_hidden(true);
     }
 
-    // Styles in <head> so the first paint is already styled.
-    let platform_css = if cfg!(target_os = "macos") { ":root{--titlebar-traffic:62px}" } else { "" };
-    let zoom_css = ui::zoom::head_css(prefs.font_scale);
-    let list_css = ui::list_width_css(prefs.list_width);
-    // Theme attributes before the body exists, so there's no flash of the
-    // default palette.
-    let theme_mode = match prefs.theme_mode.as_str() {
-        "dark" | "light" => prefs.theme_mode.as_str(),
-        _ => "system",
-    };
-    let palette = if themes::is_known(&prefs.palette) { prefs.palette.as_str() } else { themes::DEFAULT };
-    let head = format!(
-        "<style>{}\n{}\n{}\n{platform_css}\n{zoom_css}\n{list_css}</style><script>document.documentElement.dataset.theme={theme_mode:?};\
-         document.documentElement.dataset.palette={palette:?};</script>",
-        fonts::css(),
-        CSS.join("\n"),
-        themes::css()
-    );
+    let head = head_html();
 
     dock::set_app_icon();
     notify::init();

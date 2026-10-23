@@ -49,6 +49,9 @@ pub struct Prefs {
     pub sound_theme: String,
     /// Sound volume, 0–100.
     pub sound_volume: u8,
+    /// Where new messages open: "window" (their own window) or "docked"
+    /// (in the reading pane).
+    pub compose_mode: String,
     /// Message list width in px (0 = the design default).
     pub list_width: u32,
 }
@@ -72,6 +75,7 @@ impl Default for Prefs {
             undo_send_seconds: 10,
             signatures: Default::default(),
             list_width: 0,
+            compose_mode: "window".into(),
             reminders_time_sensitive: true,
             sound_theme: crate::sound::DEFAULT.into(),
             sound_volume: 60,

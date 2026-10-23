@@ -1,6 +1,7 @@
 mod agent_setup;
 pub mod calendar;
 pub mod compose;
+pub mod compose_window;
 pub mod event_editor;
 mod icloud;
 mod invite;
@@ -28,11 +29,11 @@ use crate::bridge::{self, Msg};
 use crate::send_cmd;
 use crate::state::{self, AppState, Mode, Theme};
 
-const ICONS: &str = include_str!("../../../../design/icons.svg");
+pub(crate) const ICONS: &str = include_str!("../../../../design/icons.svg");
 /// App-only icons the design sprite lacks. `i-gear`: the design's
 /// `i-settings` is a circle with rays and reads as a sun next to the theme
 /// toggle. Gear path from Lucide (ISC license).
-const APP_ICONS: &str = r#"<svg xmlns="http://www.w3.org/2000/svg"><defs><symbol id="i-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol></defs></svg>"#;
+pub(crate) const APP_ICONS: &str = r#"<svg xmlns="http://www.w3.org/2000/svg"><defs><symbol id="i-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol></defs></svg>"#;
 const DAY_MS: i64 = 86_400_000;
 
 #[component]
@@ -47,6 +48,18 @@ pub fn Icon(name: &'static str, #[props(default)] class: &'static str) -> Elemen
 #[component]
 pub fn App() -> Element {
     let s = use_context_provider(AppState::new);
+    use_context_provider(|| s.main_slot());
+    // Closing the main window: compose windows read its state, so save their
+    // drafts and close them first.
+    dioxus::desktop::use_wry_event_handler(move |event, _| {
+        if let dioxus::desktop::tao::event::Event::WindowEvent {
+            event: dioxus::desktop::tao::event::WindowEvent::CloseRequested,
+            ..
+        } = event
+        {
+            compose_window::close_all();
+        }
+    });
 
     use_hook(move || {
         // Sparkle (release builds only): starts its background check schedule.
@@ -62,6 +75,11 @@ pub fn App() -> Element {
         {
             let (what, arg) = v.split_once(':').unwrap_or((v.as_str(), ""));
             match what {
+                // compose-docked[:<to list>] — a new draft docked in the reading pane
+                "compose-docked" => {
+                    crate::prefs::update(|p| p.compose_mode = "docked".into());
+                    send_cmd(Cmd::NewDraft);
+                }
                 "palette" => {
                     let mut p = s.palette_open;
                     p.set(true);
@@ -413,7 +431,7 @@ async fn bridge_loop(s: AppState) {
                 }
             }
             "key" => on_key(s, &msg.v),
-            "draft-input" => compose::autosave(s, &msg.v),
+            "draft-input" => compose::autosave(s.main_slot(), &msg.v),
             "sig-input" => {
                 if let Ok((email, html)) = serde_json::from_str::<(String, String)>(&msg.v) {
                     let clean = pigeon_core::html::sanitize_signature(&html);
@@ -445,6 +463,7 @@ pub fn selected_item(s: &AppState) -> Option<ListItem> {
 
 /// Select a list item and open it in the reader.
 pub fn select(s: AppState, item: &ListItem) {
+    compose::leave_docked(s);
     let mut sel = s.selected;
     sel.set(Some(AppState::key(item)));
     match item {
@@ -554,6 +573,8 @@ fn on_key(s: AppState, key: &str) {
             return o.set(true);
         }
         "Escape" => {
+            // A docked draft set aside behind the "Draft:" chip isn't being edited.
+            let composing = draft.read().is_some() && !*s.docked_hidden.read();
             if s.move_picker.read().is_some() {
                 let mut p = s.move_picker;
                 return p.set(None);
@@ -570,20 +591,22 @@ fn on_key(s: AppState, key: &str) {
                 let mut e = s.editor;
                 return e.set(None);
             }
-            if draft.read().is_none() && *s.settings_open.read() {
+            if !composing && *s.settings_open.read() {
                 let mut o = s.settings_open;
                 return o.set(false);
             }
-            if draft.read().is_none() && s.search.read().is_some() {
+            if !composing && s.search.read().is_some() {
                 return search::close(s);
             }
-            if draft.read().is_some() {
-                compose::save_and_close(s);
+            if composing {
+                compose::save_and_close(s.main_slot());
             }
             return;
         }
         "meta+Enter" => {
-            compose::send_current(s);
+            if !*s.docked_hidden.read() {
+                compose::send_current(s, s.main_slot());
+            }
             return;
         }
         "z" | "meta+z" => {

@@ -241,3 +241,15 @@ input, textarea, [contenteditable="true"] { cursor: text; }
   background: var(--bg-1);
 }
 .settings__crumbs[data-scrolled] { box-shadow: inset 0 -1px 0 var(--line); }
+/* ---------- Composer placement (Settings › Composing) ---------- */
+/* Docked: the design's pop-out composer fills the reading pane. */
+.pane--composing { display: flex; }
+.pane--composing > .composer { flex: 1; min-width: 0; height: auto; }
+.pane--composing .composer__titlebar { -webkit-app-region: no-drag; }
+/* Own window: the composer is the whole window; leave room for the traffic lights. */
+.composer[data-windowed] .composer__titlebar { padding-left: calc(var(--titlebar-traffic, 16px) + 8px); }
+.composer[data-windowed] .composer__titlebar > .icon-btn { display: none; }
+.composer__notice { color: var(--error); }
+/* Reader toolbar: the set-aside docked draft. */
+.docked-chip { max-width: 260px; margin-left: 6px; gap: 6px; }
+.docked-chip__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

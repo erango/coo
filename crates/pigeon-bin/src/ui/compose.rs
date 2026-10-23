@@ -1,4 +1,7 @@
-//! Composer: inline reply in the reader and the new-message overlay.
+//! Composer: inline reply in the reader, and the new-message composer,
+//! either docked in the reading pane or in its own window (Settings ›
+//! Composing). Every composer works on a `ComposeSlot`: the main window's
+//! (`AppState::main_slot`) or a compose window's own.
 //!
 //! The editor holds only what the user types; the quoted original lives in
 //! `draft.html` and is appended at send time. Every editor block carries
@@ -17,6 +20,49 @@ use super::recipients::{RecipientInput, is_valid};
 use crate::bridge;
 use crate::send_cmd;
 use crate::state::{AppState, OutState};
+
+/// The draft a composer edits and its send state. The main window's slot is
+/// `AppState.draft` / `.sending`; each compose window owns one.
+#[derive(Clone, Copy, PartialEq)]
+pub struct ComposeSlot {
+    pub draft: Signal<Option<Draft>>,
+    pub sending: Signal<bool>,
+    /// Inline problem shown in the composer footer (e.g. no recipients).
+    pub notice: Signal<Option<String>>,
+    /// In its own window: closes as soon as the draft leaves the slot.
+    pub windowed: bool,
+}
+
+/// A draft with nothing in it yet (`typed` is the editor's HTML).
+pub fn is_blank(d: &Draft, typed: &str) -> bool {
+    d.to.is_empty()
+        && d.cc.is_empty()
+        && d.bcc.is_empty()
+        && d.subject.trim().is_empty()
+        && d.attachments.is_empty()
+        && d.reply.is_none()
+        && pigeon_core::text::html_to_text(typed).trim().is_empty()
+}
+
+/// Replies to the thread open in the reader are written inline.
+pub fn is_inline(s: &AppState, d: &Draft) -> bool {
+    let reader = s.reader.read();
+    d.reply
+        .as_ref()
+        .is_some_and(|r| reader.as_ref().is_some_and(|v| v.account_id == r.account_id && v.thread_id == r.thread_id))
+        && *s.mode.read() == crate::state::Mode::Mail
+}
+
+/// New messages open docked in the reading pane (else in their own window).
+pub fn docked_mode() -> bool {
+    crate::prefs::get().compose_mode == "docked"
+}
+
+/// The draft docked in the reading pane, if any.
+pub fn docked_draft(s: &AppState) -> Option<Draft> {
+    let d = s.draft.read().clone()?;
+    (!is_inline(s, &d) && docked_mode()).then_some(d)
+}
 
 fn editor_id(d: &Draft) -> String {
     format!("editor-{}", d.id)
@@ -126,14 +172,14 @@ pub fn parse_local_datetime(v: &str) -> Option<i64> {
 
 /// Send the open draft (⌘↵): read the editor, attach signature + quote,
 /// and go out after the undo-send window.
-pub fn send_current(s: AppState) {
-    send_at(s, None);
+pub fn send_current(s: AppState, slot: ComposeSlot) {
+    send_at(s, slot, None);
 }
 
 /// Send now (after the undo window) or at `later` (send later).
-pub fn send_at(s: AppState, later: Option<i64>) {
-    let Some(draft) = s.draft.read().clone() else { return };
-    if *s.sending.read() {
+pub fn send_at(s: AppState, slot: ComposeSlot, later: Option<i64>) {
+    let Some(draft) = slot.draft.read().clone() else { return };
+    if *slot.sending.read() {
         return;
     }
     let all = || draft.to.iter().chain(&draft.cc).chain(&draft.bcc);
@@ -142,11 +188,16 @@ pub fn send_at(s: AppState, later: Option<i64>) {
     } else {
         all().find(|a| !is_valid(&a.email)).map(|a| format!("“{}” isn't a valid address", a.email))
     };
+    let mut notice = slot.notice;
     if let Some(message) = problem {
-        s.push_toast(Toast { id: crate::state::next_token(), message, error: true, undo: None, cancel_send: None });
+        notice.set(Some(message.clone()));
+        if !slot.windowed {
+            s.push_toast(Toast { id: crate::state::next_token(), message, error: true, undo: None, cancel_send: None });
+        }
         return;
     }
-    let mut sending = s.sending;
+    notice.set(None);
+    let mut sending = slot.sending;
     sending.set(true);
     spawn(async move {
         let typed = bridge::editor_html(&editor_id(&draft)).await;
@@ -154,7 +205,7 @@ pub fn send_at(s: AppState, later: Option<i64>) {
         d.body_html = compose_html(&typed, &signature_for(&d.from.address.email), "");
         let now = pigeon_core::now_ms();
         let undo_secs = i64::from(crate::prefs::get().undo_send_seconds);
-        let (mut open, mut sending) = (s.draft, s.sending);
+        let (mut open, mut sending) = (slot.draft, slot.sending);
         match later {
             Some(at) => {
                 s.track_outgoing(d.clone(), OutState::Queued(at));
@@ -171,19 +222,25 @@ pub fn send_at(s: AppState, later: Option<i64>) {
             None => {
                 s.track_outgoing(d.clone(), OutState::Sending);
                 send_cmd(Cmd::Send(d));
+                // A compose window doesn't wait for Sent: the list's outgoing
+                // row shows progress (and Retry if it fails).
+                if slot.windowed {
+                    open.set(None);
+                    sending.set(false);
+                }
             }
         }
     });
 }
 
 /// Autosave after typing pauses (the bridge sends the editor's id).
-pub fn autosave(s: AppState, editor: &str) {
-    let Some(draft) = s.draft.read().clone() else { return };
-    if editor_id(&draft) != editor || *s.sending.read() {
+pub fn autosave(slot: ComposeSlot, editor: &str) {
+    let Some(draft) = slot.draft.read().clone() else { return };
+    if editor_id(&draft) != editor || *slot.sending.read() {
         return;
     }
     let editor = editor.to_string();
-    let mut state = s.draft;
+    let mut state = slot.draft;
     spawn(async move {
         let typed = bridge::editor_html(&editor).await;
         // Keep the open composer in step so a later send/close has it.
@@ -200,24 +257,42 @@ pub fn autosave(s: AppState, editor: &str) {
 
 /// Close the composer, saving what's in the editor (here and, after a
 /// moment, on the server).
-pub fn save_and_close(s: AppState) {
-    let Some(draft) = s.draft.read().clone() else { return };
-    let mut state = s.draft;
-    state.set(None);
+pub fn save_and_close(slot: ComposeSlot) {
+    let Some(draft) = slot.draft.read().clone() else { return };
     spawn(async move {
         let typed = bridge::editor_html(&editor_id(&draft)).await;
+        let mut state = slot.draft;
+        state.set(None);
         let mut d = draft;
         if !typed.is_empty() {
             d.body_html = typed;
         }
-        send_cmd(Cmd::SaveDraft(d));
+        // Nothing written: drop it instead of leaving an empty draft behind.
+        if is_blank(&d, &d.body_html) {
+            send_cmd(Cmd::DiscardDraft { draft_id: d.id });
+        } else {
+            send_cmd(Cmd::SaveDraft(d));
+        }
     });
 }
 
+/// Save from the last autosaved state without reading the editor (its window
+/// may already be going away).
+pub fn save_now(slot: ComposeSlot) {
+    let Some(d) = slot.draft.peek().clone() else { return };
+    let mut state = slot.draft;
+    state.set(None);
+    if is_blank(&d, &d.body_html) {
+        send_cmd(Cmd::DiscardDraft { draft_id: d.id });
+    } else {
+        send_cmd(Cmd::SaveDraft(d));
+    }
+}
+
 /// Throw the draft away, including its server copy.
-fn discard(s: AppState) {
-    let Some(draft) = s.draft.read().clone() else { return };
-    let mut state = s.draft;
+fn discard(slot: ComposeSlot) {
+    let Some(draft) = slot.draft.read().clone() else { return };
+    let mut state = slot.draft;
     state.set(None);
     send_cmd(Cmd::DiscardDraft { draft_id: draft.id });
 }
@@ -230,8 +305,8 @@ enum Field {
 }
 
 /// Write one recipient list into the open draft.
-fn set_field(s: AppState, field: Field, list: Vec<Address>) {
-    let mut draft = s.draft;
+fn set_field(slot: ComposeSlot, field: Field, list: Vec<Address>) {
+    let mut draft = slot.draft;
     if let Some(d) = draft.write().as_mut() {
         match field {
             Field::To => d.to = list,
@@ -252,8 +327,9 @@ fn use_senders(s: AppState) {
 #[component]
 fn FromPicker() -> Element {
     let s = use_context::<AppState>();
+    let slot = use_context::<ComposeSlot>();
     let mut open = use_signal(|| false);
-    let mut draft = s.draft;
+    let mut draft = slot.draft;
     let Some(d) = draft.read().clone() else { return rsx! {} };
     let hue = s.hue(&d.from.account_id);
     let senders = s.senders.read().clone();
@@ -315,8 +391,8 @@ fn cross_hint(s: &AppState, d: &Draft) -> Option<String> {
 }
 
 /// Add picked/dropped files to the open draft.
-fn add_files(s: AppState, files: Vec<dioxus::html::FileData>) {
-    let mut draft = s.draft;
+fn add_files(slot: ComposeSlot, files: Vec<dioxus::html::FileData>) {
+    let mut draft = slot.draft;
     if let Some(d) = draft.write().as_mut() {
         for f in files {
             let path = f.path();
@@ -347,8 +423,8 @@ fn file_size(a: &DraftAttachment) -> String {
 
 #[component]
 fn Attachments() -> Element {
-    let s = use_context::<AppState>();
-    let mut draft = s.draft;
+    let slot = use_context::<ComposeSlot>();
+    let mut draft = slot.draft;
     let atts = draft.read().as_ref().map(|d| d.attachments.clone()).unwrap_or_default();
     if atts.is_empty() {
         return rsx! {};
@@ -376,28 +452,29 @@ fn Attachments() -> Element {
 /// picker and reports real paths).
 #[component]
 fn AttachButton(id: String) -> Element {
-    let s = use_context::<AppState>();
+    let slot = use_context::<ComposeSlot>();
     rsx! {
         label { class: "icon-btn icon-btn--sm", r#for: "{id}", title: "Attach files", "aria-label": "Attach files",
             Icon { name: "clip" }
         }
         input { id: "{id}", r#type: "file", multiple: true, style: "display:none",
-            onchange: move |e| add_files(s, e.files()) }
+            onchange: move |e| add_files(slot, e.files()) }
     }
 }
 
 #[component]
 fn SendButton() -> Element {
     let s = use_context::<AppState>();
+    let slot = use_context::<ComposeSlot>();
     let mut menu = use_signal(debug_extras);
     let mut pick = use_signal(String::new);
-    let sending = *s.sending.read();
+    let sending = *slot.sending.read();
     let options = send_later_options(Local::now(), *s.first_weekday.read());
     rsx! {
         span { style: "position:relative",
             div { class: "split",
                 button { class: "btn btn--primary", r#type: "button", disabled: sending,
-                    onclick: move |_| send_current(s),
+                    onclick: move |_| send_current(s, slot),
                     if sending { "Sending…" } else { "Send" }
                     kbd { class: "kbd", "⌘↵" }
                 }
@@ -412,7 +489,7 @@ fn SendButton() -> Element {
                     div { class: "menu__label", "Send later" }
                     for (label, hint, at) in options {
                         div { class: "menu-item", role: "menuitem", key: "{label}",
-                            onclick: move |_| { menu.set(false); send_at(s, Some(at)); },
+                            onclick: move |_| { menu.set(false); send_at(s, slot, Some(at)); },
                             Icon { name: "clock", class: "icon--sm" }
                             "{label}"
                             span { class: "menu-item__hint", "{hint}" }
@@ -426,7 +503,7 @@ fn SendButton() -> Element {
                         button { class: "btn btn--secondary btn--sm", r#type: "button",
                             disabled: parse_local_datetime(&pick.read()).is_none_or(|t| t <= pigeon_core::now_ms()),
                             onclick: move |_| {
-                                if let Some(at) = parse_local_datetime(&pick.read()) { menu.set(false); send_at(s, Some(at)); }
+                                if let Some(at) = parse_local_datetime(&pick.read()) { menu.set(false); send_at(s, slot, Some(at)); }
                             },
                             "Schedule"
                         }
@@ -440,8 +517,8 @@ fn SendButton() -> Element {
 /// The sender's signature as it will be appended (swaps with From).
 #[component]
 fn SignaturePreview() -> Element {
-    let s = use_context::<AppState>();
-    let email = s.draft.read().as_ref().map(|d| d.from.address.email.clone()).unwrap_or_default();
+    let slot = use_context::<ComposeSlot>();
+    let email = slot.draft.read().as_ref().map(|d| d.from.address.email.clone()).unwrap_or_default();
     let sig = signature_for(&email);
     if sig.trim().is_empty() {
         return rsx! {};
@@ -452,7 +529,7 @@ fn SignaturePreview() -> Element {
 
 /// Drop target: files dragged over the composer show the design's drop zone.
 fn drop_handlers(
-    s: AppState,
+    slot: ComposeSlot,
     mut dragging: Signal<bool>,
 ) -> (EventHandler<DragEvent>, EventHandler<DragEvent>, EventHandler<DragEvent>) {
     (
@@ -464,7 +541,7 @@ fn drop_handlers(
         EventHandler::new(move |e: DragEvent| {
             e.prevent_default();
             dragging.set(false);
-            add_files(s, e.files());
+            add_files(slot, e.files());
         }),
     )
 }
@@ -472,8 +549,9 @@ fn drop_handlers(
 #[component]
 pub fn InlineReply(draft: Draft) -> Element {
     let s = use_context::<AppState>();
+    let slot = use_context::<ComposeSlot>();
     use_senders(s);
-    let state = s.draft;
+    let state = slot.draft;
     let mut show_cc = use_signal(|| !draft.cc.is_empty());
     let id = editor_id(&draft);
     use_hook({
@@ -483,7 +561,7 @@ pub fn InlineReply(draft: Draft) -> Element {
     let current = state.read().clone().unwrap_or(draft.clone());
     let hint = cross_hint(&s, &current);
     let dragging = use_signal(|| false);
-    let (over, leave, drop) = drop_handlers(s, dragging);
+    let (over, leave, drop) = drop_handlers(slot, dragging);
 
     rsx! {
         div { class: "inline-reply", "data-dragging": dragging.read().then_some("true"),
@@ -492,12 +570,12 @@ pub fn InlineReply(draft: Draft) -> Element {
                 FromPicker {}
                 span { class: "t-3", style: "font-size:12.5px", "to" }
                 RecipientInput { id: "reply-to-{current.id}", value: current.to.clone(),
-                    on_change: move |l| set_field(s, Field::To, l) }
+                    on_change: move |l| set_field(slot, Field::To, l) }
                 if !*show_cc.read() {
                     button { class: "btn btn--ghost btn--sm", r#type: "button", onclick: move |_| show_cc.set(true), "Cc" }
                 }
                 button { class: "icon-btn icon-btn--sm", "aria-label": "Discard draft",
-                    onclick: move |_| discard(s),
+                    onclick: move |_| discard(slot),
                     Icon { name: "x" }
                 }
             }
@@ -505,7 +583,7 @@ pub fn InlineReply(draft: Draft) -> Element {
                 div { class: "inline-reply__head", style: "height:auto;min-height:40px",
                     span { class: "t-3", style: "font-size:12.5px;padding-left:4px", "cc" }
                     RecipientInput { id: "reply-cc-{current.id}", value: current.cc.clone(),
-                        on_change: move |l| set_field(s, Field::Cc, l) }
+                        on_change: move |l| set_field(slot, Field::Cc, l) }
                 }
             }
             if let Some(h) = hint { div { class: "cross-account-hint", dir: "auto", "{h}" } }
@@ -528,21 +606,68 @@ pub fn InlineReply(draft: Draft) -> Element {
     }
 }
 
+/// Routes a new (non-inline) draft from the main window: docked mode leaves
+/// it for the reading pane; window mode moves it into its own window.
 #[component]
 pub fn ComposerOverlay() -> Element {
     let s = use_context::<AppState>();
-    let draft = s.draft.read().clone();
-    let reader = s.reader.read().clone();
-    let Some(d) = draft else { return rsx! {} };
-    // Replies to the open thread are inline; everything else gets the window.
-    let inline =
-        d.reply.as_ref().is_some_and(|r| {
-            reader.as_ref().is_some_and(|v| v.account_id == r.account_id && v.thread_id == r.thread_id)
-        }) && *s.mode.read() == crate::state::Mode::Mail;
-    if inline {
+    use_effect(move || {
+        let Some(d) = s.draft.read().clone() else { return };
+        if is_inline(&s, &d) || docked_mode() {
+            return;
+        }
+        let mut draft = s.draft;
+        draft.set(None);
+        super::compose_window::open(s, d);
+    });
+    rsx! {}
+}
+
+/// "Draft: <subject>" in the reader toolbar while a docked draft is set
+/// aside; click to go back to it.
+#[component]
+pub fn DockedDraftChip() -> Element {
+    let s = use_context::<AppState>();
+    if !*s.docked_hidden.read() {
         return rsx! {};
     }
-    rsx! { Composer { key: "{d.id}", draft: d } }
+    let Some(d) = docked_draft(&s) else { return rsx! {} };
+    let label = if d.subject.trim().is_empty() { "New message".to_string() } else { d.subject.clone() };
+    let mut hidden = s.docked_hidden;
+    rsx! {
+        button { class: "chip docked-chip", r#type: "button", title: "Back to your draft",
+            onclick: move |_| hidden.set(false),
+            Icon { name: "edit", class: "icon--sm" }
+            span { class: "docked-chip__label", dir: "auto", "Draft: {label}" }
+        }
+    }
+}
+
+/// Selecting another message while a docked draft is open: an empty one
+/// closes, anything else is set aside behind the "Draft:" chip.
+pub fn leave_docked(s: AppState) {
+    let Some(d) = docked_draft(&s) else { return };
+    if *s.docked_hidden.peek() {
+        return;
+    }
+    let slot = s.main_slot();
+    spawn(async move {
+        let typed = bridge::editor_html(&editor_id(&d)).await;
+        let mut draft = slot.draft;
+        if is_blank(&d, &typed) {
+            draft.set(None);
+            send_cmd(Cmd::DiscardDraft { draft_id: d.id });
+            return;
+        }
+        let mut kept = d;
+        if !typed.is_empty() {
+            kept.body_html = typed;
+        }
+        draft.set(Some(kept.clone()));
+        send_cmd(Cmd::SaveDraft(kept));
+        let mut hidden = s.docked_hidden;
+        hidden.set(true);
+    });
 }
 
 /// Debug builds: `PIGEON_DEBUG_OPEN=compose:<to list>[|<partial>]` fills
@@ -564,14 +689,15 @@ fn debug_extras() -> bool {
 }
 
 #[component]
-fn Composer(draft: Draft) -> Element {
+pub fn Composer(draft: Draft, #[props(default)] docked: bool) -> Element {
     let s = use_context::<AppState>();
+    let slot = use_context::<ComposeSlot>();
     use_senders(s);
     use_hook({
         let id = editor_id(&draft);
         move || {
             if debug_extras() {
-                let mut d = s.draft;
+                let mut d = slot.draft;
                 if let Some(d) = d.write().as_mut() {
                     d.subject = "Q4 deck".into();
                     d.attachments.push(DraftAttachment {
@@ -588,13 +714,13 @@ fn Composer(draft: Draft) -> Element {
             }
         }
     });
-    let mut state = s.draft;
+    let mut state = slot.draft;
     let mut subject = use_signal(|| draft.subject.clone());
     let debug = use_hook(|| {
         static USED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
         let d = debug_compose().filter(|_| !USED.swap(true, std::sync::atomic::Ordering::Relaxed));
         if let Some((to, _)) = &d {
-            set_field(s, Field::To, to.clone());
+            set_field(slot, Field::To, to.clone());
         }
         d.map(|(_, partial)| partial).unwrap_or_default()
     });
@@ -610,15 +736,17 @@ fn Composer(draft: Draft) -> Element {
     let hint = cross_hint(&s, &current);
     let title = if current.subject.is_empty() { "New message".to_string() } else { current.subject.clone() };
     let dragging = use_signal(|| false);
-    let (over, leave, drop) = drop_handlers(s, dragging);
+    let (over, leave, drop) = drop_handlers(slot, dragging);
+
+    let notice = slot.notice.read().clone();
 
     rsx! {
-        div { class: "composer-overlay",
             div { class: "composer", "data-dragging": dragging.read().then_some("true"),
+                "data-docked": docked.then_some("true"), "data-windowed": slot.windowed.then_some("true"),
                 ondragover: move |e| over.call(e), ondragleave: move |e| leave.call(e), ondrop: move |e| drop.call(e),
                 div { class: "composer__titlebar",
                     button { class: "icon-btn icon-btn--sm", "aria-label": "Close (Esc)",
-                        onclick: move |_| save_and_close(s),
+                        onclick: move |_| save_and_close(slot),
                         Icon { name: "x" }
                     }
                     span { class: "composer__title", dir: "auto", "{title}" }
@@ -634,7 +762,7 @@ fn Composer(draft: Draft) -> Element {
                         span { class: "composer-field__label", "To" }
                         RecipientInput { id: "composer-to-{current.id}", value: current.to.clone(),
                             placeholder: "Name or address", initial_text: debug.clone(),
-                            on_change: move |l| set_field(s, Field::To, l) }
+                            on_change: move |l| set_field(slot, Field::To, l) }
                         if !*show_cc_bcc.read() {
                             button { class: "btn btn--ghost btn--sm composer-field__aside", r#type: "button",
                                 onclick: move |_| show_cc_bcc.set(true), "Cc Bcc" }
@@ -644,12 +772,12 @@ fn Composer(draft: Draft) -> Element {
                         div { class: "composer-field",
                             span { class: "composer-field__label", "Cc" }
                             RecipientInput { id: "composer-cc-{current.id}", value: current.cc.clone(),
-                                on_change: move |l| set_field(s, Field::Cc, l) }
+                                on_change: move |l| set_field(slot, Field::Cc, l) }
                         }
                         div { class: "composer-field",
                             span { class: "composer-field__label", "Bcc" }
                             RecipientInput { id: "composer-bcc-{current.id}", value: current.bcc.clone(),
-                                on_change: move |l| set_field(s, Field::Bcc, l) }
+                                on_change: move |l| set_field(slot, Field::Bcc, l) }
                         }
                     }
                     div { class: "composer-field composer-field--subject",
@@ -670,12 +798,14 @@ fn Composer(draft: Draft) -> Element {
                 Attachments {}
                 div { class: "composer__footer",
                     AttachButton { id: "attach-{current.id}" }
-                    span { class: "t-caption", "Ctrl+Right Shift: RTL · Ctrl+Left Shift: LTR" }
+                    match notice {
+                        Some(n) => rsx! { span { class: "t-caption composer__notice", role: "alert", "{n}" } },
+                        None => rsx! { span { class: "t-caption", "Ctrl+Right Shift: RTL · Ctrl+Left Shift: LTR" } },
+                    }
                     span { class: "spacer" }
                     SendButton {}
                 }
             }
-        }
     }
 }
 

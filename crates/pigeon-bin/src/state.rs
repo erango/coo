@@ -148,6 +148,10 @@ pub struct AppState {
     pub senders: Signal<Vec<Sender>>,
     pub draft: Signal<Option<Draft>>,
     pub sending: Signal<bool>,
+    /// Problem shown in the main window's composer (e.g. no recipients).
+    pub compose_notice: Signal<Option<String>>,
+    /// The docked draft is set aside behind the reader's "Draft:" chip.
+    pub docked_hidden: Signal<bool>,
     pub mode: Signal<Mode>,
     pub calendar: Signal<CalendarData>,
     /// Monday 00:00 local of the shown week, epoch ms.
@@ -204,6 +208,8 @@ impl AppState {
             senders: Signal::new(Vec::new()),
             draft: Signal::new(None),
             sending: Signal::new(false),
+            compose_notice: Signal::new(None),
+            docked_hidden: Signal::new(false),
             mode: Signal::new(Mode::Mail),
             calendar: Signal::new(CalendarData::default()),
             week_start: Signal::new(crate::format::week_start(chrono::Local::now(), crate::week::first_day())),
@@ -220,6 +226,16 @@ impl AppState {
             os_dark: Signal::new(true),
             signing_in: Signal::new(false),
             collapsed_accounts: Signal::new(HashSet::new()),
+        }
+    }
+
+    /// The main window's composer slot (inline replies, docked drafts).
+    pub fn main_slot(&self) -> crate::ui::compose::ComposeSlot {
+        crate::ui::compose::ComposeSlot {
+            draft: self.draft,
+            sending: self.sending,
+            notice: self.compose_notice,
+            windowed: false,
         }
     }
 
@@ -437,6 +453,9 @@ fn apply(s: &mut AppState, delta: Delta) {
                     s.reopening.set(None);
                     d.body_html = crate::ui::compose::strip_signature(&d.body_html);
                 }
+                // A new draft replaces a set-aside docked one (already saved).
+                s.docked_hidden.set(false);
+                s.compose_notice.set(None);
                 s.draft.set(Some(d))
             }
             Delta::Scheduled(drafts) => {

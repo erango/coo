@@ -12,14 +12,31 @@ use crate::format;
 use crate::send_cmd;
 use crate::state::AppState;
 
+/// The reading pane: the open conversation, or a docked new message
+/// (Settings › Composing › Docked).
 #[component]
 pub fn Reader() -> Element {
+    let s = use_context::<AppState>();
+    if !*s.docked_hidden.read()
+        && let Some(d) = super::compose::docked_draft(&s)
+    {
+        return rsx! {
+            main { class: "pane pane--reader pane--composing",
+                super::compose::Composer { key: "{d.id}", draft: d, docked: true }
+            }
+        };
+    }
+    rsx! { ThreadReader {} }
+}
+
+#[component]
+fn ThreadReader() -> Element {
     let s = use_context::<AppState>();
     let view = s.reader.read().clone();
     let Some(view) = view else {
         return rsx! {
             main { class: "pane pane--reader",
-                div { class: "reader-toolbar" }
+                div { class: "reader-toolbar", super::compose::DockedDraftChip {} }
                 div { class: "pane-empty", "No conversation selected" }
             }
         };
@@ -43,6 +60,7 @@ pub fn Reader() -> Element {
                     Icon { name: "flag", class: "icon--lg" }
                 }
                 button { class: "icon-btn", "aria-label": "Move (V)", onclick: move |_| super::move_picker::open(s, false), Icon { name: "folder", class: "icon--lg" } }
+                super::compose::DockedDraftChip {}
                 span { class: "spacer" }
                 if total > 0 { span { class: "reader-toolbar__pos", "{pos} of {total}" } }
                 span { class: "reader-toolbar__sep" }

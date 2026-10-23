@@ -58,6 +58,9 @@ pub fn CalendarSettings() -> Element {
     }
 }
 
+/// Where new messages open (prefs `compose_mode`).
+const COMPOSE_MODES: [(&str, &str); 2] = [("window", "In a separate window"), ("docked", "Docked in the reading pane")];
+
 #[component]
 pub fn Composing() -> Element {
     let s = use_context::<AppState>();
@@ -67,12 +70,29 @@ pub fn Composing() -> Element {
         }
     });
     let mut undo = use_signal(|| prefs::get().undo_send_seconds);
+    let mut mode = use_signal(|| prefs::get().compose_mode);
     let senders = s.senders.read().clone();
     let current = *undo.read();
+    let current_mode = mode.read().clone();
 
     rsx! {
         div { class: "settings__title", style: "margin-top:12px", "Composing" }
         div { class: "settings-group",
+            div { class: "settings-field",
+                span { class: "settings-field__label", "New messages" }
+                div { class: "segmented", role: "radiogroup", "aria-label": "Open new messages",
+                    for (value, label) in COMPOSE_MODES {
+                        button { role: "radio", "aria-checked": "{current_mode == value}", "aria-selected": "{current_mode == value}",
+                            onclick: move |_| {
+                                prefs::update(|p| p.compose_mode = value.to_string());
+                                mode.set(value.to_string());
+                            },
+                            "{label}"
+                        }
+                    }
+                }
+                span { class: "settings-field__hint", "Replies to the open conversation are always written below it." }
+            }
             div { class: "settings-field",
                 span { class: "settings-field__label", "Undo send" }
                 div { class: "segmented", role: "radiogroup", "aria-label": "Undo send window",
