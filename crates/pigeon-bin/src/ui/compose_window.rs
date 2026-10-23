@@ -72,6 +72,11 @@ pub fn open(s: AppState, draft: Draft) {
     let _ = dioxus::desktop::window().new_window(dom, cfg);
 }
 
+/// Any compose window open (keeps the Dock icon while the main window hides).
+pub fn any_open() -> bool {
+    OPEN.with(|o| !o.borrow().is_empty())
+}
+
 /// The main window is closing: save every open draft and close its window
 /// (they read the main window's state, which is about to go away).
 pub fn close_all() {

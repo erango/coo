@@ -1,5 +1,6 @@
-//! Settings sections beyond Appearance/Accounts: Composing (undo send,
-//! signatures), Calendar, Notifications, Keyboard shortcuts, Privacy.
+//! Settings sections beyond Appearance/Accounts: General (closing the
+//! window), Composing (undo send, signatures), Calendar, Notifications,
+//! Keyboard shortcuts, Privacy.
 
 use dioxus::prelude::*;
 use pigeon_engine::service::Cmd;
@@ -53,6 +54,41 @@ pub fn CalendarSettings() -> Element {
                     }
                 }
                 span { class: "settings-field__hint", "Week view, the month grids and navigation use this." }
+            }
+        }
+    }
+}
+
+/// What closing the main window does (prefs `close_to_menu_bar`).
+const CLOSE_CHOICES: [(bool, &str); 2] = [(true, "Keeps Coo in the menu bar"), (false, "Quits Coo")];
+
+#[component]
+pub fn General() -> Element {
+    let mut keep = use_signal(|| prefs::get().close_to_menu_bar);
+    let current = *keep.read();
+    rsx! {
+        div { class: "settings__title", style: "margin-top:12px", "General" }
+        div { class: "settings-group",
+            div { class: "settings-field",
+                span { class: "settings-field__label", "Closing the window" }
+                div { class: "segmented", role: "radiogroup", "aria-label": "Closing the window",
+                    for (value, label) in CLOSE_CHOICES {
+                        button { role: "radio", key: "{label}", "aria-checked": "{current == value}", "aria-selected": "{current == value}",
+                            onclick: move |_| {
+                                prefs::update(|p| p.close_to_menu_bar = value);
+                                keep.set(value);
+                            },
+                            "{label}"
+                        }
+                    }
+                }
+                span { class: "settings-field__hint",
+                    if current {
+                        "Mail keeps syncing and notifications keep coming. Open Coo again from its menu bar icon; ⌘Q quits."
+                    } else {
+                        "Closing the window quits Coo: no new-mail notifications or reminders until you open it again."
+                    }
+                }
             }
         }
     }

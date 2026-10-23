@@ -27,6 +27,7 @@ pub fn Settings() -> Element {
                 }
                 Appearance {}
                 Accounts {}
+                super::settings_sections::General {}
                 super::settings_sections::Composing {}
                 super::settings_sections::CalendarSettings {}
                 super::settings_sections::Notifications {}

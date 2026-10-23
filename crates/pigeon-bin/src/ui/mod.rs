@@ -50,21 +50,34 @@ pub fn Icon(name: &'static str, #[props(default)] class: &'static str) -> Elemen
 pub fn App() -> Element {
     let s = use_context_provider(AppState::new);
     use_context_provider(|| s.main_slot());
-    // Closing the main window: compose windows read its state, so save their
-    // drafts and close them first.
+    // Closing the main window either hides it into the menu bar (Settings ›
+    // General) or quits; quitting closes compose windows first, since they
+    // read the main window's state. Launching Coo again while it's hidden
+    // (Finder, Dock, Spotlight) brings the window back.
     dioxus::desktop::use_wry_event_handler(move |event, _| {
-        if let dioxus::desktop::tao::event::Event::WindowEvent {
-            event: dioxus::desktop::tao::event::WindowEvent::CloseRequested,
-            ..
-        } = event
-        {
-            compose_window::close_all();
+        use dioxus::desktop::tao::event::{Event, WindowEvent};
+        match event {
+            Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => {
+                if crate::menubar::before_close() {
+                    // Dioxus hides the window right after this handler.
+                    spawn(async {
+                        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                        crate::menubar::did_hide(compose_window::any_open());
+                    });
+                } else {
+                    compose_window::close_all();
+                }
+            }
+            Event::Reopen { .. } => crate::menubar::show_main(),
+            _ => {}
         }
     });
 
     use_hook(move || {
         // Sparkle (release builds only): starts its background check schedule.
         crate::updater::start();
+        crate::menubar::install(dioxus::desktop::window());
+        spawn(menubar_loop(s));
         spawn(state::pump(s));
         spawn(bridge_loop(s));
         spawn(reminder_loop(s));
@@ -193,6 +206,13 @@ pub fn App() -> Element {
                         document::eval(&js);
                     }
                 }
+                // menubar-hint — hide into the menu bar and show the one-time hint
+                "menubar-hint" => {
+                    spawn(async {
+                        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+                        crate::menubar::hide_main_for_demo();
+                    });
+                }
                 // Ask Sparkle to check now (update tests; release builds only).
                 "check-updates" => crate::updater::check_now(),
                 "agent-setup" => {
@@ -230,33 +250,12 @@ pub fn App() -> Element {
         }
     });
 
-    // Native menu items (see menu.rs for which keys each side owns).
-    dioxus::desktop::use_muda_event_handler(move |e| match e.id().0.as_str() {
-        crate::menu::SETTINGS => {
-            let mut o = s.settings_open;
-            o.set(true);
-        }
-        crate::menu::AGENT_SETUP => {
-            let mut o = s.agent_setup_open;
-            o.set(true);
-        }
-        crate::menu::CHECK_UPDATES => {
-            if crate::updater::available() {
-                crate::updater::check_now();
-            } else {
-                s.local_toast("Updates are off in development builds", false);
-            }
-        }
-        crate::menu::ZOOM_IN => zoom::change(s, zoom::Step::Bigger),
-        crate::menu::ZOOM_OUT => zoom::change(s, zoom::Step::Smaller),
-        crate::menu::ZOOM_RESET => zoom::change(s, zoom::Step::Reset),
-        // Message menu items run the same handler as their keyboard shortcut.
-        id => {
-            if let Some(key) = crate::menu::key_for(id) {
-                on_key(s, key);
-            }
-        }
-    });
+    // Native menu items (see menu.rs for which keys each side owns). The app
+    // menu and the status item's menu share one muda event channel, and with
+    // a status item Dioxus delivers both as tray-menu events, so listen to
+    // both kinds and dispatch on the item id.
+    dioxus::desktop::use_muda_event_handler(move |e| on_menu(s, e.id().0.as_str()));
+    dioxus::desktop::use_tray_menu_event_handler(move |e| on_menu(s, e.id().0.as_str()));
 
     // Apply and remember light/dark/system and the color theme.
     use_effect(move || {
@@ -284,6 +283,7 @@ pub fn App() -> Element {
             .map(|f| f.unread)
             .sum();
         crate::dock::set_badge(unread);
+        crate::menubar::set_unread(unread);
     });
 
     // Tell the engine what to list whenever the view changes.
@@ -367,10 +367,71 @@ async fn reminder_loop(s: AppState) {
 }
 
 /// Route notification clicks: open the thread/event, or join the meeting.
+/// Menu bar and status item menu clicks, by item id.
+fn on_menu(s: AppState, id: &str) {
+    match id {
+        crate::menu::SETTINGS => {
+            crate::menubar::show_main();
+            let mut o = s.settings_open;
+            o.set(true);
+        }
+        crate::menubar::OPEN => crate::menubar::show_main(),
+        crate::menubar::NEW_MESSAGE => {
+            crate::menubar::show_main();
+            on_key(s, "meta+n");
+        }
+        crate::menubar::SYNC => send_cmd(Cmd::SyncNow),
+        crate::menubar::SETTINGS => open_settings_at(s, "General"),
+        crate::menu::AGENT_SETUP => {
+            let mut o = s.agent_setup_open;
+            o.set(true);
+        }
+        crate::menu::CHECK_UPDATES => {
+            if crate::updater::available() {
+                crate::updater::check_now();
+            } else {
+                s.local_toast("Updates are off in development builds", false);
+            }
+        }
+        crate::menu::ZOOM_IN => zoom::change(s, zoom::Step::Bigger),
+        crate::menu::ZOOM_OUT => zoom::change(s, zoom::Step::Smaller),
+        crate::menu::ZOOM_RESET => zoom::change(s, zoom::Step::Reset),
+        // Message menu items run the same handler as their keyboard shortcut.
+        id => {
+            if let Some(key) = crate::menu::key_for(id) {
+                on_key(s, key);
+            }
+        }
+    }
+}
+
+/// Show the window on Settings, scrolled to a section.
+pub fn open_settings_at(s: AppState, section: &str) {
+    crate::menubar::show_main();
+    let mut o = s.settings_open;
+    o.set(true);
+    document::eval(&format!(
+        "setTimeout(() => {{ const h = [...document.querySelectorAll('.settings__title')].find(e => e.textContent.trim() === {section:?}); h && h.scrollIntoView(); }}, 300);"
+    ));
+}
+
+/// The status item's popover buttons.
+async fn menubar_loop(s: AppState) {
+    let Some(mut rx) = crate::menubar::take_actions() else { return };
+    while let Some(action) = rx.recv().await {
+        match action {
+            crate::menubar::Action::OpenSettings => open_settings_at(s, "General"),
+        }
+    }
+}
+
 async fn click_loop(s: AppState) {
     use crate::notify::{Click, Target};
     let Some(mut rx) = crate::notify::take_clicks() else { return };
     while let Some(click) = rx.recv().await {
+        if !matches!(click, Click::Join(_)) {
+            crate::menubar::show_main();
+        }
         let (mut mode, mut settings, mut search) = (s.mode, s.settings_open, s.search);
         match click {
             Click::Join(url) => {

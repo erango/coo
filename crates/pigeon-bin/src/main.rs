@@ -7,6 +7,7 @@ mod fonts;
 mod format;
 mod meeting;
 mod menu;
+mod menubar;
 mod notify;
 mod perf;
 mod prefs;

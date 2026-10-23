@@ -60,6 +60,11 @@ pub struct Prefs {
     pub thread_newest_first: bool,
     /// Where replies open: "inline" (below the conversation) or "window".
     pub reply_mode: String,
+    /// Closing the main window keeps Coo running in the menu bar (false:
+    /// closing quits).
+    pub close_to_menu_bar: bool,
+    /// The one-time "Coo is still running" hint was shown.
+    pub menu_bar_hint_shown: bool,
 }
 
 impl Default for Prefs {
@@ -85,6 +90,8 @@ impl Default for Prefs {
             sidebar_width: 0,
             thread_newest_first: true,
             reply_mode: "inline".into(),
+            close_to_menu_bar: true,
+            menu_bar_hint_shown: false,
             reminders_time_sensitive: true,
             sound_theme: crate::sound::DEFAULT.into(),
             sound_volume: 60,
