@@ -535,6 +535,12 @@ fn window_action(action: &str) {
     }
 }
 
+/// Test/screenshot builds can ignore all keyboard actions (PIGEON_IGNORE_INPUT=1).
+fn input_ignored() -> bool {
+    static IGNORE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *IGNORE.get_or_init(|| std::env::var("PIGEON_IGNORE_INPUT").is_ok_and(|v| v == "1"))
+}
+
 /// Message list width bounds (px).
 pub const LIST_W_MIN: u32 = 300;
 pub const LIST_W_MAX: u32 = 760;
@@ -578,6 +584,9 @@ async fn bridge_loop(s: AppState) {
                     let _ = open::that_detached(&msg.v);
                 }
             }
+            // Screenshot runs (PIGEON_IGNORE_INPUT=1) open frontmost; never let a
+            // stray keystroke meant for another app act on the demo mailbox.
+            "key" if input_ignored() => {}
             "key" => on_key(s, &msg.v),
             "draft-input" => compose::autosave(s.main_slot(), &msg.v),
             "sig-input" => {
