@@ -22,7 +22,7 @@ pub const JS: &str = r#"
   mq.addEventListener('change', os); os();
 
   // ---- Keyboard shortcuts (outside editors) ----
-  const KEYS = new Set(['j','k','e','#','s','u','r','a','f','c','z','/','x','v','l','Escape','Enter','ArrowUp','ArrowDown',
+  const KEYS = new Set(['J','j','k','e','#','s','u','r','a','f','c','z','/','x','v','l','Escape','Enter','ArrowUp','ArrowDown',
                         'meta+1','meta+2','meta+k','meta+n','meta+r','meta+Enter','meta+shift+z','meta+,']);
   const editable = (el) => el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
   let lastShift = 0; // 1 = left, 2 = right

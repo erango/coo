@@ -166,7 +166,7 @@ pub fn InviteCard(account_id: String, invite: Invite, view: InviteView) -> Eleme
                             Icon { name: "video", class: "icon--sm" }
                             "{meeting_service(&u)} · "
                             a { class: "t-mono", href: "#",
-                                onclick: move |e| { e.prevent_default(); let _ = open::that_detached(&u); },
+                                onclick: move |e| { e.prevent_default(); crate::meeting::join(&u); },
                                 {link_text.clone()}
                             }
                         }

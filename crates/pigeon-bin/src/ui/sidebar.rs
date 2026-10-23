@@ -235,27 +235,24 @@ fn AccountSection(
 
 #[component]
 fn NextUp() -> Element {
+    use pigeon_core::meeting::{JoinState, join_state, joinable};
     let s = use_context::<AppState>();
     let events = s.next_up.read().clone();
     let now = pigeon_core::now_ms();
-    let Some(row) = events.into_iter().find(|e| e.event.end_at > now) else { return rsx! {} };
+    // A meeting you can join right now beats the next item on the agenda.
+    let join = joinable(events.iter().map(|r| &r.event), now).map(|(e, l)| (e.id.clone(), l));
+    let row = match &join {
+        Some((id, _)) => events.iter().find(|r| &r.event.id == id).cloned(),
+        None => events.iter().find(|r| r.event.end_at > now).cloned(),
+    };
+    let Some(row) = row else { return rsx! {} };
     let e = row.event.clone();
     let hue = s.hue(&row.account_id);
-    let soon = format::soon(e.start_at, now);
-    let joinable = e.online_url.is_some() && e.start_at - now < 10 * 60_000;
-    let url = e.online_url.clone().unwrap_or_default();
-    let service = if url.contains("zoom.us") {
-        "Zoom"
-    } else if url.contains("meet.google") {
-        "Google Meet"
-    } else if url.contains("teams.microsoft") {
-        "Teams"
-    } else {
-        "meeting"
-    };
+    let live = join_state(e.start_at, e.end_at, now) == JoinState::Live;
+    let soon = if live { "now".to_string() } else { format::soon(e.start_at, now) };
     rsx! {
         div { class: "next-up",
-            span { class: "t-label", style: "padding:0 4px", "Next up" }
+            span { class: "t-label", style: "padding:0 4px", if live { "Now" } else { "Next up" } }
             div { class: "next-up__card",
                 div { class: "next-up__item", "data-hue": "{hue}",
                     span { class: "next-up__bar" }
@@ -267,11 +264,13 @@ fn NextUp() -> Element {
                         }
                     }
                 }
-                if joinable {
+                if let Some((_, link)) = join {
                     a { class: "btn btn--primary", href: "#", style: "height:30px",
-                        onclick: move |ev| { ev.prevent_default(); let _ = open::that_detached(&url); },
+                        title: "{link.url}",
+                        onclick: move |ev| { ev.prevent_default(); crate::meeting::join(&link.url); },
                         Icon { name: "video", class: "icon--sm" }
-                        "Join {service}"
+                        if live { "Join now" } else { "Join {link.service.label()}" }
+                        kbd { class: "kbd", "⇧J" }
                     }
                 }
             }

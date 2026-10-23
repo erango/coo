@@ -15,6 +15,7 @@ use crate::state::{AppState, Mode, Theme, next_token};
 
 #[derive(Clone, PartialEq)]
 enum Action {
+    Join(String),
     Compose,
     MoveTo,
     LabelAs,
@@ -68,7 +69,11 @@ fn build(s: &AppState, query: &str) -> Vec<Item> {
         });
     }
 
-    let mut actions = vec![
+    let mut actions = Vec::new();
+    if let Some((title, url)) = super::joinable_now(s) {
+        actions.push(item("Actions", "video", format!("Join “{title}”"), "⇧J", Action::Join(url)));
+    }
+    actions.extend([
         item("Actions", "edit", "New message", "C", Action::Compose),
         item("Actions", "sync", "Sync now", "⌘R", Action::Sync),
         item("Actions", "settings", "Settings", "⌘,", Action::Settings),
@@ -86,7 +91,7 @@ fn build(s: &AppState, query: &str) -> Vec<Item> {
         item("Actions", "text", "Bigger text", "⌘+", Action::Zoom(super::zoom::Step::Bigger)),
         item("Actions", "text", "Smaller text", "⌘-", Action::Zoom(super::zoom::Step::Smaller)),
         item("Actions", "text", "Actual text size", "⌘0", Action::Zoom(super::zoom::Step::Reset)),
-    ];
+    ]);
     if selected_item(s).is_some() {
         actions.splice(
             0..0,
@@ -152,6 +157,7 @@ fn build(s: &AppState, query: &str) -> Vec<Item> {
 fn run(mut s: AppState, action: Action) {
     s.palette_open.set(false);
     match action {
+        Action::Join(url) => crate::meeting::join(&url),
         Action::Compose => send_cmd(Cmd::NewDraft),
         Action::MoveTo => super::move_picker::open(s, false),
         Action::LabelAs => super::move_picker::open(s, true),

@@ -4,6 +4,7 @@
 mod bridge;
 mod dock;
 mod format;
+mod meeting;
 mod menu;
 mod prefs;
 mod state;

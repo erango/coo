@@ -307,12 +307,28 @@ pub fn reply(item: &ListItem, kind: ReplyKind) {
     send_cmd(Cmd::StartReply { account_id: item.account_id().to_string(), message_id: item.header().id.clone(), kind });
 }
 
+/// The meeting joinable right now, if any: (title, url).
+pub fn joinable_now(s: &AppState) -> Option<(String, String)> {
+    let events = s.next_up.read();
+    pigeon_core::meeting::joinable(events.iter().map(|r| &r.event), pigeon_core::now_ms())
+        .map(|(e, l)| (e.title.clone(), l.url))
+}
+
+pub fn join_now(s: AppState) {
+    match joinable_now(&s) {
+        Some((_, url)) => crate::meeting::join(&url),
+        None => s.local_toast("No meeting to join right now", false),
+    }
+}
+
 fn on_key(s: AppState, key: &str) {
-    let (mut mode, mut draft) = (s.mode, s.draft);
+    let (mut mode, draft) = (s.mode, s.draft);
     match key {
         "meta+1" => return mode.set(Mode::Mail),
         "meta+2" => return mode.set(Mode::Calendar),
         "meta+r" => return send_cmd(Cmd::SyncNow),
+        // ⇧J: join the meeting that's on now (or starting soon), from anywhere.
+        "J" => return join_now(s),
         "zoom-in" => return zoom::change(s, zoom::Step::Bigger),
         "zoom-out" => return zoom::change(s, zoom::Step::Smaller),
         "zoom-reset" => return zoom::change(s, zoom::Step::Reset),

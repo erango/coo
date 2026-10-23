@@ -9,6 +9,7 @@ pub mod error;
 pub mod html;
 pub mod http;
 pub mod ics;
+pub mod meeting;
 pub mod model;
 pub mod paths;
 pub mod provider;

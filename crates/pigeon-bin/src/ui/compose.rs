@@ -189,7 +189,7 @@ fn cross_hint(s: &AppState, d: &Draft) -> Option<String> {
 pub fn InlineReply(draft: Draft) -> Element {
     let s = use_context::<AppState>();
     use_senders(s);
-    let mut state = s.draft;
+    let state = s.draft;
     let mut show_cc = use_signal(|| !draft.cc.is_empty());
     let id = editor_id(&draft);
     use_hook({

@@ -231,6 +231,13 @@ impl AppState {
         w.insert(0, Outgoing { draft, state });
     }
 
+    /// A toast raised by the UI itself (no engine round trip).
+    pub fn local_toast(&self, message: impl Into<String>, error: bool) {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1 << 40);
+        let id = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.push_toast(Toast { id, message: message.into(), error, undo: None });
+    }
+
     pub fn push_toast(&self, t: Toast) {
         let mut toasts = self.toasts;
         let id = t.id;

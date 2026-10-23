@@ -177,7 +177,7 @@ pub fn CalendarView() -> Element {
                                                     let hue = s.hue(&e.account_id);
                                                     let key = (e.account_id.clone(), e.event.id.clone());
                                                     let is_sel = selected.read().as_ref() == Some(&key);
-                                                    let video = e.event.online_url.is_some();
+                                                    let video = pigeon_core::meeting::meeting_link(&e.event).is_some();
                                                     rsx! {
                                                         div { class: "event", key: "{e.account_id}{e.event.id}", "data-hue": "{hue}",
                                                             "data-rsvp": rsvp_attr(e.event.my_response),
@@ -240,7 +240,9 @@ fn EventPopover(row: EventRow, on_close: EventHandler<()>) -> Element {
     let yes = e.attendees.iter().filter(|a| a.response == Response::Accepted).count();
     let maybe = e.attendees.iter().filter(|a| a.response == Response::Tentative).count();
     let can_rsvp = !e.attendees.is_empty() && e.my_response != Response::Organizer;
-    let url = e.online_url.clone();
+    let link = pigeon_core::meeting::meeting_link(&e);
+    let url = link.as_ref().map(|l| l.url.clone());
+    let service = link.as_ref().map(|l| l.service.label()).unwrap_or("meeting");
     let rsvp = move |response: Response| {
         send_cmd(Cmd::Rsvp {
             account_id: row.account_id.clone(),
@@ -269,10 +271,10 @@ fn EventPopover(row: EventRow, on_close: EventHandler<()>) -> Element {
                 }
                 if let Some(u) = url {
                     a { class: "btn btn--primary join-btn", href: "#",
-                        onclick: move |ev| { ev.prevent_default(); let _ = open::that_detached(&u); },
-                        Icon { name: "video" } "Join"
+                        onclick: move |ev| { ev.prevent_default(); crate::meeting::join(&u); },
+                        Icon { name: "video" } "Join {service}"
                     }
-                    span { class: "event-popover__link", "{row.event.online_url.clone().unwrap_or_default()}" }
+                    span { class: "event-popover__link", "{link.as_ref().map(|l| l.url.clone()).unwrap_or_default()}" }
                 }
             }
             div { class: "event-popover__section",
