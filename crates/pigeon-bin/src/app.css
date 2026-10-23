@@ -326,3 +326,10 @@ input, textarea, [contenteditable="true"] { cursor: text; }
 .row[data-entering] { overflow: hidden; animation: coo-row-in var(--dur-collapse) var(--ease-standard) both; }
 @keyframes coo-row-in { from { opacity: 0; height: 0; padding-top: 0; padding-bottom: 0; } }
 .row[data-leaving] { overflow: hidden; pointer-events: none; }
+
+/* Shortcut hints: larger and higher contrast (11px mono at 70% opacity was
+   hard to read on buttons). System font first so ⌘ ⇧ ⌥ ⌃ ⌫ ↵ render as the
+   real macOS glyphs; the mono font only for letters. */
+.kbd { font: var(--fw-medium) 12.5px/1 -apple-system, BlinkMacSystemFont, var(--font-mono); min-width: 22px; height: 22px; letter-spacing: 0.02em; }
+.btn .kbd, .tooltip .kbd { font-size: 12.5px; opacity: 0.9; letter-spacing: 0.04em; }
+.btn--primary .kbd { opacity: 1; padding: 1px 5px; border-radius: var(--radius-xs); background: rgba(255, 255, 255, 0.18); }
