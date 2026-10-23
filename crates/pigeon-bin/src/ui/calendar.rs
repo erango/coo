@@ -19,6 +19,64 @@ use crate::week;
 const HOUR_PX: f64 = 60.0;
 /// Drag snapping, minutes.
 const SNAP_MIN: i64 = 15;
+/// All-day lanes shown before the rest collapse into "+N more" per day.
+const ALLDAY_LANES: usize = 4;
+
+/// All-day row layout: each span (first..=last day index) gets the lowest
+/// lane free on all its days, so multi-day events keep one lane. With more
+/// than `max` lanes, the last visible lane becomes per-day "+N more".
+#[derive(Debug, PartialEq, Eq)]
+pub struct AlldayLayout {
+    /// Lane per input span, None when collapsed into "+N more".
+    pub lanes: Vec<Option<usize>>,
+    /// Lanes drawn (including the "+N more" lane).
+    pub rows: usize,
+    /// Hidden events per day (only when collapsing).
+    pub more: Vec<usize>,
+}
+
+pub fn layout_allday(spans: &[(usize, usize)], days: usize, max: usize) -> AlldayLayout {
+    let mut order: Vec<usize> = (0..spans.len()).collect();
+    // Earlier first; on ties the longer span takes the upper lane.
+    order.sort_by_key(|&i| (spans[i].0, std::cmp::Reverse(spans[i].1)));
+    let mut lane_end: Vec<usize> = Vec::new(); // last day used, per lane
+    let mut lanes = vec![0usize; spans.len()];
+    for &i in &order {
+        let (a, b) = spans[i];
+        match lane_end.iter().position(|&end| end < a) {
+            Some(l) => {
+                lane_end[l] = b;
+                lanes[i] = l;
+            }
+            None => {
+                lane_end.push(b);
+                lanes[i] = lane_end.len() - 1;
+            }
+        }
+    }
+    let used = lane_end.len();
+    if used <= max {
+        return AlldayLayout { lanes: lanes.into_iter().map(Some).collect(), rows: used.max(1), more: vec![0; days] };
+    }
+    let keep = max.saturating_sub(1);
+    let mut more = vec![0usize; days];
+    let lanes = lanes
+        .iter()
+        .zip(spans)
+        .map(|(&l, &(a, b))| {
+            if l < keep {
+                Some(l)
+            } else {
+                for d in more.iter_mut().take(b.min(days.saturating_sub(1)) + 1).skip(a) {
+                    *d += 1;
+                }
+                None
+            }
+        })
+        .collect();
+    AlldayLayout { lanes, rows: max, more }
+}
+
 /// Chips per month cell before "+N more".
 const MONTH_CHIPS: usize = 3;
 
@@ -395,6 +453,15 @@ fn TimeGrid(days: Vec<NaiveDate>, selected: Signal<Option<(String, String)>>) ->
         data.events.iter().filter(|e| e.event.end_at > first && e.event.start_at < last).cloned().collect();
     let (all_day, timed): (Vec<EventRow>, Vec<EventRow>) = events.into_iter().partition(|e| e.event.all_day);
     let utc0 = days[0].and_hms_opt(0, 0, 0).expect("midnight").and_utc().timestamp_millis();
+    let spans: Vec<(usize, usize)> = all_day
+        .iter()
+        .map(|e| {
+            let a = ((e.event.start_at - utc0).max(0) / DAY_MS).min(n - 1);
+            let b = ((e.event.end_at - 1 - utc0) / DAY_MS).clamp(a, n - 1);
+            (a as usize, b as usize)
+        })
+        .collect();
+    let layout = layout_allday(&spans, n as usize, ALLDAY_LANES);
 
     rsx! {
         div { class: "week", "data-days": "{n}",
@@ -408,18 +475,33 @@ fn TimeGrid(days: Vec<NaiveDate>, selected: Signal<Option<(String, String)>>) ->
                     }
                 }
             }
-            div { class: "allday",
+            div { class: "allday", style: "--allday-rows:{layout.rows}",
                 span { class: "allday__label", "all-day" }
                 div { class: "allday__track",
-                    for e in all_day {
-                        {
-                            let start_day = ((e.event.start_at - utc0).max(0) / DAY_MS).min(n - 1);
-                            let end_day = ((e.event.end_at - 1 - utc0) / DAY_MS).clamp(start_day, n - 1);
-                            let span = end_day - start_day + 1;
-                            let hue = s.hue(&e.account_id);
-                            rsx! {
-                                div { class: "allday-chip", key: "{e.account_id}{e.event.id}", "data-hue": "{hue}", dir: "auto",
-                                    style: "--day:{start_day};--span:{span};--days:{n}", "{e.event.title}" }
+                    for (e, (start_day, end_day), lane) in all_day.iter().zip(spans.iter().copied()).zip(layout.lanes.iter().copied()).map(|((e, sp), l)| (e, sp, l)) {
+                        if let Some(lane) = lane {
+                            {
+                                let span = end_day - start_day + 1;
+                                let hue = s.hue(&e.account_id);
+                                rsx! {
+                                    div { class: "allday-chip", key: "{e.account_id}{e.event.id}", "data-hue": "{hue}", dir: "auto",
+                                        title: "{e.event.title}",
+                                        style: "--day:{start_day};--span:{span};--days:{n};--lane:{lane}", "{e.event.title}" }
+                                }
+                            }
+                        }
+                    }
+                    for (d, hidden) in layout.more.iter().copied().enumerate() {
+                        if hidden > 0 {
+                            {
+                                let date = days[d];
+                                let lane = layout.rows - 1;
+                                rsx! {
+                                    button { class: "allday-more", key: "more{d}", r#type: "button",
+                                        style: "--day:{d};--span:1;--days:{n};--lane:{lane}",
+                                        onclick: move |_| { go_to(s, date); let mut v = s.cal_view; v.set(CalView::Day); },
+                                        "+{hidden} more" }
+                                }
                             }
                         }
                     }
@@ -732,6 +814,35 @@ mod tests {
         );
         assert_eq!(drag_resize(orig, day, 750.0, 60.0), (orig.0, day + 750 * 60_000));
         assert_eq!(drag_resize(orig, day, 0.0, 60.0), (orig.0, orig.0 + 15 * 60_000));
+    }
+
+    #[test]
+    fn allday_lanes_stack_overlaps_and_reuse_free_lanes() {
+        // A: Mon-Wed, B: Tue, C: Thu (reuses lane 0), D: Mon-Sun (longest)
+        let spans = [(0, 2), (1, 1), (3, 3), (0, 6)];
+        let l = layout_allday(&spans, 7, 4);
+        assert_eq!(l.lanes, vec![Some(1), Some(2), Some(1), Some(0)], "longer span on top, C reuses A's lane");
+        assert_eq!(l.rows, 3);
+        assert!(l.more.iter().all(|&m| m == 0));
+        // A chain of back-to-back events shares one lane.
+        let chain = layout_allday(&[(0, 1), (2, 3), (4, 6)], 7, 4);
+        assert_eq!(chain.lanes, vec![Some(0); 3]);
+        assert_eq!(chain.rows, 1);
+        // Nothing all-day: still one (empty) row.
+        assert_eq!(layout_allday(&[], 7, 4).rows, 1);
+    }
+
+    #[test]
+    fn allday_overflow_collapses_into_per_day_more() {
+        // Five events on Wednesday; one of them runs to Friday.
+        let spans = [(2, 2), (2, 2), (2, 4), (2, 2), (2, 2)];
+        let l = layout_allday(&spans, 7, 4);
+        assert_eq!(l.rows, 4);
+        assert_eq!(l.lanes.iter().filter(|x| x.is_some()).count(), 3);
+        assert_eq!(l.more, vec![0, 0, 2, 0, 0, 0, 0]);
+        // A collapsed multi-day event counts on each of its days, clipped to the week.
+        let l = layout_allday(&[(0, 1), (0, 1), (1, 1), (1, 9)], 7, 3);
+        assert_eq!(l.more, vec![0, 2, 1, 1, 1, 1, 1]);
     }
 
     #[test]

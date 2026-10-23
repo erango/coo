@@ -206,3 +206,12 @@ input, textarea, [contenteditable="true"], [contenteditable="true"] *,
   -webkit-user-select: text; user-select: text;
 }
 input, textarea, [contenteditable="true"] { cursor: text; }
+/* All-day row: one lane per stacked event (calendar.rs layout_allday). */
+.week .allday { height: calc(10px + var(--allday-rows, 1) * 24px); align-items: flex-start; padding-top: 8px; }
+.week .allday-chip, .week .allday-more { top: calc(var(--lane, 0) * 24px); bottom: auto; height: 22px; }
+.allday-more {
+  position: absolute; display: flex; align-items: center; padding: 0 8px; border: 0; border-radius: 5px; background: transparent;
+  left: calc(var(--day) / var(--days, 7) * 100% + 3px); width: calc(1 / var(--days, 7) * 100% - 6px);
+  font-size: var(--fs-caption); font-weight: var(--fw-semibold); color: var(--text-3); cursor: pointer;
+}
+.allday-more:hover { background: var(--bg-2); color: var(--text-1); }
