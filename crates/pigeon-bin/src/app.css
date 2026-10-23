@@ -215,3 +215,19 @@ input, textarea, [contenteditable="true"] { cursor: text; }
   font-size: var(--fs-caption); font-weight: var(--fw-semibold); color: var(--text-3); cursor: pointer;
 }
 .allday-more:hover { background: var(--bg-2); color: var(--text-1); }
+
+/* ⌘K: the query box reads as a text field (people took the bare design
+   input for a menu title): sunken, bordered, accent ring on focus. The row
+   keeps the design's hairline above the results. */
+.palette__input { height: auto; padding: 10px 12px; }
+.palette__field {
+  flex: 1; min-width: 0; height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 12px;
+  border-radius: var(--radius-md); background: var(--bg-1); box-shadow: inset 0 0 0 1px var(--line-strong);
+  cursor: text; transition: box-shadow var(--dur-fast, 120ms) var(--ease-standard, ease);
+}
+.palette__field:focus-within { box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px var(--accent-soft); }
+.palette__field > .icon { width: 18px; height: 18px; flex: none; color: var(--text-3); }
+.palette__field:focus-within > .icon { color: var(--accent); }
+.palette__field input { flex: 1; min-width: 0; height: 40px; border: 0; outline: none; background: transparent; font-size: 16px; color: var(--text-1); caret-color: var(--accent); }
+.palette__field input::placeholder { color: var(--text-3); }
+.palette__esc { flex: none; }

@@ -250,9 +250,11 @@ pub fn Palette() -> Element {
         div { class: "palette-scrim", onclick: move |_| open.set(false),
             div { class: "palette", role: "dialog", onclick: move |e| e.stop_propagation(),
                 div { class: "palette__input",
+                  label { class: "palette__field", r#for: "palette-input",
                     Icon { name: "search" }
-                    input { id: "palette-input", dir: "auto", value: "{q}", autocomplete: "off",
-                        placeholder: "Type a command, a folder, or search mail…",
+                    input { id: "palette-input", dir: "auto", value: "{q}", autocomplete: "off", spellcheck: "false",
+                        "aria-label": "Search mail, people, or type a command",
+                        placeholder: "Search mail, people, or type a command…",
                         oninput: on_input,
                         onkeydown: move |e| match e.key() {
                             Key::ArrowDown => { e.prevent_default(); cursor.set((at + 1).min(n.saturating_sub(1))); }
@@ -261,6 +263,8 @@ pub fn Palette() -> Element {
                             _ => {}
                         },
                     }
+                    kbd { class: "kbd palette__esc", "esc" }
+                  }
                 }
                 div { class: "palette__list", {rows.into_iter()} }
                 div { class: "palette__footer",
