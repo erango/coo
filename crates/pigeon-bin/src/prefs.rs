@@ -56,6 +56,8 @@ pub struct Prefs {
     pub list_width: u32,
     /// Sidebar width in px (0 = the design default).
     pub sidebar_width: u32,
+    /// Conversation order in the reader: newest message on top.
+    pub thread_newest_first: bool,
 }
 
 impl Default for Prefs {
@@ -79,6 +81,7 @@ impl Default for Prefs {
             list_width: 0,
             compose_mode: "window".into(),
             sidebar_width: 0,
+            thread_newest_first: true,
             reminders_time_sensitive: true,
             sound_theme: crate::sound::DEFAULT.into(),
             sound_volume: 60,

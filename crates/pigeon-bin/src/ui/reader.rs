@@ -100,6 +100,10 @@ fn Thread(view: ReaderView) -> Element {
         }
     }
     let count = view.messages.len();
+    // Newest on top by default (Settings-free toggle in the thread header).
+    let mut newest_first = use_signal(|| crate::prefs::get().thread_newest_first);
+    let ordered: Vec<MessageHeader> =
+        if *newest_first.read() { view.messages.iter().rev().cloned().collect() } else { view.messages.clone() };
     let terms = search_terms(&s);
     let open_ids: Vec<String> =
         view.messages.iter().filter(|m| expanded.read().contains(&m.id)).map(|m| m.id.clone()).collect();
@@ -117,13 +121,31 @@ fn Thread(view: ReaderView) -> Element {
                     "{people.join(\", \")}"
                     if count > 1 { " · {count} messages" }
                 }
+                span { class: "spacer" }
                 if matches > 0 {
-                    span { class: "spacer" }
                     MatchNav { total: matches }
+                }
+                if count > 1 {
+                    {
+                        let nf = *newest_first.read();
+                        let icon: &'static str = if nf { "chev-down" } else { "chev-up" };
+                        rsx! {
+                            button { class: "thread-order", r#type: "button",
+                                title: if nf { "Showing newest first. Click for oldest first." } else { "Showing oldest first. Click for newest first." },
+                                onclick: move |_| {
+                                    let v = !*newest_first.read();
+                                    newest_first.set(v);
+                                    crate::prefs::update(move |p| p.thread_newest_first = v);
+                                },
+                                Icon { name: icon, class: "icon--xs" }
+                                if nf { "Newest first" } else { "Oldest first" }
+                            }
+                        }
+                    }
                 }
             }
             div { class: "thread",
-                for m in view.messages.iter() {
+                for m in ordered.iter() {
                     if expanded.read().contains(&m.id) {
                         Message { key: "{m.id}", account_id: view.account_id.clone(), header: m.clone() }
                     } else {
@@ -188,7 +210,6 @@ fn Message(account_id: String, header: MessageHeader) -> Element {
     let body = s.bodies.read().get(&key).cloned();
     let invite = body.as_ref().and_then(|b| b.invite.clone()).zip(s.invites.read().get(&key).cloned());
     let from = header.from.clone().unwrap_or_default();
-    let to_line = header.to.iter().chain(&header.cc).map(|a| a.display().to_string()).collect::<Vec<_>>().join(", ");
     let time = format::long_time(header.received_at, chrono::Local::now());
 
     rsx! {
@@ -197,7 +218,8 @@ fn Message(account_id: String, header: MessageHeader) -> Element {
                 span { class: "avatar avatar--32 avatar--ring", "data-hue": "{hue}", "{format::initials(from.display())}" }
                 div {
                     div { class: "msg-head__from", dir: "auto", "{from.display()} " span { class: "msg-head__addr", "{from.email}" } }
-                    div { class: "msg-head__to", dir: "auto", "to {to_line}" }
+                    Recipients { label: "to", list: header.to.clone() }
+                    if !header.cc.is_empty() { Recipients { label: "cc", list: header.cc.clone() } }
                 }
                 if header.is_draft {
                     {
@@ -220,6 +242,29 @@ fn Message(account_id: String, header: MessageHeader) -> Element {
                 None => rsx! { div { class: "plain-body t-3", "Loading…" } },
                 Some(b) => rsx! { Body { account_id: account_id.clone(), message_id: header.id.clone(),
                     sender: header.from.as_ref().map(|a| a.email.to_lowercase()).unwrap_or_default(), body: b } },
+            }
+        }
+    }
+}
+
+/// "to Dana Cohen <dana@x.io>, … +4 more" — every name with its real
+/// address; long lists collapse until clicked.
+#[component]
+fn Recipients(label: &'static str, list: Vec<pigeon_core::model::Address>) -> Element {
+    let mut open = use_signal(|| false);
+    let shown = if *open.read() { list.len() } else { format::recipients_shown(list.len(), 3) };
+    let more = list.len() - shown;
+    rsx! {
+        div { class: "msg-head__to", dir: "auto",
+            span { class: "msg-head__label", "{label} " }
+            for (i, a) in list.iter().take(shown).enumerate() {
+                span { key: "{i}", class: "msg-head__rcpt", "data-email": "{a.email}",
+                    if i > 0 { ", " }
+                    "{format::with_address(a)}"
+                }
+            }
+            if more > 0 {
+                button { class: "link-btn msg-head__more", r#type: "button", onclick: move |_| open.set(true), "+{more} more" }
             }
         }
     }

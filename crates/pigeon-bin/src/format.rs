@@ -56,6 +56,20 @@ pub fn initials(name: &str) -> String {
     out.to_uppercase()
 }
 
+/// "Name <address>", or just the address when there's no distinct name.
+pub fn with_address(a: &pigeon_core::model::Address) -> String {
+    match a.name.as_deref().map(str::trim).filter(|n| !n.is_empty() && !n.eq_ignore_ascii_case(&a.email)) {
+        Some(n) => format!("{n} <{}>", a.email),
+        None => a.email.clone(),
+    }
+}
+
+/// How many of `total` recipients to list before "+N" (all of them when
+/// only one more would be hidden).
+pub fn recipients_shown(total: usize, max: usize) -> usize {
+    if total <= max + 1 { total } else { max }
+}
+
 pub fn size(bytes: u64) -> String {
     match bytes {
         0..1024 => format!("{bytes} B"),
@@ -95,6 +109,19 @@ pub fn soon(start_ms: i64, now_ms: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recipients_with_addresses() {
+        use pigeon_core::model::Address;
+        let a = |n: Option<&str>, e: &str| Address { name: n.map(String::from), email: e.into() };
+        assert_eq!(with_address(&a(Some("Dana Cohen"), "dana@x.io")), "Dana Cohen <dana@x.io>");
+        assert_eq!(with_address(&a(None, "dana@x.io")), "dana@x.io");
+        assert_eq!(with_address(&a(Some("dana@x.io"), "dana@x.io")), "dana@x.io");
+        assert_eq!(with_address(&a(Some("  "), "dana@x.io")), "dana@x.io");
+        assert_eq!(recipients_shown(3, 3), 3);
+        assert_eq!(recipients_shown(4, 3), 4, "never '+1'");
+        assert_eq!(recipients_shown(9, 3), 3);
+    }
 
     #[test]
     fn row_times_and_groups() {
