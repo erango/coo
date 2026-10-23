@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 mod actions;
+pub mod agent_setup;
 mod calendar;
 pub mod service;
 pub mod telemetry;
@@ -86,6 +87,17 @@ impl Pigeon {
         self.tokens.set(&account.id, refresh)?;
         self.store().upsert_account(&account)?;
         Ok(account)
+    }
+
+    /// `keychain` or `file`: where sign-ins live (agents must use the same).
+    pub fn token_store_kind(&self) -> &'static str {
+        self.tokens.kind()
+    }
+
+    /// Whether this process can read the account's stored sign-in. From a
+    /// terminal this is where a Keychain "allow access" prompt appears.
+    pub fn has_sign_in(&self, account: &Account) -> Result<bool> {
+        Ok(self.tokens.get(&account.id)?.is_some())
     }
 
     pub fn logout(&self, account_id: &str) -> Result<()> {

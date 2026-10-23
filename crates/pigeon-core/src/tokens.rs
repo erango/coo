@@ -14,7 +14,40 @@ pub enum TokenStore {
     File(PathBuf),
 }
 
+/// What to tell a headless caller whose Keychain read needs a person.
+pub const KEYCHAIN_APPROVAL_NEEDED: &str = "macOS needs you to allow this program to read Pigeon's \
+     sign-ins from the Keychain. Run `pigeon doctor` once in Terminal and choose \"Always Allow\" (again after \
+     updating Pigeon), or use the file token store (PIGEON_TOKEN_STORE=file) for both the app and the agent";
+
+/// Keeps Keychain reads from showing an "allow access" dialog while held;
+/// they fail with [`KEYCHAIN_APPROVAL_NEEDED`] instead. For headless callers:
+/// the MCP server runs as an agent's subprocess, where nobody sees a dialog
+/// and the request would hang. No-op elsewhere and for the file store.
+pub struct HeadlessGuard {
+    #[cfg(target_os = "macos")]
+    _lock: Option<security_framework::os::macos::keychain::KeychainUserInteractionLock>,
+}
+
+/// Turn off Keychain UI for this process until the guard drops.
+pub fn headless() -> HeadlessGuard {
+    HeadlessGuard {
+        #[cfg(target_os = "macos")]
+        _lock: security_framework::os::macos::keychain::SecKeychain::disable_user_interaction()
+            .map_err(|e| tracing::warn!(error = %e, "could not disable Keychain UI"))
+            .ok(),
+    }
+}
+
 impl TokenStore {
+    /// `keychain` or `file`, for diagnostics and generated agent configs.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            #[cfg(target_os = "macos")]
+            TokenStore::Keychain => "keychain",
+            TokenStore::File(_) => "file",
+        }
+    }
+
     pub fn from_env(data_dir: &std::path::Path) -> Self {
         let file = TokenStore::File(data_dir.join("tokens.json"));
         #[cfg(target_os = "macos")]
@@ -88,11 +121,16 @@ mod keychain {
     use crate::{Error, Result};
 
     const ERR_SEC_ITEM_NOT_FOUND: i32 = -25300;
+    /// The read needed a dialog, and UI is off (see `headless`).
+    const ERR_SEC_INTERACTION_NOT_ALLOWED: i32 = -25308;
 
     pub fn get(account: &str) -> Result<Option<String>> {
         match passwords::get_generic_password(APP_ID, account) {
             Ok(bytes) => String::from_utf8(bytes).map(Some).map_err(|e| Error::TokenStore(e.to_string())),
             Err(e) if e.code() == ERR_SEC_ITEM_NOT_FOUND => Ok(None),
+            Err(e) if e.code() == ERR_SEC_INTERACTION_NOT_ALLOWED => {
+                Err(Error::TokenStore(super::KEYCHAIN_APPROVAL_NEEDED.to_string()))
+            }
             Err(e) => Err(Error::TokenStore(e.to_string())),
         }
     }

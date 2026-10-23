@@ -7,6 +7,7 @@
 //!
 //! Exit codes: 0 ok, 1 error, 2 usage, 3 sign-in required, 4 write blocked.
 
+mod guide;
 mod mcp;
 mod ops;
 mod out;
@@ -16,7 +17,7 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 use pigeon_core::compose::ReplyKind;
 use pigeon_core::model::ProviderKind;
-use pigeon_engine::Pigeon;
+use pigeon_engine::{Pigeon, agent_setup};
 use serde::Serialize;
 
 use crate::ops::Writes;
@@ -25,6 +26,7 @@ use crate::out::*;
 #[derive(Parser)]
 #[command(
     name = "pigeon",
+    before_help = "AI agents: run `pigeon agent-help` first (or use `pigeon mcp`).",
     about = "Pigeon mail + calendar from the command line",
     after_help = "Agents: add --json for structured output; writes need --yes when not run from a terminal; \
                   `pigeon mcp` starts an MCP server (read-only unless --allow-write)."
@@ -212,6 +214,29 @@ enum Cmd {
         #[arg(long)]
         allow_write: bool,
     },
+    /// Print the guide for AI agents: workflow, commands, JSON shapes, rules.
+    AgentHelp,
+    /// Print the MCP config for an agent (absolute path + required env).
+    McpConfig {
+        /// claude-code (terminal) | claude-code-desktop | claude-desktop
+        #[arg(long, default_value = "claude-code")]
+        client: String,
+        /// Include write tools (--allow-write).
+        #[arg(long)]
+        allow_write: bool,
+    },
+    /// Install the Claude Code skill (~/.claude/skills/pigeon/SKILL.md).
+    InstallSkill {
+        /// Skill directory (default ~/.claude/skills/pigeon).
+        #[arg(long)]
+        dir: Option<std::path::PathBuf>,
+        /// Replace an existing, different SKILL.md.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Check setup: data dir, accounts, sign-in storage access, client ids.
+    /// Run once in Terminal to approve Keychain access for this binary.
+    Doctor,
     /// Send a test error to Sentry (verifies PIGEON_SENTRY_DSN + scrubbing).
     TelemetryTest,
 }
@@ -239,6 +264,51 @@ async fn main() -> ExitCode {
             ExitCode::from(code)
         }
     }
+}
+
+/// Setup checks. Reading each sign-in from a terminal is also how a Keychain
+/// "allow access" prompt gets answered once for this binary.
+fn doctor(app: &Pigeon, exe: &std::path::Path) -> serde_json::Value {
+    let mut checks = Vec::new();
+    let mut check = |name: &str, ok: bool, detail: String| {
+        checks.push(serde_json::json!({"name": name, "ok": ok, "detail": detail}));
+    };
+    check("binary", true, exe.display().to_string());
+    check("data dir", app.data_dir.join("pigeon.db").exists(), app.data_dir.display().to_string());
+    let accounts = app.accounts().unwrap_or_default();
+    check(
+        "accounts",
+        !accounts.is_empty(),
+        if accounts.is_empty() {
+            "none yet: run `pigeon login google|microsoft`".into()
+        } else {
+            accounts.len().to_string()
+        },
+    );
+    check("token store", true, app.token_store_kind().to_string());
+    for a in &accounts {
+        match app.has_sign_in(a) {
+            Ok(true) => check(&format!("sign-in {}", a.email), true, "stored and readable".into()),
+            Ok(false) => check(
+                &format!("sign-in {}", a.email),
+                false,
+                format!("missing: run `pigeon login {}`", a.provider.as_str()),
+            ),
+            Err(e) => check(&format!("sign-in {}", a.email), false, e.to_string()),
+        }
+    }
+    let mut providers: Vec<ProviderKind> = accounts.iter().map(|a| a.provider).collect();
+    providers.dedup();
+    for p in providers {
+        let ok = pigeon_core::auth::OAuthApp::from_env(p).is_ok();
+        check(
+            &format!("{} client id", p.as_str()),
+            ok,
+            if ok { "configured".into() } else { "not set: sign-ins can't refresh (see README)".into() },
+        );
+    }
+    let ok = checks.iter().all(|c| c["ok"].as_bool().unwrap_or(false));
+    serde_json::json!({"ok": ok, "checks": checks})
 }
 
 fn classify(e: &pigeon_core::Error) -> (u8, &'static str) {
@@ -273,10 +343,73 @@ async fn run(cli: Cli) -> pigeon_core::Result<()> {
         println!("sent a test error; check Sentry for “telemetry test from pigeon-cli”");
         return Ok(());
     }
+    if let Cmd::AgentHelp = cli.cmd {
+        print!("{}", guide::agent_help());
+        return Ok(());
+    }
+    let exe = std::env::current_exe().and_then(std::fs::canonicalize)?;
+    if let Cmd::InstallSkill { dir, force } = &cli.cmd {
+        let (path, changed) = agent_setup::install_skill(dir.clone(), &exe, *force)?;
+        let note = "Claude Code picks up new skills in the running session; restart it if the skills folder is new.";
+        emit(json, &serde_json::json!({"path": path, "changed": changed, "note": note}), |_| {
+            println!("{} {}\n{note}", if changed { "Installed" } else { "Already up to date:" }, path.display())
+        });
+        return Ok(());
+    }
     let app = Pigeon::open()?;
     let now = chrono::Local::now();
     match cli.cmd {
-        Cmd::TelemetryTest => unreachable!(),
+        Cmd::TelemetryTest | Cmd::AgentHelp | Cmd::InstallSkill { .. } => unreachable!(),
+        Cmd::McpConfig { client, allow_write } => {
+            let c = agent_setup::Client::parse(&client).ok_or_else(|| {
+                pigeon_core::Error::Other(format!(
+                    "unknown client {client:?} (claude-code, claude-code-desktop, claude-desktop)"
+                ))
+            })?;
+            let setup = agent_setup::Setup::detect(exe, allow_write, app.token_store_kind());
+            let snippet = match c {
+                agent_setup::Client::ClaudeCodeCli => setup.claude_code_command(),
+                other => setup.config_json(other),
+            };
+            let target = match c {
+                agent_setup::Client::ClaudeCodeCli => "run in a terminal",
+                agent_setup::Client::ClaudeCodeDesktop => {
+                    "merge into ~/.claude.json (top-level \"mcpServers\"; shared by Claude Code's terminal and desktop app)"
+                }
+                agent_setup::Client::ClaudeDesktop => {
+                    "merge into ~/Library/Application Support/Claude/claude_desktop_config.json"
+                }
+            };
+            let notes = setup.notes();
+            emit(
+                json,
+                &serde_json::json!({"client": client, "snippet": snippet, "where": target, "notes": notes}),
+                |_| {
+                    println!("{snippet}");
+                    eprintln!("\n# {target}; then restart the client.");
+                    for n in &notes {
+                        eprintln!("# {n}");
+                    }
+                },
+            );
+        }
+        Cmd::Doctor => {
+            let report = doctor(&app, &exe);
+            let ok = report["ok"].as_bool().unwrap_or(false);
+            emit(json, &report, |r| {
+                for check in r["checks"].as_array().into_iter().flatten() {
+                    println!(
+                        "{} {}: {}",
+                        if check["ok"].as_bool().unwrap_or(false) { "✓" } else { "✗" },
+                        check["name"].as_str().unwrap_or_default(),
+                        check["detail"].as_str().unwrap_or_default()
+                    );
+                }
+            });
+            if !ok {
+                return Err(pigeon_core::Error::Other("doctor found problems (see above)".into()));
+            }
+        }
         Cmd::Mcp { allow_write } => mcp::serve(app, allow_write).await?,
         Cmd::Login { provider } => {
             let kind = ProviderKind::parse(&provider)

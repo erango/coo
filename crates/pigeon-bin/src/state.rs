@@ -110,6 +110,8 @@ pub struct AppState {
     /// Color theme family id (see `themes`).
     pub palette: Signal<String>,
     pub settings_open: Signal<bool>,
+    /// "Connect an AI agent" popup.
+    pub agent_setup_open: Signal<bool>,
     pub os_dark: Signal<bool>,
     pub signing_in: Signal<bool>,
     pub collapsed_accounts: Signal<HashSet<String>>,
@@ -152,6 +154,7 @@ impl AppState {
                 if crate::themes::is_known(&p) { p } else { crate::themes::DEFAULT.to_string() }
             }),
             settings_open: Signal::new(false),
+            agent_setup_open: Signal::new(false),
             os_dark: Signal::new(true),
             signing_in: Signal::new(false),
             collapsed_accounts: Signal::new(HashSet::new()),

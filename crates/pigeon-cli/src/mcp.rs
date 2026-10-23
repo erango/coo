@@ -17,13 +17,23 @@ use crate::ops::{self, Writes};
 const SUPPORTED_VERSIONS: [&str; 3] = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const DEFAULT_MAX_CHARS: usize = 20_000;
 
-const INSTRUCTIONS: &str = "Pigeon gives access to the user's own mail and calendars (Microsoft 365, Gmail) \
-from a local, synced copy. Start with list_accounts. Mailboxes are roles across all accounts \
-(inbox, sent, drafts, trash, archive, starred) or a folder name with an account. search_mail \
-supports operators: from: to: has:attachment is:unread is:flagged in:<role> account:<text> \
-before:YYYY-MM-DD after:YYYY-MM-DD. Times accept now, today, tomorrow, +3d, -6h, YYYY-MM-DD, \
-YYYY-MM-DDTHH:MM (local) or RFC 3339. Call sync for fresh data. Write tools exist only when the \
-server was started with --allow-write; confirm with the user before sending mail or replying to invites.";
+/// The server's `instructions`: the shared guide, phrased for tool use.
+fn instructions(writes_allowed: bool) -> String {
+    use pigeon_engine::agent_setup::guide::*;
+    let writes = if writes_allowed {
+        WRITE_ETIQUETTE.to_string()
+    } else {
+        "This server is read-only: there are no tools that send or change anything. If the user wants that, they \
+         restart the server with --allow-write."
+            .to_string()
+    };
+    format!(
+        "{PURPOSE}\n\n{WORKFLOW} Tools: list_accounts → list_messages or search_mail → get_thread (or get_message); \
+         list_events / free_busy for calendars; sync when data looks stale.\n\nMailboxes are roles across all \
+         accounts (inbox, sent, drafts, trash, archive, starred) or, with an account, a folder name from \
+         list_folders.\n\n{OPERATORS}\n\n{TIMES}\n\n{writes}"
+    )
+}
 
 struct Tool {
     name: &'static str,
@@ -32,35 +42,44 @@ struct Tool {
     write: bool,
 }
 
+/// Account parameter (all tools take ids from list_accounts).
+const ACCOUNT: &str = "Account id from list_accounts (e.g. google:me@gmail.com), or its email.";
+
 fn tools() -> Vec<Tool> {
     let s = |props: Value, required: &[&str]| json!({"type": "object", "properties": props, "required": required});
     let str_ = |d: &str| json!({"type": "string", "description": d});
-    let int = |d: &str| json!({"type": "integer", "description": d});
-    let bool_ = |d: &str| json!({"type": "boolean", "description": d});
+    let ex = |d: &str, examples: Value| json!({"type": "string", "description": d, "examples": examples});
+    let int = |d: &str, default: u64| json!({"type": "integer", "description": d, "default": default, "minimum": 1});
+    let bool_ = |d: &str, default: bool| json!({"type": "boolean", "description": d, "default": default});
     let strs = |d: &str| json!({"type": "array", "items": {"type": "string"}, "description": d});
     vec![
         Tool {
             name: "list_accounts",
-            description: "Signed-in mail/calendar accounts.",
+            description: "List the user's signed-in mail/calendar accounts (id, provider, email, name). Call this \
+                first: every other tool takes an account id from here.",
             schema: s(json!({}), &[]),
             write: false,
         },
         Tool {
             name: "list_folders",
-            description: "Folders/labels of an account with unread and total counts.",
-            schema: s(json!({"account": str_("Account id or email (or a unique prefix).")}), &["account"]),
+            description: "Folders/labels of one account with unread and total counts. Use it to find a folder \
+                name for list_messages, or to answer \"how many unread in X\".",
+            schema: s(json!({"account": str_(ACCOUNT)}), &["account"]),
             write: false,
         },
         Tool {
             name: "list_messages",
-            description: "Newest messages (or conversations) in a mailbox.",
+            description: "Newest mail in a mailbox, as conversations (default) or single messages. Use for \
+                \"what's in my inbox\", triage, or browsing a folder. To find something specific use search_mail; \
+                to read a conversation use get_thread with the thread_id from here.",
             schema: s(
                 json!({
-                    "mailbox": str_("Role across all accounts (inbox, sent, drafts, trash, archive, starred) or, with account, a folder name. Default inbox."),
-                    "account": str_("Limit to one account (required for named folders)."),
-                    "threads": bool_("Group into conversations (default true)."),
-                    "unread_only": bool_("Only unread (default false)."),
-                    "limit": int("Max results (default 30, max 300)."),
+                    "mailbox": ex("A role across all accounts (inbox, sent, drafts, trash, archive, starred), or a \
+                        folder name from list_folders together with `account`.", json!(["inbox", "sent", "Receipts"])),
+                    "account": str_("Only this account (required for a folder name)."),
+                    "threads": bool_("Group into conversations.", true),
+                    "unread_only": bool_("Only unread.", false),
+                    "limit": int("Max results (max 300).", 30),
                 }),
                 &[],
             ),
@@ -68,12 +87,16 @@ fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "search_mail",
-            description: "Search messages with the same operators as the app. Set include_server to also query the mail servers for older matches (slower).",
+            description: "Search messages across all accounts with the app's operators (from:, to:, \
+                has:attachment, is:unread, is:flagged, in:, account:, before:, after:) plus free text. Searches the \
+                local copy (recent months) instantly; set include_server for older mail (slower, asks every server). \
+                Results are single messages; read context with get_thread.",
             schema: s(
                 json!({
-                    "query": str_("e.g. invoice from:dana has:attachment after:2026-01-01"),
-                    "include_server": bool_("Also search the servers (default false)."),
-                    "limit": int("Max results (default 30, max 200)."),
+                    "query": ex("Operators and free text.", json!(["invoice from:dana has:attachment",
+                        "is:unread in:inbox after:2026-10-01", "\"board meeting\" account:work"])),
+                    "include_server": bool_("Also search the mail servers for older matches.", false),
+                    "limit": int("Max results (max 200).", 30),
                 }),
                 &["query"],
             ),
@@ -81,101 +104,117 @@ fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "get_message",
-            description: "One message with its plain-text body, recipients, attachments and threading headers.",
+            description: "One message with its plain-text body, recipients, attachments and threading headers. \
+                Prefer get_thread when the message is part of a conversation (replies, context).",
             schema: s(
-                json!({"account": str_("Account id or email."), "message_id": str_("Message id from list/search."),
-                       "max_chars": int("Body length cap (default 20000).")}),
+                json!({"account": str_(ACCOUNT), "message_id": str_("`id` from list_messages/search_mail."),
+                       "max_chars": int("Body length cap.", DEFAULT_MAX_CHARS as u64)}),
                 &["account", "message_id"],
             ),
             write: false,
         },
         Tool {
             name: "get_thread",
-            description: "A whole conversation, oldest first, with bodies.",
+            description: "A whole conversation, oldest first, with each message's plain-text body. Use before \
+                summarizing a discussion or drafting a reply. The newest message gets most of the length budget.",
             schema: s(
-                json!({"account": str_("Account id or email."), "thread_id": str_("thread_id from list/search."),
-                       "max_chars": int("Total body budget (default 20000).")}),
+                json!({"account": str_(ACCOUNT), "thread_id": str_("`thread_id` from list_messages/search_mail."),
+                       "max_chars": int("Total body budget across messages.", DEFAULT_MAX_CHARS as u64)}),
                 &["account", "thread_id"],
             ),
             write: false,
         },
         Tool {
             name: "list_events",
-            description: "Calendar events across all calendars in a time range (default: now to +7d).",
+            description: "Calendar events across all the user's calendars in a time range, with attendees, the \
+                user's own RSVP and meeting links. Use for agenda questions (\"what's tomorrow\", \"when am I free\" \
+                for the user). For other people's availability use free_busy.",
             schema: s(
-                json!({"from": str_("Start (default now)."), "to": str_("End (default +7d)."),
-                       "account": str_("Limit to one account.")}),
+                json!({"from": ex("Range start.", json!(["now", "today", "2026-11-02"])),
+                       "to": ex("Range end.", json!(["+7d", "tomorrow", "2026-11-03T18:00"])),
+                       "account": str_("Only this account.")}),
                 &[],
             ),
             write: false,
         },
         Tool {
             name: "free_busy",
-            description: "Busy intervals for people, as seen by one of the user's accounts.",
+            description: "Busy intervals for other people (colleagues, guests), asked through one of the user's \
+                accounts: use the account in the same organization. For the user's own calendar use list_events.",
             schema: s(
-                json!({"account": str_("Account to ask through."), "emails": strs("Addresses to check."),
-                       "from": str_("Start (default now)."), "to": str_("End (default +1d).")}),
+                json!({"account": str_(ACCOUNT), "emails": strs("Addresses to check."),
+                       "from": ex("Range start (default now).", json!(["now", "tomorrow"])),
+                       "to": ex("Range end (default +1d).", json!(["+1d", "+3d"]))}),
                 &["account", "emails"],
             ),
             write: false,
         },
         Tool {
             name: "sync",
-            description: "Pull new mail and events from the servers (all accounts, or one). Can take a while on first run.",
+            description: "Pull new mail and events from the servers (all accounts, or one). Call when something \
+                the user expects is missing or the data looks stale. The first sync of an account can take minutes.",
             schema: s(json!({"account": str_("Only this account.")}), &[]),
             write: false,
         },
         Tool {
             name: "mail_action",
-            description: "Archive, trash, flag, mark read/unread, or move messages. Returns an undo_handle.",
+            description: "Change messages on the server: archive, trash, flag/unflag, mark read/unread, or move to \
+                a folder. Ask the user first for anything but read state. Returns an undo_handle for `undo`.",
             schema: s(
-                json!({"account": str_("Account id or email."), "message_ids": strs("Message ids."),
-                       "action": str_("read | unread | flag | unflag | archive | trash | move"),
-                       "to_folder": str_("Target folder for move.")}),
+                json!({"account": str_(ACCOUNT), "message_ids": strs("Message ids (same account)."),
+                       "action": ex("What to do.", json!(["archive", "trash", "flag", "unflag", "read", "unread", "move"])),
+                       "to_folder": str_("Target folder name for move.")}),
                 &["account", "message_ids", "action"],
             ),
             write: true,
         },
         Tool {
             name: "undo",
-            description: "Undo a mail_action by its undo_handle.",
+            description: "Revert a mail_action using the undo_handle it returned (works for about 10 minutes).",
             schema: s(
-                json!({"account": str_("Account id or email."), "undo_handle": int("From mail_action.")}),
+                json!({"account": str_(ACCOUNT), "undo_handle": json!({"type": "integer", "description": "From mail_action."})}),
                 &["account", "undo_handle"],
             ),
             write: true,
         },
         Tool {
             name: "reply",
-            description: "Reply, reply-all or forward. Saves a draft; sends only if send=true.",
+            description: "Reply, reply-all or forward a message. By default saves a draft and returns it (from, \
+                to, cc, subject) so you can show the user; set send=true only after they agree. The quoted original \
+                and threading headers are added for you. `from` can be any of the user's addresses, even another \
+                account's.",
             schema: s(
                 json!({"account": str_("Account the original is in."), "message_id": str_("Message to answer."),
-                       "body": str_("Plain text; quoted original is appended."),
-                       "mode": str_("reply | reply_all | forward (default reply)"),
-                       "from": str_("Send from this address (any of the user's accounts/aliases)."),
-                       "to": strs("Recipients (required for forward)."),
-                       "send": bool_("Actually send (default false: draft only).")}),
+                       "body": str_("Plain text written above the quoted original."),
+                       "mode": ex("Default reply.", json!(["reply", "reply_all", "forward"])),
+                       "from": str_("Send from this address instead of the default."),
+                       "to": strs("Recipients (required for forward; overrides for replies)."),
+                       "send": bool_("Actually send. Leave false to save a draft for the user to review.", false)}),
                 &["account", "message_id", "body"],
             ),
             write: true,
         },
         Tool {
             name: "send_email",
-            description: "Compose a new message. Saves a draft; sends only if send=true.",
+            description: "Compose a new message (not a reply; use reply for that). Saves a draft by default; set \
+                send=true only after the user agrees.",
             schema: s(
-                json!({"from": str_("One of the user's addresses."), "to": strs("Recipients."), "cc": strs("Cc."),
-                       "subject": str_("Subject."), "body": str_("Plain text."),
-                       "send": bool_("Actually send (default false: draft only).")}),
+                json!({"from": str_("One of the user's addresses (see list_accounts)."), "to": strs("Recipients."),
+                       "cc": strs("Cc recipients."), "subject": str_("Subject line."),
+                       "body": str_("Plain text."),
+                       "send": bool_("Actually send. Leave false to save a draft.", false)}),
                 &["from", "to", "subject", "body"],
             ),
             write: true,
         },
         Tool {
             name: "rsvp",
-            description: "Answer a meeting invitation (notifies the organizer).",
+            description: "Answer a meeting invitation; the organizer is notified. Only after the user decides. Ids \
+                come from list_events.",
             schema: s(
-                json!({"account": str_("Account id or email."), "calendar_id": str_("From list_events."),
-                       "event_id": str_("From list_events."), "response": str_("accept | tentative | decline"),
+                json!({"account": str_(ACCOUNT), "calendar_id": str_("From list_events."),
+                       "event_id": str_("From list_events."),
+                       "response": ex("The answer.", json!(["accept", "tentative", "decline"])),
                        "comment": str_("Optional note to the organizer.")}),
                 &["account", "calendar_id", "event_id", "response"],
             ),
@@ -183,13 +222,15 @@ fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "create_event",
-            description: "Create a calendar event; invitations go to attendees.",
+            description: "Create an event on the user's calendar; attendees get invitations immediately, so confirm \
+                the details with the user first. Check people's availability with free_busy before proposing a time.",
             schema: s(
-                json!({"account": str_("Account id or email."), "title": str_("Title."),
-                       "start": str_("Start time."), "end": str_("End time."),
-                       "all_day": bool_("All-day (start/end are dates; end inclusive)."),
-                       "attendees": strs("Invitees."), "location": str_("Location."),
-                       "description": str_("Plain text."), "calendar_id": str_("Default: primary.")}),
+                json!({"account": str_(ACCOUNT), "title": str_("Event title."),
+                       "start": ex("Event start.", json!(["2026-11-02T10:00", "tomorrow"])),
+                       "end": ex("Event end.", json!(["2026-11-02T10:30"])),
+                       "all_day": bool_("All-day event (start/end are dates; end is inclusive).", false),
+                       "attendees": strs("Invitee addresses."), "location": str_("Location."),
+                       "description": str_("Plain text."), "calendar_id": str_("Default: the account's primary calendar.")}),
                 &["account", "title", "start", "end"],
             ),
             write: true,
@@ -405,7 +446,7 @@ async fn handle(app: &Pigeon, w: Writes, msg: Value) -> Option<Value> {
                 "protocolVersion": version,
                 "capabilities": { "tools": { "listChanged": false } },
                 "serverInfo": { "name": "pigeon", "version": env!("CARGO_PKG_VERSION") },
-                "instructions": INSTRUCTIONS,
+                "instructions": instructions(w.allowed),
             }))
         }
         "ping" => Ok(json!({})),
@@ -444,6 +485,9 @@ async fn handle(app: &Pigeon, w: Writes, msg: Value) -> Option<Value> {
 
 pub async fn serve(app: Pigeon, allow_write: bool) -> pigeon_core::Result<()> {
     let w = Writes::for_mcp(allow_write);
+    // Running as an agent's subprocess: nobody can answer a Keychain dialog,
+    // so reads that need one fail with a clear error instead of hanging.
+    let _headless = pigeon_core::tokens::headless();
     tracing::info!(writes = w.allowed, "pigeon MCP server on stdio");
     let app = Arc::new(app);
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
@@ -486,6 +530,19 @@ pub async fn serve(app: Pigeon, allow_write: bool) -> pigeon_core::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn descriptions_say_when_to_use_each_tool() {
+        for t in tools() {
+            assert!(t.description.len() >= 80, "{} description is too thin: {:?}", t.name, t.description);
+            for (k, p) in t.schema["properties"].as_object().unwrap() {
+                assert!(p["description"].as_str().is_some_and(|d| d.len() >= 5), "{}.{k} needs a description", t.name);
+            }
+        }
+        let i = instructions(false);
+        assert!(i.contains("list_accounts") && i.contains("from:") && i.contains("+3d") && i.contains("read-only"));
+        assert!(instructions(true).contains("draft first"));
+    }
 
     #[test]
     fn read_only_server_hides_write_tools() {

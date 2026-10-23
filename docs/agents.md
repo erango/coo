@@ -15,45 +15,82 @@ export PIGEON_TOKEN_STORE=file             # optional: avoid Keychain prompts on
 ./target/release/pigeon sync               # first sync can take a few minutes
 ```
 
+## Easiest: the app does it
+
+**Pigeon › Help › Connect an AI Agent…** (also in ⌘K and Settings) shows the
+exact setup for Claude Code (terminal or desktop app), Claude Desktop and
+other agents, with Copy buttons. In the Claude Code desktop app tab, **Add to
+Claude Code…** writes the entry for you (after you confirm). Everything below
+is what that screen generates.
+
+Agents learn the rest from Pigeon itself: the MCP server describes its tools
+and rules, `pigeon --help` points agents at `pigeon agent-help` (the full,
+always-current guide), and the optional skill tells Claude when to reach for
+Pigeon.
+
 ## MCP (recommended for Claude)
 
 Read-only by default. Write tools (mail actions, reply/send, RSVP, create
 event) appear only with `--allow-write`, and reply/send still only save a
 draft unless the call passes `send: true`.
 
-**Claude Code**
+Print a ready-made config, with this binary's absolute path and every env var
+it needs (agents launched from GUI apps don't get your shell's PATH or env):
 
 ```sh
-claude mcp add pigeon \
-  -e PIGEON_MS_CLIENT_ID=... -e PIGEON_GOOGLE_CLIENT_ID=... -e PIGEON_GOOGLE_CLIENT_SECRET=... \
-  -e PIGEON_TOKEN_STORE=file \
-  -- /absolute/path/to/pigeon mcp
-# add `--allow-write` after `mcp` to enable write tools
+pigeon mcp-config --client claude-code            # `claude mcp add --scope user …` for a terminal
+pigeon mcp-config --client claude-code-desktop    # JSON for ~/.claude.json
+pigeon mcp-config --client claude-desktop         # JSON for claude_desktop_config.json
+# add --allow-write to any of them for write tools
 ```
 
-**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`)
-
-```json
-{
-  "mcpServers": {
-    "pigeon": {
-      "command": "/absolute/path/to/pigeon",
-      "args": ["mcp"],
-      "env": {
-        "PIGEON_MS_CLIENT_ID": "...",
-        "PIGEON_GOOGLE_CLIENT_ID": "...",
-        "PIGEON_GOOGLE_CLIENT_SECRET": "...",
-        "PIGEON_TOKEN_STORE": "file"
-      }
-    }
-  }
-}
-```
+- **Claude Code (terminal and desktop app)** share user-scope MCP servers in
+  `~/.claude.json` (top-level `"mcpServers"`), so one setup covers both.
+  `claude mcp add --scope user …` writes it from a terminal; the app's
+  **Add to Claude Code…** button merges it in (other servers and settings
+  kept, timestamped backup next to the file). Restart Claude Code, or reload
+  its window, afterwards.
+- **Claude Desktop** reads `~/Library/Application Support/Claude/claude_desktop_config.json`
+  (Settings › Developer › Edit Config); quit and reopen Claude after editing.
+  Claude Code's desktop app also loads servers from this file.
 
 Tools: `list_accounts`, `list_folders`, `list_messages`, `search_mail`,
 `get_message`, `get_thread`, `list_events`, `free_busy`, `sync`; with
 `--allow-write` also `mail_action`, `undo`, `reply`, `send_email`, `rsvp`,
 `create_event`.
+
+### Sign-in storage (Keychain vs. file)
+
+The agent's `pigeon mcp` must read the same sign-ins as the app, so the
+generated config uses the app's token store:
+
+- **File store** (`PIGEON_TOKEN_STORE=file`, typical for dev builds): the
+  config carries `PIGEON_TOKEN_STORE=file`; nothing else to do.
+- **Keychain** (the default): macOS asks before a different program reads
+  Pigeon's Keychain items, and an MCP subprocess has no one to answer. Run
+  `pigeon doctor` once in Terminal and choose **Always Allow** (again after
+  updating Pigeon). Until then the server answers with a clear "needs your
+  approval" error instead of hanging: it runs with Keychain UI disabled.
+
+## Skill (Claude Code)
+
+```sh
+pigeon install-skill        # → ~/.claude/skills/pigeon/SKILL.md (won't overwrite a changed file without --force)
+```
+
+The skill's description makes Claude use Pigeon for the user's mail and
+calendar tasks; its body points at `pigeon agent-help`. Claude Code picks up
+skill changes in the running session, but restart it if `~/.claude/skills`
+didn't exist before. Whether the Claude Code desktop app reads personal skills
+isn't documented; the MCP server works without the skill.
+
+## Discovering usage
+
+- `pigeon agent-help`: the agent guide (workflow, every command with an
+  example, JSON shapes, operators, time formats, write rules, exit codes).
+- `pigeon --help`: its first line sends agents to `agent-help`.
+- `pigeon --json doctor`: setup checks (data dir, accounts, sign-in access,
+  client ids).
 
 ## CLI
 

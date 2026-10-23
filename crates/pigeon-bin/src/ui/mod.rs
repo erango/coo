@@ -1,3 +1,4 @@
+mod agent_setup;
 mod calendar;
 mod compose;
 pub mod event_editor;
@@ -76,6 +77,10 @@ pub fn App() -> Element {
                     let mut o = s.settings_open;
                     o.set(true);
                 }
+                "agent-setup" => {
+                    let mut o = s.agent_setup_open;
+                    o.set(true);
+                }
                 // theme:<palette>:<system|light|dark>
                 "theme" => {
                     let (palette, mode) = arg.split_once(':').unwrap_or((arg, "system"));
@@ -105,6 +110,22 @@ pub fn App() -> Element {
                 _ => {}
             }
         }
+    });
+
+    // Native menu items (see menu.rs for which keys each side owns).
+    dioxus::desktop::use_muda_event_handler(move |e| match e.id().0.as_str() {
+        crate::menu::SETTINGS => {
+            let mut o = s.settings_open;
+            o.set(true);
+        }
+        crate::menu::AGENT_SETUP => {
+            let mut o = s.agent_setup_open;
+            o.set(true);
+        }
+        crate::menu::ZOOM_IN => zoom::change(s, zoom::Step::Bigger),
+        crate::menu::ZOOM_OUT => zoom::change(s, zoom::Step::Smaller),
+        crate::menu::ZOOM_RESET => zoom::change(s, zoom::Step::Reset),
+        _ => {}
     });
 
     // Apply and remember light/dark/system and the color theme.
@@ -165,6 +186,7 @@ pub fn App() -> Element {
     rsx! {
         div { style: "display:none", dangerous_inner_html: ICONS }
         {body}
+        if *s.agent_setup_open.read() { agent_setup::AgentSetup {} }
     }
 }
 
@@ -282,12 +304,16 @@ fn on_key(s: AppState, key: &str) {
             let v = *p.read();
             return p.set(!v);
         }
+        // Open (not toggle): the menu's ⌘, accelerator may fire as well.
         "meta+," => {
             let mut o = s.settings_open;
-            let v = *o.read();
-            return o.set(!v);
+            return o.set(true);
         }
         "Escape" => {
+            if *s.agent_setup_open.read() {
+                let mut o = s.agent_setup_open;
+                return o.set(false);
+            }
             if *s.palette_open.read() {
                 let mut p = s.palette_open;
                 return p.set(false);

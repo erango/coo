@@ -27,6 +27,7 @@ enum Action {
     Reply(ReplyKind),
     Zoom(super::zoom::Step),
     Settings,
+    AgentSetup,
 }
 
 #[derive(Clone, PartialEq)]
@@ -69,6 +70,10 @@ fn build(s: &AppState, query: &str) -> Vec<Item> {
         item("Actions", "edit", "New message", "C", Action::Compose),
         item("Actions", "sync", "Sync now", "⌘R", Action::Sync),
         item("Actions", "settings", "Settings", "⌘,", Action::Settings),
+        Item {
+            meta: "Claude Code, Claude Desktop, MCP".into(),
+            ..item("Actions", "link", "Connect an AI agent…", "", Action::AgentSetup)
+        },
         item("Actions", "lines", "Show threads", "", Action::Threads(true)),
         item("Actions", "list", "Show individual messages", "", Action::Threads(false)),
         item("Actions", "sun", "Theme: follow system", "", Action::Theme(Theme::System)),
@@ -152,6 +157,7 @@ fn run(mut s: AppState, action: Action) {
         Action::Mode(m) => s.mode.set(m),
         Action::Sync => send_cmd(Cmd::SyncNow),
         Action::Settings => s.settings_open.set(true),
+        Action::AgentSetup => s.agent_setup_open.set(true),
         Action::Theme(t) => s.theme.set(t),
         Action::Threads(t) => s.threaded.set(t),
         Action::Search(q) => {

@@ -3,6 +3,7 @@
 
 mod bridge;
 mod format;
+mod menu;
 mod prefs;
 mod state;
 mod themes;
@@ -108,7 +109,9 @@ fn main() {
             Config::new()
                 .with_window(window)
                 .with_custom_head(head)
-                .with_menu(None)
+                // A real menu bar: without the Edit menu macOS doesn't route
+                // copy/paste/undo to the web view, and ⌘Q does nothing.
+                .with_menu(menu::build())
                 .with_background_color((17, 18, 21, 255)),
         )
         .launch(ui::App);
