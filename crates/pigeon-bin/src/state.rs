@@ -479,9 +479,13 @@ fn apply(s: &mut AppState, delta: Delta) {
             Delta::SearchResults { token, items, server } => {
                 let current = s.search.peek().as_ref().map(|st| st.token);
                 if current == Some(token) {
+                    let nothing_local = items.is_empty() && server == ServerSearch::Idle;
                     if let Some(st) = s.search.write().as_mut() {
                         st.items = items;
                         st.server = server;
+                    }
+                    if nothing_local {
+                        crate::ui::search::auto_server_search(*s, token);
                     }
                 } else if *s.palette_token.peek() == token {
                     s.palette_hits.set(items);

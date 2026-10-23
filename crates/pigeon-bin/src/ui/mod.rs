@@ -11,7 +11,7 @@ mod onboarding;
 mod palette;
 mod reader;
 mod recipients;
-mod search;
+pub mod search;
 mod settings;
 mod settings_sections;
 mod sidebar;

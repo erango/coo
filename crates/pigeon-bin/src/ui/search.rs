@@ -1,6 +1,7 @@
 //! Search pane: replaces the message list while a search is open. Results
-//! come from the local index as you type; "Search servers" fetches older
-//! matches from every account and re-runs the query locally.
+//! come from the local index as you type; when nothing matches locally the
+//! servers are searched automatically (after a pause in typing), and
+//! "Search servers" fetches older matches on demand.
 
 use std::time::Duration;
 
@@ -48,6 +49,33 @@ fn set_query(s: AppState, query: String) {
         if current == Some(token) && !query.trim().is_empty() {
             send_cmd(Cmd::Search { query, token, limit: LIMIT });
         }
+    });
+}
+
+/// How long typing must pause before an empty local result goes to the
+/// servers: each server search costs API quota on every account.
+const AUTO_SERVER_DELAY: Duration = Duration::from_millis(700);
+
+/// No local matches: search the servers once typing settles, unless the
+/// query changed or a server search already ran for it.
+pub fn auto_server_search(s: AppState, token: u64) {
+    let mut search = s.search;
+    spawn(async move {
+        tokio::time::sleep(AUTO_SERVER_DELAY).await;
+        let query = {
+            let mut guard = search.write();
+            let Some(st) = guard.as_mut() else { return };
+            if st.token != token
+                || !st.items.is_empty()
+                || st.server != ServerSearch::Idle
+                || st.query.trim().is_empty()
+            {
+                return;
+            }
+            st.server = ServerSearch::Loading;
+            st.query.clone()
+        };
+        send_cmd(Cmd::SearchServers { query, token });
     });
 }
 
@@ -121,6 +149,8 @@ pub fn SearchPane() -> Element {
                         match st.server {
                             ServerSearch::Idle => rsx! { span { "Showing mail stored on this Mac. " b { "Search the servers" } " for older messages." } },
                             ServerSearch::Loading => rsx! { span { "Searching every account…" } },
+                            ServerSearch::Done(0) => rsx! { span { "No matches on the servers either." } },
+                            ServerSearch::Done(1) => rsx! { span { b { "1" } " match came back from the servers." } },
                             ServerSearch::Done(n) => rsx! { span { b { "{n}" } " matches came back from the servers." } },
                         }
                     }
