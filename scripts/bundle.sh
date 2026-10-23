@@ -11,6 +11,10 @@
 # PIGEON_PROVISION_PROFILE=<Developer ID .provisionprofile> embeds it and
 # adds the Time Sensitive Notifications entitlement (restricted: claiming it
 # without a matching profile stops the app from launching).
+# Updates: Sparkle 2 (scripts/fetch-sparkle.sh) is embedded in
+# Contents/Frameworks. CFBundleVersion is a build number Sparkle compares
+# (COO_BUILD_NUMBER, default: the commit count); COO_FEED_URL overrides
+# the appcast URL for local update tests.
 # The `coo` CLI ships inside the bundle at Contents/Helpers/coo (not
 # MacOS/: the default case-insensitive disk would make it the same file as
 # MacOS/Coo) so agent setup can point at a stable path.
@@ -28,6 +32,10 @@ for arg in "$@"; do
 done
 
 VERSION="$(grep -m1 '^version' "$ROOT/Cargo.toml" | sed 's/.*"\(.*\)".*/\1/')"
+BUILD="${COO_BUILD_NUMBER:-$(git -C "$ROOT" rev-list --count HEAD)}"
+FEED_URL="${COO_FEED_URL:-https://github.com/erango/coo/releases/latest/download/appcast.xml}"
+SPARKLE_PUBLIC_KEY="SI4PR6GjSgQtfjIuBmJxRHmBrUpi2O5vx8Ru1lXUT+g="
+SPARKLE="$("$ROOT/scripts/fetch-sparkle.sh")"
 ICNS="$ROOT/crates/pigeon-bin/assets/icon/Coo.icns"
 if [ ! -f "$ICNS" ] || [ "$ROOT/design/logo/app-icon.svg" -nt "$ICNS" ]; then
   "$ROOT/scripts/gen-icon.sh"
@@ -55,8 +63,9 @@ fi
 APP="$ROOT/dist/Coo.app"
 echo "==> assembling $APP (v$VERSION)…"
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 cp "$TARGET/pigeon-app" "$APP/Contents/MacOS/Coo"
+ditto "$SPARKLE/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 cp "$TARGET/coo" "$APP/Contents/Helpers/coo"
 cp "$ICNS" "$APP/Contents/Resources/Coo.icns"
 
@@ -72,7 +81,12 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleIconFile</key><string>Coo</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
-  <key>CFBundleVersion</key><string>$VERSION</string>
+  <key>CFBundleVersion</key><string>$BUILD</string>
+  <key>SUFeedURL</key><string>$FEED_URL</string>
+  <key>SUPublicEDKey</key><string>$SPARKLE_PUBLIC_KEY</string>
+  <key>SUEnableAutomaticChecks</key><true/>
+  <key>SUAutomaticallyUpdate</key><true/>
+  <key>SUScheduledCheckInterval</key><integer>21600</integer>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
   <key>NSHighResolutionCapable</key><true/>
@@ -89,18 +103,30 @@ if [ -n "${PIGEON_SIGN_IDENTITY:-}" ]; then
     ENTITLEMENTS="$(mktemp -d)/Coo.entitlements"
     cp "$ROOT/scripts/Coo.entitlements" "$ENTITLEMENTS"
     TEAM="$(security cms -D -i "$PIGEON_PROVISION_PROFILE" | plutil -extract TeamIdentifier.0 raw -o - -)"
-    plutil -insert com.apple.developer.usernotifications.time-sensitive -bool YES "$ENTITLEMENTS"
-    plutil -insert com.apple.application-identifier -string "$TEAM.il.co.frost-media.pigeon" "$ENTITLEMENTS"
-    plutil -insert com.apple.developer.team-identifier -string "$TEAM" "$ENTITLEMENTS"
+    # PlistBuddy, not plutil: plutil reads the dots in these keys as a path.
+    PB=/usr/libexec/PlistBuddy
+    "$PB" -c "Add :com.apple.developer.usernotifications.time-sensitive bool true" "$ENTITLEMENTS"
+    "$PB" -c "Add :com.apple.application-identifier string $TEAM.il.co.frost-media.pigeon" "$ENTITLEMENTS"
+    "$PB" -c "Add :com.apple.developer.team-identifier string $TEAM" "$ENTITLEMENTS"
     echo "==> embedded provisioning profile (team $TEAM), Time Sensitive notifications on"
   fi
   SIGN=(codesign --force --timestamp --options runtime --entitlements "$ENTITLEMENTS" --sign "$PIGEON_SIGN_IDENTITY")
   HELPER_SIGN=(codesign --force --timestamp --options runtime --entitlements "$ROOT/scripts/Coo.entitlements" --sign "$PIGEON_SIGN_IDENTITY")
-  # Inside-out: nested code first, then the bundle (never --deep).
+  # Inside-out: nested code first, then the bundle (never --deep). Sparkle's
+  # parts per its docs for non-sandboxed apps; Downloader.xpc keeps its own
+  # entitlements.
+  FW="$APP/Contents/Frameworks/Sparkle.framework/Versions/B"
+  SPARKLE_SIGN=(codesign --force --timestamp --options runtime --sign "$PIGEON_SIGN_IDENTITY")
+  "${SPARKLE_SIGN[@]}" "$FW/XPCServices/Installer.xpc"
+  "${SPARKLE_SIGN[@]}" --preserve-metadata=entitlements "$FW/XPCServices/Downloader.xpc"
+  "${SPARKLE_SIGN[@]}" "$FW/Autoupdate"
+  "${SPARKLE_SIGN[@]}" "$FW/Updater.app"
+  "${SPARKLE_SIGN[@]}" "$APP/Contents/Frameworks/Sparkle.framework"
   "${HELPER_SIGN[@]}" "$APP/Contents/Helpers/coo"
   "${SIGN[@]}" "$APP"
   codesign --verify --strict --verbose=2 "$APP"
 else
+  codesign --force --sign - "$APP/Contents/Frameworks/Sparkle.framework" >/dev/null
   codesign --force --sign - "$APP/Contents/Helpers/coo" >/dev/null
   codesign --force --sign - "$APP" >/dev/null
 fi

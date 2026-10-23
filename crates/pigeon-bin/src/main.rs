@@ -15,6 +15,7 @@ mod sound;
 mod state;
 mod themes;
 mod ui;
+mod updater;
 mod week;
 
 use std::sync::{Arc, Mutex, OnceLock};

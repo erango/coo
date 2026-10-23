@@ -12,6 +12,7 @@ use dioxus::desktop::muda::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, S
 
 pub const SETTINGS: &str = "pigeon-settings";
 pub const AGENT_SETUP: &str = "pigeon-agent-setup";
+pub const CHECK_UPDATES: &str = "pigeon-check-updates";
 pub const ZOOM_IN: &str = "pigeon-zoom-in";
 pub const ZOOM_OUT: &str = "pigeon-zoom-out";
 pub const ZOOM_RESET: &str = "pigeon-zoom-reset";
@@ -29,6 +30,7 @@ pub fn build() -> Menu {
         true,
         &[
             &PredefinedMenuItem::about(Some("About Coo"), Some(about)),
+            &MenuItem::with_id(CHECK_UPDATES, "Check for Updates…", true, None),
             &PredefinedMenuItem::separator(),
             &settings,
             &PredefinedMenuItem::separator(),

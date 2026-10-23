@@ -45,6 +45,8 @@ pub fn App() -> Element {
     let s = use_context_provider(AppState::new);
 
     use_hook(move || {
+        // Sparkle (release builds only): starts its background check schedule.
+        crate::updater::start();
         spawn(state::pump(s));
         spawn(bridge_loop(s));
         spawn(reminder_loop(s));
@@ -130,6 +132,8 @@ pub fn App() -> Element {
                         document::eval(&js);
                     }
                 }
+                // Ask Sparkle to check now (update tests; release builds only).
+                "check-updates" => crate::updater::check_now(),
                 "agent-setup" => {
                     let mut o = s.agent_setup_open;
                     o.set(true);
@@ -174,6 +178,13 @@ pub fn App() -> Element {
         crate::menu::AGENT_SETUP => {
             let mut o = s.agent_setup_open;
             o.set(true);
+        }
+        crate::menu::CHECK_UPDATES => {
+            if crate::updater::available() {
+                crate::updater::check_now();
+            } else {
+                s.local_toast("Updates are off in development builds", false);
+            }
         }
         crate::menu::ZOOM_IN => zoom::change(s, zoom::Step::Bigger),
         crate::menu::ZOOM_OUT => zoom::change(s, zoom::Step::Smaller),

@@ -64,6 +64,11 @@ cargo cli events --days 3
   addresses and URL query strings (`pigeon-engine/src/telemetry.rs`). Never
   log mail content, subjects, names or event titles; account ids contain the
   address, so they get scrubbed, but prefer not logging them at `error`.
+- Releasing: push a `vX.Y.Z` tag; `.github/workflows/release.yml` builds,
+  signs, notarizes and publishes the dmg plus the Sparkle `appcast.xml`
+  (README → Releasing). Updates are Sparkle 2 (`pigeon-bin/src/updater.rs`,
+  loaded at runtime so `cargo app` runs without it). Sparkle compares
+  `CFBundleVersion`, which must only grow (the commit count).
 - Login/sync hit **real mailboxes**. Sync is read-only today; anything that
   mutates server state (send, move, delete) must be explicit.
 

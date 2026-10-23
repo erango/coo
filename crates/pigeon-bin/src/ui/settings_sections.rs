@@ -312,3 +312,40 @@ pub fn Privacy() -> Element {
         }
     }
 }
+
+/// Version, update check and automatic installs (Sparkle; release builds only).
+#[component]
+pub fn AboutUpdates() -> Element {
+    let available = crate::updater::available();
+    let (version, build) = crate::updater::version();
+    let mut auto = use_signal(crate::updater::automatic);
+    rsx! {
+        div { class: "settings__title", style: "margin-top:12px", "About & updates" }
+        div { class: "settings-group",
+            div { class: "settings-field",
+                span { class: "settings-field__label", "Version" }
+                span { "Coo {version} ({build})" }
+                button { class: "btn btn--secondary btn--sm", r#type: "button", disabled: !available,
+                    onclick: move |_| crate::updater::check_now(), "Check for updates" }
+            }
+            if available {
+                label { class: "settings-field",
+                    span { class: "settings-field__label", "Automatic" }
+                    input { class: "switch", r#type: "checkbox", checked: *auto.read(),
+                        onchange: move |_| {
+                            let on = !*auto.read();
+                            crate::updater::set_automatic(on);
+                            auto.set(on);
+                        }
+                    }
+                    span { class: "settings-field__hint", "Install updates automatically: Coo downloads new versions in the background and installs them when you quit." }
+                }
+            } else {
+                div { class: "settings-field",
+                    span { class: "settings-field__label" }
+                    span { class: "settings-field__hint", "Updates are off in development builds." }
+                }
+            }
+        }
+    }
+}

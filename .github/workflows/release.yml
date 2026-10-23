@@ -75,10 +75,19 @@ jobs:
           PIGEON_GOOGLE_CLIENT_ID: ${{ secrets.PIGEON_GOOGLE_CLIENT_ID }}
           PIGEON_GOOGLE_CLIENT_SECRET: ${{ secrets.PIGEON_GOOGLE_CLIENT_SECRET }}
           PIGEON_SENTRY_DSN: ${{ secrets.PIGEON_SENTRY_DSN }}
+          PROVISION_PROFILE_B64: ${{ secrets.PIGEON_PROVISION_PROFILE_B64 }}
         run: |
           for v in PIGEON_MS_CLIENT_ID PIGEON_GOOGLE_CLIENT_ID PIGEON_GOOGLE_CLIENT_SECRET; do
             [ -n "${!v}" ] || echo "::warning::$v is not set; sign-in for that provider won't work in this build"
           done
+          # Developer ID profile: enables Time Sensitive meeting reminders.
+          # Only with real signing (the entitlement is restricted).
+          if [ -n "$PROVISION_PROFILE_B64" ] && [ "${{ steps.sign.outputs.enabled }}" = "true" ]; then
+            printf '%s' "$PROVISION_PROFILE_B64" | base64 --decode > "$RUNNER_TEMP/Coo.provisionprofile"
+            export PIGEON_PROVISION_PROFILE="$RUNNER_TEMP/Coo.provisionprofile"
+          fi
+          # Sparkle compares CFBundleVersion: the commit count only grows.
+          export COO_BUILD_NUMBER="$(git rev-list --count HEAD)"
           ./scripts/bundle.sh --universal
 
       # Notarize + staple the app itself so it passes Gatekeeper offline and
@@ -114,6 +123,47 @@ jobs:
           echo "ver=$VER" >> "$GITHUB_OUTPUT"
           echo "### Coo $VER" >> "$GITHUB_STEP_SUMMARY"
           echo "sha256: \`$SHA\`" >> "$GITHUB_STEP_SUMMARY"
+
+      # Sparkle feed: one item for this release, EdDSA-signed dmg. Published as
+      # a release asset, so .../releases/latest/download/appcast.xml always
+      # names the newest version.
+      - name: Sparkle appcast
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: |
+          DMG="${{ steps.dmg.outputs.dmg }}"
+          VER="${{ steps.dmg.outputs.ver }}"
+          if [ -z "$SPARKLE_ED_PRIVATE_KEY" ]; then
+            echo "::warning::SPARKLE_ED_PRIVATE_KEY not set: no appcast, apps won't see this update"
+            exit 0
+          fi
+          SPARKLE="$(./scripts/fetch-sparkle.sh)"
+          KEY="$RUNNER_TEMP/sparkle_ed.key"
+          printf '%s' "$SPARKLE_ED_PRIVATE_KEY" > "$KEY"
+          ATTRS="$("$SPARKLE/bin/sign_update" --ed-key-file "$KEY" "$DMG")"
+          rm -f "$KEY"
+          BUILD="$(plutil -extract CFBundleVersion raw dist/Coo.app/Contents/Info.plist)"
+          MIN_OS="$(plutil -extract LSMinimumSystemVersion raw dist/Coo.app/Contents/Info.plist)"
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${DMG}"
+          PAGE="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${GITHUB_REF_NAME}"
+          cat > appcast.xml <<EOF
+          <?xml version="1.0" encoding="utf-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+            <channel>
+              <title>Coo</title>
+              <item>
+                <title>Coo ${VER}</title>
+                <pubDate>$(date -u '+%a, %d %b %Y %H:%M:%S +0000')</pubDate>
+                <sparkle:version>${BUILD}</sparkle:version>
+                <sparkle:shortVersionString>${VER}</sparkle:shortVersionString>
+                <sparkle:minimumSystemVersion>${MIN_OS}</sparkle:minimumSystemVersion>
+                <sparkle:releaseNotesLink>${PAGE}</sparkle:releaseNotesLink>
+                <enclosure url="${URL}" type="application/octet-stream" ${ATTRS} />
+              </item>
+            </channel>
+          </rss>
+          EOF
+          echo "appcast: build $BUILD" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish GitHub Release
         env:
@@ -153,7 +203,9 @@ jobs:
           \`xattr -dr com.apple.quarantine /Applications/Coo.app\`.
           EOF
           fi
-          gh release create "$GITHUB_REF_NAME" "$DMG" "$DMG.sha256" \
+          ASSETS=("$DMG" "$DMG.sha256")
+          [ -f appcast.xml ] && ASSETS+=(appcast.xml)
+          gh release create "$GITHUB_REF_NAME" "${ASSETS[@]}" \
             --title "Coo $GITHUB_REF_NAME" \
             --notes-file notes.md
 
