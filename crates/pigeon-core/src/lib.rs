@@ -11,6 +11,7 @@ pub mod http;
 pub mod model;
 pub mod paths;
 pub mod provider;
+pub mod search;
 pub mod store;
 pub mod sync;
 pub mod text;

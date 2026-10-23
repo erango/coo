@@ -81,6 +81,7 @@ pub struct Message {
     pub flag: Option<Flag>,
     pub has_attachments: Option<bool>,
     pub is_draft: Option<bool>,
+    pub parent_folder_id: Option<String>,
 }
 
 #[derive(Deserialize)]

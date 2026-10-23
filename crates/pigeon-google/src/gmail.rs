@@ -12,7 +12,8 @@ use std::collections::HashMap;
 
 use futures::{StreamExt, stream};
 use pigeon_core::model::{Folder, FolderKind, FolderRole, MailChange, MessageHeader};
-use pigeon_core::provider::{MailPage, MailProvider};
+use pigeon_core::provider::{MailPage, MailProvider, MailSearch};
+use pigeon_core::search::{SearchQuery, to_gmail};
 use pigeon_core::text::{decode_entities, parse_address_list};
 use pigeon_core::{Error, Result};
 use serde::Deserialize;
@@ -162,6 +163,23 @@ impl Google {
                 Err(e) => Err(e),
             })
             .collect()
+    }
+}
+
+impl MailSearch for Google {
+    async fn search(&self, q: &SearchQuery, limit: u32) -> Result<Vec<MailChange>> {
+        #[derive(Deserialize)]
+        struct List {
+            #[serde(default)]
+            messages: Vec<IdRef>,
+        }
+        let query = to_gmail(q);
+        if query.is_empty() {
+            return Ok(Vec::new());
+        }
+        let params = [("q", query), ("maxResults", limit.clamp(1, 100).to_string())];
+        let list: List = self.get(&format!("{GMAIL}/messages"), &params).await?;
+        self.fetch_changes(list.messages.into_iter().map(|m| m.id).collect()).await
     }
 }
 

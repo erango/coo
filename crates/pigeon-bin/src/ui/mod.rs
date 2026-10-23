@@ -3,7 +3,9 @@ mod compose;
 mod list;
 pub mod mailframe;
 mod onboarding;
+mod palette;
 mod reader;
+mod search;
 mod sidebar;
 mod toasts;
 
@@ -35,6 +37,29 @@ pub fn App() -> Element {
     use_hook(move || {
         spawn(state::pump(s));
         spawn(bridge_loop(s));
+        // Debug builds: open a surface on launch for screenshots/testing,
+        // e.g. PIGEON_DEBUG_OPEN=palette:inv or PIGEON_DEBUG_OPEN=search:invoice
+        if cfg!(debug_assertions)
+            && let Ok(v) = std::env::var("PIGEON_DEBUG_OPEN")
+        {
+            let (what, arg) = v.split_once(':').unwrap_or((v.as_str(), ""));
+            match what {
+                "palette" => {
+                    let mut p = s.palette_open;
+                    p.set(true);
+                    let arg = arg.to_string();
+                    document::eval(&format!(
+                        "setTimeout(()=>{{const i=document.getElementById('palette-input'); if(i){{i.value={arg:?}; i.dispatchEvent(new Event('input',{{bubbles:true}}));}}}},800)"
+                    ));
+                }
+                "search" => search::open(s, arg),
+                "calendar" => {
+                    let mut m = s.mode;
+                    m.set(Mode::Calendar);
+                }
+                _ => {}
+            }
+        }
     });
 
     use_effect(move || {
@@ -76,6 +101,7 @@ pub fn App() -> Element {
                 }
             }
             compose::ComposerOverlay {}
+            if *s.palette_open.read() { palette::Palette {} }
         }
     };
 
@@ -108,7 +134,7 @@ async fn bridge_loop(s: AppState) {
 /// The selected list item, if any.
 pub fn selected_item(s: &AppState) -> Option<ListItem> {
     let key = s.selected.read().clone()?;
-    s.list.read().iter().find(|i| AppState::key(i) == key).cloned()
+    s.visible_items().into_iter().find(|i| AppState::key(i) == key)
 }
 
 /// Select a list item and open it in the reader.
@@ -126,7 +152,7 @@ pub fn select(s: AppState, item: &ListItem) {
 }
 
 fn step(s: AppState, delta: isize) {
-    let list = s.list.read().clone();
+    let list = s.visible_items();
     if list.is_empty() {
         return;
     }
@@ -145,7 +171,7 @@ pub fn act(s: AppState, item: &ListItem, action: MailAction) {
     let header = item.header();
     let leaves = matches!(action, MailAction::Archive | MailAction::Trash | MailAction::MoveTo(_));
     if leaves && s.selected.read().as_deref() == Some(AppState::key(item).as_str()) {
-        let list = s.list.read().clone();
+        let list = s.visible_items();
         let pos = list.iter().position(|i| AppState::key(i) == AppState::key(item));
         let next = pos.and_then(|p| list.get(p + 1).or_else(|| p.checked_sub(1).and_then(|q| list.get(q)))).cloned();
         match next {
@@ -190,7 +216,19 @@ fn on_key(s: AppState, key: &str) {
         "meta+2" => return mode.set(Mode::Calendar),
         "meta+r" => return send_cmd(Cmd::SyncNow),
         "meta+n" | "c" => return send_cmd(Cmd::NewDraft),
+        "meta+k" => {
+            let mut p = s.palette_open;
+            let v = *p.read();
+            return p.set(!v);
+        }
         "Escape" => {
+            if *s.palette_open.read() {
+                let mut p = s.palette_open;
+                return p.set(false);
+            }
+            if draft.read().is_none() && s.search.read().is_some() {
+                return search::close(s);
+            }
             if draft.read().is_some() {
                 if let Some(d) = draft.read().clone() {
                     send_cmd(Cmd::SaveDraft(d));
@@ -218,6 +256,7 @@ fn on_key(s: AppState, key: &str) {
         return;
     }
     match key {
+        "/" => search::open(s, ""),
         "j" | "ArrowDown" => step(s, 1),
         "k" | "ArrowUp" => step(s, -1),
         _ => {

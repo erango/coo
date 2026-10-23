@@ -60,6 +60,7 @@ pub fn Sidebar() -> Element {
             div { class: "sidebar__top" }
             div { class: "sidebar__controls",
                 button { class: "search-field", r#type: "button",
+                    onclick: move |_| { let mut p = s.palette_open; p.set(true); },
                     Icon { name: "search", class: "icon--sm" }
                     span { class: "spacer", style: "text-align:left", "Search" }
                     kbd { class: "kbd", "⌘K" }

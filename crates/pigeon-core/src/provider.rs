@@ -104,3 +104,13 @@ pub trait CalendarWriter: Sync {
     /// Busy intervals for each address over `[from, to)`.
     fn free_busy(&self, emails: &[String], from: i64, to: i64) -> impl Future<Output = Result<FreeBusy>> + Send;
 }
+
+pub trait MailSearch: Sync {
+    /// Server-side search for messages beyond the local window. Results are
+    /// stored like any other message.
+    fn search(
+        &self,
+        q: &crate::search::SearchQuery,
+        limit: u32,
+    ) -> impl Future<Output = Result<Vec<MailChange>>> + Send;
+}

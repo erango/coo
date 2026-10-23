@@ -159,31 +159,88 @@ impl Store {
     /// single transaction, so an interrupted sync resumes exactly.
     pub fn apply_mail(&mut self, account_id: &str, scope: &str, changes: &[MailChange], cursor: &str) -> Result<()> {
         let tx = self.conn.transaction()?;
-        for change in changes {
-            match change {
-                MailChange::Upsert(h) => upsert_message(&tx, account_id, h)?,
-                MailChange::Unlink { id, folder_id } => {
-                    tx.prepare_cached(
-                        "DELETE FROM message_folders WHERE folder_id = ?2
-                         AND message_pk = (SELECT pk FROM messages WHERE account_id = ?1 AND id = ?3)",
-                    )?
-                    .execute(params![account_id, folder_id, id])?;
-                    tx.prepare_cached(
-                        "DELETE FROM messages WHERE account_id = ?1 AND id = ?2
-                         AND NOT EXISTS (SELECT 1 FROM message_folders WHERE message_pk = messages.pk)",
-                    )?
-                    .execute(params![account_id, id])?;
-                }
-                MailChange::Delete { id } => {
-                    tx.prepare_cached("DELETE FROM messages WHERE account_id = ?1 AND id = ?2")?
-                        .execute(params![account_id, id])?;
-                }
-            }
-        }
-        outbox::reapply_pending(&tx, account_id)?;
+        apply_changes(&tx, account_id, changes)?;
         set_cursor(&tx, account_id, scope, cursor)?;
         tx.commit()?;
         Ok(())
+    }
+
+    /// Store messages found outside normal sync (server search results).
+    pub fn apply_found(&mut self, account_id: &str, changes: &[MailChange]) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        apply_changes(&tx, account_id, changes)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Run a parsed search over the local store, newest first.
+    pub fn search_query(&self, q: &crate::search::SearchQuery, limit: u32) -> Result<Vec<MessageRow>> {
+        use rusqlite::types::Value;
+        if q.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut join = String::new();
+        let mut cond: Vec<String> = Vec::new();
+        let mut args: Vec<Value> = Vec::new();
+        let like = |v: &str| Value::Text(format!("%{}%", v.replace(['%', '_'], "")));
+        if let Some(fts) = text::fts_query(&q.text.join(" ")) {
+            join.push_str(" JOIN messages_fts ON messages_fts.rowid = m.pk");
+            cond.push("messages_fts MATCH ?".into());
+            args.push(Value::Text(fts));
+        }
+        for f in &q.from {
+            cond.push("(m.from_addr LIKE ? OR m.from_name LIKE ?)".into());
+            args.push(like(f));
+            args.push(like(f));
+        }
+        for t in &q.to {
+            cond.push("m.recipients LIKE ?".into());
+            args.push(like(t));
+        }
+        if q.has_attachment {
+            cond.push("m.has_attachments".into());
+        }
+        match q.unread {
+            Some(true) => cond.push("NOT m.is_read".into()),
+            Some(false) => cond.push("m.is_read".into()),
+            None => {}
+        }
+        if q.flagged {
+            cond.push("m.is_flagged".into());
+        }
+        if let Some(a) = &q.account {
+            cond.push("m.account_id LIKE ?".into());
+            args.push(like(a));
+        }
+        if let Some(b) = q.before {
+            cond.push("m.received_at < ?".into());
+            args.push(Value::Integer(b));
+        }
+        if let Some(a) = q.after {
+            cond.push("m.received_at >= ?".into());
+            args.push(Value::Integer(a));
+        }
+        if let Some(r) = q.role {
+            cond.push(
+                "EXISTS (SELECT 1 FROM message_folders mf JOIN folders fo ON fo.account_id = mf.account_id
+                 AND fo.id = mf.folder_id WHERE mf.message_pk = m.pk AND fo.role = ?)"
+                    .into(),
+            );
+            args.push(Value::Text(r.as_str().into()));
+        }
+        if cond.is_empty() {
+            return Ok(Vec::new());
+        }
+        args.push(Value::Integer(i64::from(limit)));
+        let sql = format!(
+            "SELECT {MSG_COLS} FROM messages m{join} WHERE {} ORDER BY m.received_at DESC LIMIT ?",
+            cond.join(" AND ")
+        );
+        let mut stmt = self.conn.prepare_cached(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(args), |r| {
+            Ok(MessageRow { account_id: r.get(0)?, header: header_from_row(r)? })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     pub fn list_messages(&self, q: &ListQuery) -> Result<Vec<MessageRow>> {
@@ -665,6 +722,31 @@ fn message_pk(conn: &Connection, account_id: &str, message_id: &str) -> Result<O
         .prepare_cached("SELECT pk FROM messages WHERE account_id = ?1 AND id = ?2")?
         .query_row(params![account_id, message_id], |r| r.get(0))
         .optional()?)
+}
+
+fn apply_changes(tx: &Transaction, account_id: &str, changes: &[MailChange]) -> Result<()> {
+    for change in changes {
+        match change {
+            MailChange::Upsert(h) => upsert_message(tx, account_id, h)?,
+            MailChange::Unlink { id, folder_id } => {
+                tx.prepare_cached(
+                    "DELETE FROM message_folders WHERE folder_id = ?2
+                     AND message_pk = (SELECT pk FROM messages WHERE account_id = ?1 AND id = ?3)",
+                )?
+                .execute(params![account_id, folder_id, id])?;
+                tx.prepare_cached(
+                    "DELETE FROM messages WHERE account_id = ?1 AND id = ?2
+                     AND NOT EXISTS (SELECT 1 FROM message_folders WHERE message_pk = messages.pk)",
+                )?
+                .execute(params![account_id, id])?;
+            }
+            MailChange::Delete { id } => {
+                tx.prepare_cached("DELETE FROM messages WHERE account_id = ?1 AND id = ?2")?
+                    .execute(params![account_id, id])?;
+            }
+        }
+    }
+    outbox::reapply_pending(tx, account_id)
 }
 
 fn set_cursor(tx: &Transaction, account_id: &str, scope: &str, cursor: &str) -> Result<()> {

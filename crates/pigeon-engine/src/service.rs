@@ -18,6 +18,7 @@ use crate::{MailAction, Pigeon};
 const SYNC_EVERY: Duration = Duration::from_secs(30);
 const LIST_LIMIT: u32 = 300;
 const NEXT_UP_HOURS: i64 = 12;
+const SEARCH_LIMIT: u32 = 200;
 
 /// Which list the user is looking at.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,6 +55,17 @@ impl Mailbox {
 
 #[derive(Debug, Clone)]
 pub enum Cmd {
+    /// Local search; `token` lets the UI drop stale results.
+    Search {
+        query: String,
+        token: u64,
+        limit: u32,
+    },
+    /// Then ask the servers for older matches and re-run locally.
+    SearchServers {
+        query: String,
+        token: u64,
+    },
     ShowMailbox {
         mailbox: Mailbox,
         threaded: bool,
@@ -209,6 +221,19 @@ pub enum Delta {
         error: String,
     },
     AttachmentReady(std::path::PathBuf),
+    SearchResults {
+        token: u64,
+        items: Vec<MessageRow>,
+        server: ServerSearch,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServerSearch {
+    Idle,
+    Loading,
+    /// Done; this many messages came back from the servers.
+    Done(usize),
 }
 
 /// Stable 1..=8 color slot for an account address.
@@ -488,6 +513,19 @@ impl Service {
             Cmd::ShowCalendar { from, to } => {
                 self.view.lock().await.calendar = Some((from, to));
                 self.publish().await;
+            }
+            Cmd::Search { query, token, limit } => {
+                let q = pigeon_core::search::parse(&query);
+                let items = self.app.store().search_query(&q, limit)?;
+                self.send(Delta::SearchResults { token, items, server: ServerSearch::Idle });
+            }
+            Cmd::SearchServers { query, token } => {
+                let q = pigeon_core::search::parse(&query);
+                let local = self.app.store().search_query(&q, SEARCH_LIMIT)?;
+                self.send(Delta::SearchResults { token, items: local, server: ServerSearch::Loading });
+                let found = self.app.search_servers(&q, 50).await?;
+                let items = self.app.store().search_query(&q, SEARCH_LIMIT)?;
+                self.send(Delta::SearchResults { token, items, server: ServerSearch::Done(found) });
             }
             Cmd::Rsvp { account_id, calendar_id, event_id, response } => {
                 let account = self.app.account(&account_id)?;

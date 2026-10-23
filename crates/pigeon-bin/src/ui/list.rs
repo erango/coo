@@ -39,7 +39,11 @@ pub fn MailList() -> Element {
     let s = use_context::<AppState>();
     let mut threaded = s.threaded;
     let items = s.list.read().clone();
-    let (heading, sub) = title(&s, &s.mailbox.read());
+    let (heading, sub) = if s.search.read().is_some() {
+        ("Search".to_string(), "All accounts".to_string())
+    } else {
+        title(&s, &s.mailbox.read())
+    };
     let now = chrono::Local::now();
     let many = s.accounts.read().len() > 4;
 
@@ -65,7 +69,9 @@ pub fn MailList() -> Element {
                     button { role: "tab", "aria-selected": "{!*threaded.read()}", onclick: move |_| threaded.set(false), "Messages" }
                 }
             }
-            if items.is_empty() {
+            if s.search.read().is_some() {
+                super::search::SearchPane {}
+            } else if items.is_empty() {
                 Empty { syncing: s.sync.read().syncing || s.sync.read().last_ok.is_none() }
             } else {
                 div { class: "list", role: "listbox", {rows.into_iter()} }
@@ -98,7 +104,7 @@ fn Empty(syncing: bool) -> Element {
 }
 
 #[component]
-fn Row(item: ListItem, many: bool) -> Element {
+pub fn Row(item: ListItem, many: bool) -> Element {
     let s = use_context::<AppState>();
     let key = AppState::key(&item);
     let selected = s.selected.read().as_deref() == Some(key.as_str());

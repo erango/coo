@@ -3,7 +3,8 @@ use std::collections::{HashMap, HashSet};
 use chrono::{Duration, Utc};
 use futures::future::join_all;
 use pigeon_core::model::{Folder, FolderKind, FolderRole, MailChange, MessageHeader};
-use pigeon_core::provider::{MailPage, MailProvider};
+use pigeon_core::provider::{MailPage, MailProvider, MailSearch};
+use pigeon_core::search::{SearchQuery, to_graph};
 use pigeon_core::{Error, Result};
 
 use crate::types::{self, Id, MailFolder, Page};
@@ -74,6 +75,34 @@ impl MailProvider for Graph {
         })?;
         to_page(page, folder_id)
     }
+}
+
+impl MailSearch for Graph {
+    async fn search(&self, q: &SearchQuery, limit: u32) -> Result<Vec<MailChange>> {
+        let kql = to_graph(q);
+        if kql.is_empty() {
+            return Ok(Vec::new());
+        }
+        let search = search_param(&kql);
+        let url = format!(
+            "{BASE}/me/messages?$search={search}&$top={}&$select={MESSAGE_FIELDS},parentFolderId",
+            limit.clamp(1, 100)
+        );
+        let page: Page<types::Message> = self.get(&url).await?;
+        Ok(page
+            .value
+            .into_iter()
+            .filter_map(|m| {
+                let folder = m.parent_folder_id.clone()?;
+                Some(to_change(m, &folder))
+            })
+            .collect())
+    }
+}
+
+/// KQL wrapped in quotes (inner quotes escaped), URL-encoded for `$search`.
+fn search_param(kql: &str) -> String {
+    url::form_urlencoded::byte_serialize(format!("\"{}\"", kql.replace('"', "\\\"")).as_bytes()).collect()
 }
 
 fn normalize_folders(raw: Vec<MailFolder>, roles: &HashMap<String, FolderRole>) -> Vec<Folder> {
@@ -153,6 +182,11 @@ mod tests {
         assert_eq!(h.received_at, 1_792_742_400_000);
         assert_eq!(h.folder_ids, ["F"]);
         assert_eq!(out.changes[1], MailChange::Unlink { id: "AAMk2".into(), folder_id: "F".into() });
+    }
+
+    #[test]
+    fn search_param_quotes_and_encodes() {
+        assert_eq!(search_param(r#"deck from:"Priya Raman""#), "%22deck+from%3A%5C%22Priya+Raman%5C%22%22");
     }
 
     #[test]

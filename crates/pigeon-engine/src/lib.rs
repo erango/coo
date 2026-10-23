@@ -18,7 +18,7 @@ use pigeon_core::auth::{self, OAuthApp, TokenSource};
 use pigeon_core::bodies::{download_attachment, load_body};
 use pigeon_core::compose::{AttachmentSource, Draft, ReplyKind, Sender, build_mime, default_sender, reply_draft};
 use pigeon_core::model::{Account, Address, FolderRole, ProviderKind, StoredBody};
-use pigeon_core::provider::MailSender;
+use pigeon_core::provider::{MailSearch, MailSender};
 use pigeon_core::store::{Store, undo_ops};
 use pigeon_core::sync::{CalendarStats, MailStats, sync_calendars, sync_mail};
 use pigeon_core::tokens::TokenStore;
@@ -272,6 +272,33 @@ impl Pigeon {
         }
         self.store().delete_draft(&draft.id)?;
         Ok(message_id)
+    }
+
+    /// Ask every account's server for older matches, store them, and return
+    /// how many came back. Accounts fail independently (logged).
+    pub async fn search_servers(&self, q: &pigeon_core::search::SearchQuery, per_account: u32) -> Result<usize> {
+        let accounts: Vec<Account> = self
+            .accounts()?
+            .into_iter()
+            .filter(|a| q.account.as_ref().is_none_or(|n| a.id.contains(n.as_str())))
+            .collect();
+        let results = join_all(accounts.iter().map(|a| async move {
+            let found = match &*self.backend(a)? {
+                Backend::Microsoft(p) => p.search(q, per_account).await?,
+                Backend::Google(p) => p.search(q, per_account).await?,
+            };
+            self.store().apply_found(&a.id, &found)?;
+            Ok::<usize, Error>(found.len())
+        }))
+        .await;
+        let mut total = 0;
+        for (a, r) in accounts.iter().zip(results) {
+            match r {
+                Ok(n) => total += n,
+                Err(e) => tracing::warn!(account = a.email, error = %e, "server search failed"),
+            }
+        }
+        Ok(total)
     }
 
     /// Sync mail + calendar for one account. Mail and calendar run

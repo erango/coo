@@ -5,10 +5,16 @@ use std::collections::{HashMap, HashSet};
 
 use dioxus::prelude::*;
 use pigeon_core::compose::{Draft, Sender};
-use pigeon_core::model::{Calendar, EventRow, FolderRole, StoredBody};
-use pigeon_engine::service::{AccountNav, Delta, ListItem, Mailbox, ReaderView, SyncState, Toast};
+use pigeon_core::model::{Calendar, EventRow, FolderRole, MessageRow, StoredBody};
+use pigeon_engine::service::{AccountNav, Delta, ListItem, Mailbox, ReaderView, ServerSearch, SyncState, Toast};
 
 use crate::RX;
+
+/// Monotonic ids for search requests (search pane and palette share it).
+pub fn next_token() -> u64 {
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Mode {
@@ -31,8 +37,21 @@ pub struct CalendarData {
     pub calendars: Vec<(String, Calendar)>,
 }
 
+#[derive(Clone, PartialEq)]
+pub struct SearchState {
+    pub query: String,
+    pub token: u64,
+    pub items: Vec<MessageRow>,
+    pub server: ServerSearch,
+}
+
 #[derive(Clone, Copy)]
 pub struct AppState {
+    /// Search replaces the list while `Some`.
+    pub search: Signal<Option<SearchState>>,
+    pub palette_open: Signal<bool>,
+    pub palette_token: Signal<u64>,
+    pub palette_hits: Signal<Vec<MessageRow>>,
     /// Accounts delta received at least once (distinguishes "none" from "loading").
     pub loaded: Signal<bool>,
     pub accounts: Signal<Vec<AccountNav>>,
@@ -66,6 +85,10 @@ pub struct AppState {
 impl AppState {
     pub fn new() -> Self {
         AppState {
+            search: Signal::new(None),
+            palette_open: Signal::new(false),
+            palette_token: Signal::new(0),
+            palette_hits: Signal::new(Vec::new()),
             loaded: Signal::new(false),
             accounts: Signal::new(Vec::new()),
             mailbox: Signal::new(Mailbox::Unified(FolderRole::Inbox)),
@@ -109,6 +132,14 @@ impl AppState {
         match item {
             ListItem::Thread(t) => format!("{}|{}", t.account_id, t.thread_id),
             ListItem::Message(m) => format!("{}|{}", m.account_id, m.header.id),
+        }
+    }
+
+    /// Rows the keyboard moves through: search results while searching.
+    pub fn visible_items(&self) -> Vec<ListItem> {
+        match self.search.read().as_ref() {
+            Some(st) => st.items.iter().cloned().map(ListItem::Message).collect(),
+            None => self.list.read().clone(),
         }
     }
 
@@ -163,6 +194,17 @@ pub async fn pump(mut s: AppState) {
                 }
             }
             Delta::SendFailed { .. } => s.sending.set(false),
+            Delta::SearchResults { token, items, server } => {
+                let current = s.search.peek().as_ref().map(|st| st.token);
+                if current == Some(token) {
+                    if let Some(st) = s.search.write().as_mut() {
+                        st.items = items;
+                        st.server = server;
+                    }
+                } else if *s.palette_token.peek() == token {
+                    s.palette_hits.set(items);
+                }
+            }
             Delta::AttachmentReady(path) => {
                 if let Err(e) = open::that_detached(&path) {
                     tracing::warn!(error = %e, ?path, "could not open attachment");

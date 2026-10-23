@@ -401,3 +401,40 @@ fn incremental_event_changes_and_single_event_writes() {
     s.replace_calendars(&ms.id, &[]).unwrap();
     assert_eq!(s.cursor(&ms.id, "cal:cal").unwrap(), None);
 }
+
+#[test]
+fn search_query_combines_operators() {
+    use crate::search::parse;
+    let (mut s, ms, g) = setup();
+    let mut a = msg("a", "t1", 1_000, &["in-ms"]);
+    a.subject = "Invoice for October".into();
+    a.has_attachments = true;
+    let mut b = msg("b", "t2", 2_000, &["INBOX"]);
+    b.subject = "Invoice reminder".into();
+    b.is_read = true;
+    let mut c = msg("c", "t3", 3_000, &["proj"]);
+    c.subject = "Lunch".into();
+    c.is_flagged = true;
+    s.apply_mail(&ms.id, "f", &[MailChange::Upsert(a), MailChange::Upsert(c)], "1").unwrap();
+    s.apply_mail(&g.id, "mail", &[MailChange::Upsert(b)], "1").unwrap();
+
+    let ids = |q: &str| s.search_query(&parse(q), 50).unwrap().into_iter().map(|r| r.header.id).collect::<Vec<_>>();
+    assert_eq!(ids("invoice"), ["b", "a"]);
+    assert_eq!(ids("invoice has:attachment"), ["a"]);
+    assert_eq!(ids("invoice is:unread"), ["a"]);
+    assert_eq!(ids("is:flagged"), ["c"]);
+    assert_eq!(ids("from:sender a"), ["a"], "from matches name");
+    assert_eq!(ids("from:b@example"), ["b"]);
+    assert_eq!(ids("in:inbox invoice"), ["b", "a"]);
+    assert_eq!(ids("account:gmail invoice"), ["b"]);
+    assert_eq!(ids("after:1970-01-01 before:1970-01-01"), Vec::<String>::new());
+    assert!(ids("").is_empty());
+}
+
+#[test]
+fn found_messages_are_stored_without_touching_cursors() {
+    let (mut s, ms, _) = setup();
+    s.apply_found(&ms.id, &[MailChange::Upsert(msg("old", "t", 5, &["in-ms"]))]).unwrap();
+    assert_eq!(s.search("Subject old", 5).unwrap().len(), 1);
+    assert_eq!(s.cursor(&ms.id, "f").unwrap(), None);
+}
