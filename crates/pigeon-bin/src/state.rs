@@ -94,6 +94,8 @@ pub struct Outgoing {
 #[derive(Clone, Copy)]
 pub struct AppState {
     pub move_picker: Signal<Option<MovePicker>>,
+    /// The Coo window has keyboard focus.
+    pub window_focused: Signal<bool>,
     /// Outgoing messages (sending / failed / scheduled), newest first.
     pub outgoing: Signal<Vec<Outgoing>>,
     /// Settings should open the iCloud password form (re-sign-in).
@@ -152,6 +154,7 @@ impl AppState {
     pub fn new() -> Self {
         AppState {
             move_picker: Signal::new(None),
+            window_focused: Signal::new(true),
             outgoing: Signal::new(Vec::new()),
             icloud_form: Signal::new(false),
             editor: Signal::new(None),
@@ -306,6 +309,14 @@ pub async fn pump(mut s: AppState) {
     while let Some(delta) = rx.recv().await {
         let delta = debug_patch(&s, delta);
         match delta {
+            Delta::NewMail(rows) => {
+                // Someone looking at the window sees it arrive.
+                if !*s.window_focused.peek() {
+                    for note in crate::notify::mail_notes(&rows, &crate::prefs::get()) {
+                        crate::notify::post(&note);
+                    }
+                }
+            }
             Delta::Accounts(a) => {
                 let order = crate::prefs::get().account_order;
                 s.accounts.set(order_by(a, &order, |n| n.account.id.as_str()));

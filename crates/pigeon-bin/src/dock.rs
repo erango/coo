@@ -22,3 +22,38 @@ pub fn set_app_icon() {
 
 #[cfg(not(target_os = "macos"))]
 pub fn set_app_icon() {}
+
+/// Unread count on the Dock icon (unified inbox); 0 clears it.
+#[cfg(target_os = "macos")]
+pub fn set_badge(count: u32) {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::NSApplication;
+    use objc2_foundation::NSString;
+
+    let Some(mtm) = MainThreadMarker::new() else { return };
+    let tile = NSApplication::sharedApplication(mtm).dockTile();
+    let label = badge_label(count).map(|l| NSString::from_str(&l));
+    tile.setBadgeLabel(label.as_deref());
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn set_badge(_count: u32) {}
+
+/// Dock badge text: none for 0, "999+" past that.
+pub fn badge_label(count: u32) -> Option<String> {
+    match count {
+        0 => None,
+        1..=999 => Some(count.to_string()),
+        _ => Some("999+".into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn badge_labels() {
+        assert_eq!(super::badge_label(0), None);
+        assert_eq!(super::badge_label(7).as_deref(), Some("7"));
+        assert_eq!(super::badge_label(1500).as_deref(), Some("999+"));
+    }
+}

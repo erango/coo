@@ -23,6 +23,14 @@ pub struct Prefs {
     pub palette: String,
     /// Recent Move/Label targets, newest first, as `account|folder_id`.
     pub recent_move_targets: Vec<String>,
+    /// Desktop notification for new inbox mail.
+    pub notify_new_mail: bool,
+    /// Desktop reminder before events start.
+    pub notify_events: bool,
+    /// How long before an event the reminder fires.
+    pub event_reminder_minutes: u32,
+    /// Account ids that never notify.
+    pub notify_accounts_muted: Vec<String>,
 }
 
 impl Default for Prefs {
@@ -33,6 +41,10 @@ impl Default for Prefs {
             theme_mode: "system".into(),
             palette: crate::themes::DEFAULT.into(),
             recent_move_targets: Vec::new(),
+            notify_new_mail: true,
+            notify_events: true,
+            event_reminder_minutes: 10,
+            notify_accounts_muted: Vec::new(),
         }
     }
 }

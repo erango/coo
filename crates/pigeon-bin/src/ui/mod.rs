@@ -45,6 +45,8 @@ pub fn App() -> Element {
     use_hook(move || {
         spawn(state::pump(s));
         spawn(bridge_loop(s));
+        spawn(reminder_loop(s));
+        spawn(click_loop(s));
         // Debug builds: open a surface on launch for screenshots/testing,
         // e.g. PIGEON_DEBUG_OPEN=palette:inv, search:invoice, event-new:a@x.com,b@y.com
         if cfg!(debug_assertions)
@@ -159,6 +161,19 @@ pub fn App() -> Element {
         }
     });
 
+    // Dock badge: unread across every account's inbox.
+    use_effect(move || {
+        let unread: u32 = s
+            .accounts
+            .read()
+            .iter()
+            .flat_map(|a| a.folders.iter())
+            .filter(|f| f.folder.role == Some(pigeon_core::model::FolderRole::Inbox))
+            .map(|f| f.unread)
+            .sum();
+        crate::dock::set_badge(unread);
+    });
+
     // Tell the engine what to list whenever the view changes.
     use_effect(move || {
         let mailbox = s.mailbox.read().clone();
@@ -207,6 +222,58 @@ pub fn App() -> Element {
     }
 }
 
+/// Event reminders from the next-up agenda, once per event occurrence.
+async fn reminder_loop(s: AppState) {
+    let mut reminded = std::collections::HashSet::new();
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+        let events = s.next_up.peek().clone();
+        let now = pigeon_core::now_ms();
+        let prefs = crate::prefs::get();
+        for e in crate::notify::due_reminders(&events, now, &prefs, &reminded) {
+            crate::notify::post(&crate::notify::event_note(e, now));
+            reminded.insert(crate::notify::reminder_key(e));
+        }
+    }
+}
+
+/// Route notification clicks: open the thread/event, or join the meeting.
+async fn click_loop(s: AppState) {
+    use crate::notify::{Click, Target};
+    let Some(mut rx) = crate::notify::take_clicks() else { return };
+    while let Some(click) = rx.recv().await {
+        let (mut mode, mut settings, mut search) = (s.mode, s.settings_open, s.search);
+        match click {
+            Click::Join(url) => {
+                let _ = open::that_detached(&url);
+            }
+            Click::Open(Target::Thread { account, thread }) => {
+                mode.set(Mode::Mail);
+                settings.set(false);
+                search.set(None);
+                let mut sel = s.selected;
+                sel.set(Some(format!("{account}|{thread}")));
+                send_cmd(Cmd::OpenThread { account_id: account, thread_id: thread });
+            }
+            Click::Open(Target::Inbox) => {
+                mode.set(Mode::Mail);
+                settings.set(false);
+                search.set(None);
+                let mut mb = s.mailbox;
+                mb.set(pigeon_engine::service::Mailbox::Unified(pigeon_core::model::FolderRole::Inbox));
+            }
+            Click::Open(Target::Event { start_at, .. }) => {
+                settings.set(false);
+                mode.set(Mode::Calendar);
+                if let Some(t) = crate::format::local(start_at) {
+                    let mut ws = s.week_start;
+                    ws.set(crate::format::week_start(t));
+                }
+            }
+        }
+    }
+}
+
 async fn bridge_loop(s: AppState) {
     let mut eval = document::eval(bridge::JS);
     while let Ok(msg) = eval.recv::<Msg>().await {
@@ -223,6 +290,10 @@ async fn bridge_loop(s: AppState) {
             }
             "key" => on_key(s, &msg.v),
             "draft-input" => compose::autosave(s, &msg.v),
+            "focus" => {
+                let mut f = s.window_focused;
+                f.set(msg.v == "1");
+            }
             _ => {}
         }
     }

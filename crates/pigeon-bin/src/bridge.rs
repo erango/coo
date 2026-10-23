@@ -20,6 +20,9 @@ pub const JS: &str = r#"
   const mq = matchMedia('(prefers-color-scheme: dark)');
   const os = () => send('os', mq.matches ? 'dark' : 'light');
   mq.addEventListener('change', os); os();
+  // Window focus, so new-mail notifications skip a window the user is looking at.
+  addEventListener('focus', () => send('focus', '1'));
+  addEventListener('blur', () => send('focus', '0'));
 
   // ---- Keyboard shortcuts (outside editors) ----
   const KEYS = new Set(['J','j','k','e','#','s','u','r','a','f','c','z','/','x','v','l','Escape','Enter','ArrowUp','ArrowDown',

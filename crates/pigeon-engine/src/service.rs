@@ -242,6 +242,9 @@ pub struct SyncState {
 
 #[derive(Debug, Clone)]
 pub enum Delta {
+    /// Unread inbox mail that arrived since the last sync (never on first
+    /// sync), newest first. The UI decides whether to notify.
+    NewMail(Vec<MessageRow>),
     Accounts(Vec<AccountNav>),
     List {
         mailbox: Mailbox,
@@ -369,12 +372,45 @@ struct Service {
     draft_gen: std::sync::Mutex<std::collections::HashMap<String, u64>>,
     /// Drafts being sent; their server copy must not be re-created.
     draft_sending: std::sync::Mutex<std::collections::HashSet<String>>,
+    /// New-mail watermarks per account (see `notify.rs`).
+    notify_marks: std::sync::Mutex<crate::notify::Marks>,
 }
+
+/// How many newest inbox rows per account are checked for new mail.
+const NEW_MAIL_WINDOW: u32 = 50;
 
 /// Pause after the last save before a draft goes to the server.
 const DRAFT_SYNC_DELAY: Duration = Duration::from_secs(2);
 
 impl Service {
+    /// Compare each account's inbox against its watermark and announce
+    /// what's new.
+    async fn check_new_mail(&self) {
+        let mine = self.my_addresses().await;
+        let accounts = self.app.accounts().unwrap_or_default();
+        let mut fresh = Vec::new();
+        for a in &accounts {
+            let q = ListQuery {
+                account_id: Some(a.id.clone()),
+                folder: FolderSel::Role(FolderRole::Inbox),
+                limit: NEW_MAIL_WINDOW,
+                before: None,
+            };
+            let rows = match self.app.store().list_messages(&q) {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!(error = %e, "new-mail check failed");
+                    continue;
+                }
+            };
+            fresh.extend(self.notify_marks.lock().unwrap_or_else(|p| p.into_inner()).fresh(&a.id, &rows, &mine));
+        }
+        if !fresh.is_empty() {
+            fresh.sort_by_key(|r| std::cmp::Reverse(r.header.received_at));
+            self.send(Delta::NewMail(fresh));
+        }
+    }
+
     /// Debounced server save for a draft.
     fn schedule_draft_sync(self: &Arc<Self>, draft_id: String) {
         let generation = {
@@ -537,6 +573,7 @@ impl Service {
         .await;
         self.syncing.store(false, Ordering::SeqCst);
         self.publish().await;
+        self.check_new_mail().await;
     }
 
     async fn open_bodies(self: Arc<Self>, account: Account, ids: Vec<String>) {
@@ -648,6 +685,7 @@ impl Service {
                 let account = self.app.account(&account_id)?;
                 self.app.logout(&account_id)?;
                 *self.my_addresses.lock().await = None;
+                self.notify_marks.lock().unwrap_or_else(|p| p.into_inner()).forget(&account_id);
                 self.toast(format!("Signed out of {}", account.email), false, None);
                 self.publish().await;
             }
@@ -822,7 +860,10 @@ pub async fn run(app: Arc<Pigeon>, mut rx: mpsc::UnboundedReceiver<Cmd>, tx: mps
         my_addresses: Mutex::new(None),
         draft_gen: Default::default(),
         draft_sending: Default::default(),
+        notify_marks: Default::default(),
     });
+    // Watermark existing mail so only what arrives from now on notifies.
+    svc.check_new_mail().await;
     svc.publish().await;
     let mut tick = tokio::time::interval(SYNC_EVERY);
     loop {

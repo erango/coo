@@ -6,6 +6,7 @@ mod dock;
 mod format;
 mod meeting;
 mod menu;
+mod notify;
 mod prefs;
 mod state;
 mod themes;
@@ -107,6 +108,7 @@ fn main() {
     );
 
     dock::set_app_icon();
+    notify::init();
 
     dioxus::LaunchBuilder::desktop()
         .with_cfg(

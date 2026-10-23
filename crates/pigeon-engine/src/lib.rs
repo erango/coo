@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 mod actions;
 pub mod agent_setup;
 mod calendar;
+pub mod notify;
 pub mod service;
 pub mod telemetry;
 
