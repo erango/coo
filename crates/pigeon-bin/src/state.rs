@@ -56,10 +56,10 @@ pub struct AppState {
     pub palette_open: Signal<bool>,
     pub palette_token: Signal<u64>,
     pub palette_hits: Signal<Vec<MessageRow>>,
-    /// Accounts delta received at least once (distinguishes "none" from "loading").
-    pub loaded: Signal<bool>,
     /// Latest recipient suggestions: (request token, people).
     pub contacts: Signal<(u64, Vec<pigeon_core::model::Address>)>,
+    /// Accounts delta received at least once (distinguishes "none" from "loading").
+    pub loaded: Signal<bool>,
     pub accounts: Signal<Vec<AccountNav>>,
     pub mailbox: Signal<Mailbox>,
     pub threaded: Signal<bool>,
@@ -97,13 +97,13 @@ impl AppState {
             palette_open: Signal::new(false),
             palette_token: Signal::new(0),
             palette_hits: Signal::new(Vec::new()),
+            contacts: Signal::new((0, Vec::new())),
             loaded: Signal::new(false),
             accounts: Signal::new(Vec::new()),
             mailbox: Signal::new(Mailbox::Unified(FolderRole::Inbox)),
             threaded: Signal::new(true),
             list: Signal::new(Vec::new()),
             selected: Signal::new(None),
-            contacts: Signal::new((0, Vec::new())),
             reader: Signal::new(None),
             bodies: Signal::new(HashMap::new()),
             remote_ok: Signal::new(HashSet::new()),
@@ -203,6 +203,7 @@ pub async fn pump(mut s: AppState) {
                 }
             }
             Delta::SendFailed { .. } => s.sending.set(false),
+            Delta::Contacts { token, items } => s.contacts.set((token, items)),
             Delta::SearchResults { token, items, server } => {
                 let current = s.search.peek().as_ref().map(|st| st.token);
                 if current == Some(token) {
@@ -216,7 +217,6 @@ pub async fn pump(mut s: AppState) {
             }
             Delta::FreeBusy { token, result } => s.free_busy.set((token, result)),
             Delta::AttachmentReady(path) => {
-            Delta::Contacts { token, items } => s.contacts.set((token, items)),
                 if let Err(e) = open::that_detached(&path) {
                     tracing::warn!(error = %e, ?path, "could not open attachment");
                 }
