@@ -73,9 +73,31 @@ pub struct MovePicker {
     pub label: bool,
 }
 
+/// A message on its way out, shown as a row until the next sync lists it.
+#[derive(Clone, PartialEq, Debug)]
+pub enum OutState {
+    Sending,
+    /// Sent at (ms); dropped once a later sync has run.
+    Sent(i64),
+    Failed(String),
+    /// Scheduled to go out at (ms) — send later / undo-send window.
+    #[allow(dead_code)] // constructed once send-later lands
+    Queued(i64),
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct Outgoing {
+    pub draft: Draft,
+    pub state: OutState,
+}
+
 #[derive(Clone, Copy)]
 pub struct AppState {
     pub move_picker: Signal<Option<MovePicker>>,
+    /// Outgoing messages (sending / failed / scheduled), newest first.
+    pub outgoing: Signal<Vec<Outgoing>>,
+    /// Settings should open the iCloud password form (re-sign-in).
+    pub icloud_form: Signal<bool>,
     /// Event editor form while open.
     pub editor: Signal<Option<crate::ui::event_editor::EventForm>>,
     /// Latest free/busy answer: (request token, result).
@@ -130,6 +152,8 @@ impl AppState {
     pub fn new() -> Self {
         AppState {
             move_picker: Signal::new(None),
+            outgoing: Signal::new(Vec::new()),
+            icloud_form: Signal::new(false),
             editor: Signal::new(None),
             free_busy: Signal::new((0, Vec::new())),
             search: Signal::new(None),
@@ -199,6 +223,14 @@ impl AppState {
         }
     }
 
+    /// Track a draft as outgoing (replacing an earlier entry for it).
+    pub fn track_outgoing(&self, draft: Draft, state: OutState) {
+        let mut out = self.outgoing;
+        let mut w = out.write();
+        w.retain(|o| o.draft.id != draft.id);
+        w.insert(0, Outgoing { draft, state });
+    }
+
     pub fn push_toast(&self, t: Toast) {
         let mut toasts = self.toasts;
         let id = t.id;
@@ -211,10 +243,61 @@ impl AppState {
     }
 }
 
+/// Debug builds: fake list states for screenshots, e.g.
+/// PIGEON_DEBUG_OPEN=auth-expired | offline | cold | outgoing.
+fn debug_patch(s: &AppState, delta: Delta) -> Delta {
+    if !cfg!(debug_assertions) {
+        return delta;
+    }
+    let Ok(want) = std::env::var("PIGEON_DEBUG_OPEN") else { return delta };
+    match (want.as_str(), delta) {
+        ("auth-expired", Delta::Sync(mut st)) => {
+            st.needs_sign_in = s.accounts.peek().iter().take(1).map(|a| a.account.id.clone()).collect();
+            st.error = None;
+            Delta::Sync(st)
+        }
+        ("offline", Delta::Sync(mut st)) => {
+            st.offline = true;
+            st.error = Some("network unreachable".into());
+            Delta::Sync(st)
+        }
+        ("cold", Delta::Accounts(mut a)) => {
+            a.iter_mut().for_each(|n| n.first_sync_done = false);
+            Delta::Accounts(a)
+        }
+        ("cold", Delta::List { mailbox, threaded, .. }) => Delta::List { mailbox, threaded, items: Vec::new() },
+        ("outgoing", Delta::Accounts(a)) => {
+            if s.outgoing.peek().is_empty()
+                && let Some(n) = a.first()
+            {
+                let from = pigeon_core::compose::Sender {
+                    account_id: n.account.id.clone(),
+                    address: pigeon_core::model::Address::new(None, &n.account.email),
+                };
+                let mk = |id: &str, subject: &str, to: &str| {
+                    let mut d = Draft::new(from.clone(), 0);
+                    d.id = id.into();
+                    d.subject = subject.into();
+                    d.to = vec![pigeon_core::model::Address::new(Some(to), "x@example.com")];
+                    d
+                };
+                s.track_outgoing(mk("d1", "Re: Contractor invoice", "Jonah Weiss"), OutState::Sending);
+                s.track_outgoing(
+                    mk("d2", "Re: Venue options for the offsite", "Lena Fischer"),
+                    OutState::Failed("connection reset".into()),
+                );
+            }
+            Delta::Accounts(a)
+        }
+        (_, d) => d,
+    }
+}
+
 /// Apply engine deltas to the signals, forever.
 pub async fn pump(mut s: AppState) {
     let Some(mut rx) = RX.lock().unwrap().take() else { return };
     while let Some(delta) = rx.recv().await {
+        let delta = debug_patch(&s, delta);
         match delta {
             Delta::Accounts(a) => {
                 let order = crate::prefs::get().account_order;
@@ -242,7 +325,14 @@ pub async fn pump(mut s: AppState) {
                 }
                 s.push_toast(t)
             }
-            Delta::Sync(st) => s.sync.set(st),
+            Delta::Sync(st) => {
+                // A finished sync has picked up what we sent; drop those rows.
+                if !st.syncing {
+                    let done = st.last_ok.unwrap_or(0);
+                    s.outgoing.write().retain(|o| !matches!(o.state, OutState::Sent(at) if at <= done));
+                }
+                s.sync.set(st)
+            }
             Delta::NextUp(e) => s.next_up.set(e),
             Delta::Events { from, to, events, calendars } => {
                 s.calendar.set(CalendarData { from, to, events, calendars })
@@ -250,12 +340,20 @@ pub async fn pump(mut s: AppState) {
             Delta::Senders(v) => s.senders.set(v),
             Delta::Draft(d) => s.draft.set(Some(d)),
             Delta::Sent { draft_id } => {
+                if let Some(o) = s.outgoing.write().iter_mut().find(|o| o.draft.id == draft_id) {
+                    o.state = OutState::Sent(pigeon_core::now_ms());
+                }
                 s.sending.set(false);
                 if s.draft.peek().as_ref().is_some_and(|d| d.id == draft_id) {
                     s.draft.set(None);
                 }
             }
-            Delta::SendFailed { .. } => s.sending.set(false),
+            Delta::SendFailed { draft_id, error } => {
+                if let Some(o) = s.outgoing.write().iter_mut().find(|o| o.draft.id == draft_id) {
+                    o.state = OutState::Failed(error);
+                }
+                s.sending.set(false)
+            }
             Delta::Contacts { token, items } => s.contacts.set((token, items)),
             Delta::SearchResults { token, items, server } => {
                 let current = s.search.peek().as_ref().map(|st| st.token);

@@ -36,4 +36,55 @@ impl Error {
     }
 }
 
+impl Error {
+    /// The network is unreachable (offline, DNS, connect/timeout), as
+    /// opposed to the server answering with an error.
+    pub fn is_network(&self) -> bool {
+        use std::io::ErrorKind::*;
+        match self {
+            Error::Http(e) => e.is_connect() || e.is_timeout() || (e.is_request() && e.status().is_none()),
+            Error::Io(e) => matches!(
+                e.kind(),
+                ConnectionRefused
+                    | ConnectionReset
+                    | ConnectionAborted
+                    | NotConnected
+                    | TimedOut
+                    | HostUnreachable
+                    | NetworkUnreachable
+                    | NetworkDown
+            ),
+            Error::Other(m) => network_text(m),
+            _ => false,
+        }
+    }
+}
+
+fn network_text(m: &str) -> bool {
+    let m = m.to_ascii_lowercase();
+    [
+        "dns error",
+        "failed to lookup address",
+        "network is unreachable",
+        "no route to host",
+        "connection refused",
+        "timed out",
+    ]
+    .iter()
+    .any(|k| m.contains(k))
+}
+
 pub type Result<T, E = Error> = std::result::Result<T, E>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn network_classification() {
+        assert!(Error::Io(std::io::Error::new(std::io::ErrorKind::TimedOut, "x")).is_network());
+        assert!(Error::Other("imap: dns error: failed to lookup address information".into()).is_network());
+        assert!(!Error::Api { status: 500, url: String::new(), body: String::new() }.is_network());
+        assert!(!Error::SignInRequired("a".into()).is_network());
+    }
+}

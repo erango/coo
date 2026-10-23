@@ -572,6 +572,17 @@ impl Store {
 
     // ---- sync cursors ----
 
+    /// Whether any mail scope of the account has synced at least one page
+    /// (false = cold first sync, the list should show skeletons).
+    pub fn has_mail_cursor(&self, account_id: &str) -> Result<bool> {
+        Ok(self
+            .conn
+            .prepare_cached("SELECT 1 FROM sync_state WHERE account_id = ?1 AND scope NOT LIKE 'cal:%' LIMIT 1")?
+            .query_row([account_id], |_| Ok(()))
+            .optional()?
+            .is_some())
+    }
+
     pub fn cursor(&self, account_id: &str, scope: &str) -> Result<Option<String>> {
         Ok(self
             .conn

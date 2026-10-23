@@ -128,7 +128,7 @@ fn Accounts() -> Element {
         send_cmd(Cmd::Login(p));
     };
     let (mut l1, mut l2) = (login, login);
-    let mut icloud = use_signal(|| false);
+    let mut icloud = s.icloud_form;
     // Close the iCloud panel once its account shows up (sign-in succeeded);
     // debug builds can open it once accounts have loaded, like a real click.
     let mut seen = use_signal(|| None::<usize>);

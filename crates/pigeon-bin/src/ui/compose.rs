@@ -42,6 +42,7 @@ pub fn send_current(s: AppState) {
         let typed = bridge::editor_html(&editor_id(&draft)).await;
         let mut d = draft;
         d.html = format!("{typed}{}", d.html);
+        s.track_outgoing(d.clone(), crate::state::OutState::Sending);
         send_cmd(Cmd::Send(d));
     });
 }

@@ -173,6 +173,8 @@ pub struct AccountNav {
     /// Account color slot, 1..=8.
     pub hue: u8,
     pub folders: Vec<FolderInfo>,
+    /// At least one mail page synced; false during the cold first sync.
+    pub first_sync_done: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -224,6 +226,8 @@ pub struct SyncState {
     pub error: Option<String>,
     /// Accounts whose sign-in expired.
     pub needs_sign_in: Vec<String>,
+    /// Every failure of the last sync was a network error.
+    pub offline: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -384,7 +388,12 @@ impl Service {
             let store = self.app.store();
             let mut accounts = Vec::new();
             for a in store.accounts()? {
-                accounts.push(AccountNav { hue: hue_for(&a.email), folders: store.folders(&a.id)?, account: a });
+                accounts.push(AccountNav {
+                    hue: hue_for(&a.email),
+                    folders: store.folders(&a.id)?,
+                    first_sync_done: store.has_mail_cursor(&a.id)?,
+                    account: a,
+                });
             }
             let q = mailbox.query();
             let items = if threaded {
@@ -443,11 +452,16 @@ impl Service {
         self.set_sync(|s| s.syncing = true).await;
         let reports = self.app.sync_all().await;
         let mut errors = Vec::new();
+        let (mut failures, mut network_failures) = (0, 0);
         let mut needs_sign_in = Vec::new();
         match &reports {
             Ok(reports) => {
                 for r in reports {
                     for e in [r.mail.as_ref().err(), r.calendar.as_ref().err()].into_iter().flatten() {
+                        failures += 1;
+                        if e.is_network() {
+                            network_failures += 1;
+                        }
                         if matches!(e, Error::SignInRequired(_)) {
                             needs_sign_in.push(r.account.id.clone());
                         } else {
@@ -456,8 +470,15 @@ impl Service {
                     }
                 }
             }
-            Err(e) => errors.push(e.to_string()),
+            Err(e) => {
+                failures += 1;
+                if e.is_network() {
+                    network_failures += 1;
+                }
+                errors.push(e.to_string())
+            }
         }
+        let offline = failures > 0 && failures == network_failures;
         needs_sign_in.dedup();
         for e in &errors {
             tracing::error!(error = %e, "sync failed");
@@ -469,6 +490,7 @@ impl Service {
             }
             s.error = errors.first().cloned();
             s.needs_sign_in = needs_sign_in;
+            s.offline = offline;
         })
         .await;
         self.syncing.store(false, Ordering::SeqCst);

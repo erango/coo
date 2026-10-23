@@ -284,9 +284,13 @@ fn SyncFooter() -> Element {
     let s = use_context::<AppState>();
     let st = s.sync.read().clone();
     let (state, icon, text) = if !st.needs_sign_in.is_empty() {
-        ("error", "lock", format!("Sign in again: {}", st.needs_sign_in.join(", ")))
+        let who: Vec<&str> =
+            st.needs_sign_in.iter().map(|id| id.split_once(':').map_or(id.as_str(), |(_, e)| e)).collect();
+        ("auth", "lock", format!("Sign in again · {}", who.join(", ")))
     } else if st.syncing {
         ("syncing", "sync", "Syncing…".to_string())
+    } else if st.offline {
+        ("offline", "offline", "Offline · showing saved mail".to_string())
     } else if let Some(err) = &st.error {
         ("error", "alert", format!("Sync problem · {err}"))
     } else if let Some(t) = st.last_ok {
