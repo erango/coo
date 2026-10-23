@@ -3,6 +3,8 @@
 
 use std::sync::Mutex;
 
+use futures::{StreamExt, stream};
+
 use crate::model::Calendar;
 use crate::provider::{CalendarProvider, MailProvider};
 use crate::store::Store;
@@ -21,29 +23,63 @@ pub async fn sync_mail<P: MailProvider>(p: &P, account_id: &str, store: &Mutex<S
     let mut stats = MailStats { folders: folders.len(), ..Default::default() };
     tracing::info!(account_id, folders = folders.len(), "mail sync");
 
-    for scope in p.mail_scopes(&folders) {
-        let mut cursor = lock(store).cursor(account_id, &scope)?;
-        loop {
-            let page = match p.mail_page(&scope, cursor.as_deref()).await {
-                Err(Error::CursorExpired) if cursor.is_some() => {
-                    tracing::warn!(account_id, scope, "sync cursor expired; resyncing scope");
-                    lock(store).clear_cursor(account_id, &scope)?;
-                    cursor = None;
-                    continue;
-                }
-                page => page?,
-            };
-            stats.pages += 1;
-            tracing::info!(account_id, scope, changes = page.changes.len(), more = page.more, "mail page");
-            stats.changes += page.changes.len();
-            lock(store).apply_mail(account_id, &scope, &page.changes, &page.cursor)?;
-            if !page.more {
-                break;
+    // Scopes run concurrently up to the provider's limit; one failing
+    // scope doesn't stop the others. The first error is returned at the end.
+    let scopes = p.mail_scopes(&folders);
+    // Owned items: closures over references trip the `Send` check when the
+    // whole sync is spawned.
+    let results: Vec<Result<(usize, usize)>> = stream::iter(scopes)
+        .map(|scope| async move { sync_scope(p, account_id, &scope, store).await })
+        .buffer_unordered(p.mail_concurrency().max(1))
+        .collect()
+        .await;
+    let mut first_err = None;
+    for r in results {
+        match r {
+            Ok((pages, changes)) => {
+                stats.pages += pages;
+                stats.changes += changes;
             }
-            cursor = Some(page.cursor);
+            Err(e) => {
+                tracing::warn!(account_id, error = %e, "mail scope failed");
+                first_err.get_or_insert(e);
+            }
         }
     }
+    if let Some(e) = first_err {
+        return Err(e);
+    }
     Ok(stats)
+}
+
+/// Page one scope to completion. Returns (pages, changes).
+async fn sync_scope<P: MailProvider>(
+    p: &P,
+    account_id: &str,
+    scope: &str,
+    store: &Mutex<Store>,
+) -> Result<(usize, usize)> {
+    let (mut pages, mut changes) = (0, 0);
+    let mut cursor = lock(store).cursor(account_id, scope)?;
+    loop {
+        let page = match p.mail_page(scope, cursor.as_deref()).await {
+            Err(Error::CursorExpired) if cursor.is_some() => {
+                tracing::warn!(account_id, scope, "sync cursor expired; resyncing scope");
+                lock(store).clear_cursor(account_id, scope)?;
+                cursor = None;
+                continue;
+            }
+            page => page?,
+        };
+        pages += 1;
+        changes += page.changes.len();
+        tracing::info!(account_id, scope, changes = page.changes.len(), more = page.more, "mail page");
+        lock(store).apply_mail(account_id, scope, &page.changes, &page.cursor)?;
+        if !page.more {
+            return Ok((pages, changes));
+        }
+        cursor = Some(page.cursor);
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -65,16 +101,31 @@ pub async fn sync_calendars<P: CalendarProvider>(
     lock(store).replace_calendars(account_id, &calendars)?;
     let mut stats = CalendarStats { calendars: calendars.len(), events: 0 };
     tracing::info!(account_id, calendars = calendars.len(), "calendar sync");
-    for cal in &calendars {
-        tracing::info!(account_id, calendar = cal.name, "syncing calendar");
-        match sync_calendar(p, account_id, cal, store, from, to).await {
+    let results: Vec<(String, Result<usize>)> = stream::iter(calendars.clone())
+        .map(|cal| async move {
+            tracing::info!(account_id, calendar = cal.name, "syncing calendar");
+            let r = sync_calendar(p, account_id, &cal, store, from, to).await;
+            (cal.name, r)
+        })
+        .buffer_unordered(p.calendar_concurrency().max(1))
+        .collect()
+        .await;
+    let mut first_err = None;
+    for (name, r) in results {
+        match r {
             Ok(n) => stats.events += n,
             // Shared calendars can be listed but not readable (free/busy only).
             Err(e) if matches!(e.status(), Some(403 | 404)) => {
-                tracing::warn!(calendar = cal.name, error = %e, "skipping unreadable calendar");
+                tracing::warn!(calendar = name, error = %e, "skipping unreadable calendar");
             }
-            Err(e) => return Err(e),
+            Err(e) => {
+                tracing::warn!(calendar = name, error = %e, "calendar sync failed");
+                first_err.get_or_insert(e);
+            }
         }
+    }
+    if let Some(e) = first_err {
+        return Err(e);
     }
     Ok(stats)
 }

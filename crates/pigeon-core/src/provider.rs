@@ -25,6 +25,12 @@ pub trait MailProvider: Sync {
     /// Gmail). Cursors are stored per scope.
     fn mail_scopes(&self, folders: &[Folder]) -> Vec<String>;
 
+    /// How many scopes may sync at once (stay under the provider's
+    /// per-mailbox concurrency limit).
+    fn mail_concurrency(&self) -> usize {
+        1
+    }
+
     /// Fetch the next page for `scope`, starting fresh when `cursor` is None.
     /// Returns `Error::CursorExpired` when the cursor is no longer valid.
     fn mail_page(&self, scope: &str, cursor: Option<&str>) -> impl Future<Output = Result<MailPage>> + Send;
@@ -43,6 +49,11 @@ pub struct EventPage {
 }
 
 pub trait CalendarProvider: Sync {
+    /// How many calendars may sync at once.
+    fn calendar_concurrency(&self) -> usize {
+        1
+    }
+
     fn calendars(&self) -> impl Future<Output = Result<Vec<Calendar>>> + Send;
 
     /// Next page of changes for `calendar`. With no cursor, returns a full

@@ -4051,6 +4051,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "directories",
+ "futures",
  "getrandom 0.4.3",
  "mail-builder",
  "open",

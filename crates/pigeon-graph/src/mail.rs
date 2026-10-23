@@ -50,7 +50,24 @@ impl MailProvider for Graph {
     }
 
     fn mail_scopes(&self, folders: &[Folder]) -> Vec<String> {
-        folders.iter().map(|f| format!("{SCOPE_PREFIX}{}", f.id)).collect()
+        // What the user looks at first syncs first.
+        let rank = |f: &Folder| match f.role {
+            Some(FolderRole::Inbox) => 0,
+            Some(FolderRole::Sent) => 1,
+            Some(FolderRole::Drafts) => 2,
+            Some(FolderRole::Archive) => 3,
+            None => 4,
+            Some(_) => 5,
+        };
+        let mut ordered: Vec<&Folder> = folders.iter().collect();
+        ordered.sort_by_key(|f| rank(f));
+        ordered.into_iter().map(|f| format!("{SCOPE_PREFIX}{}", f.id)).collect()
+    }
+
+    /// Exchange allows 4 concurrent requests per mailbox; keep one free for
+    /// the calendar sync that runs alongside.
+    fn mail_concurrency(&self) -> usize {
+        3
     }
 
     async fn mail_page(&self, scope: &str, cursor: Option<&str>) -> Result<MailPage> {
@@ -196,6 +213,20 @@ mod tests {
         let out = to_page(page, "F").unwrap();
         assert!(!out.more);
         assert!(out.cursor.ends_with("deltatoken=t"));
+    }
+
+    #[test]
+    fn inbox_syncs_first() {
+        let f =
+            |id: &str, role| Folder { id: id.into(), name: id.into(), parent_id: None, role, kind: FolderKind::Folder };
+        let g = Graph::new(std::sync::Arc::new(pigeon_core::auth::TokenSource::new(
+            pigeon_core::auth::OAuthApp::microsoft("x"),
+            "a",
+            pigeon_core::tokens::TokenStore::File(std::env::temp_dir().join("pigeon-unused.json")),
+        )));
+        let scopes =
+            g.mail_scopes(&[f("junk", Some(FolderRole::Spam)), f("proj", None), f("in", Some(FolderRole::Inbox))]);
+        assert_eq!(scopes, ["folder:in", "folder:proj", "folder:junk"]);
     }
 
     #[test]

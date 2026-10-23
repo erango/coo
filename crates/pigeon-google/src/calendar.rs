@@ -91,6 +91,12 @@ pub(crate) struct GEvent {
 }
 
 impl CalendarProvider for Google {
+    /// Calendars are independent sync tokens; a few at once is well under
+    /// Google's per-user rate limit.
+    fn calendar_concurrency(&self) -> usize {
+        3
+    }
+
     async fn calendars(&self) -> Result<Vec<Calendar>> {
         let mut out = Vec::new();
         let mut token: Option<String> = None;
