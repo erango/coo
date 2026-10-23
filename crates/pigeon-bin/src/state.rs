@@ -216,6 +216,7 @@ pub async fn pump(mut s: AppState) {
                 }
             }
             Delta::SendFailed { .. } => s.sending.set(false),
+            Delta::Contacts { token, items } => s.contacts.set((token, items)),
             Delta::SearchResults { token, items, server } => {
                 let current = s.search.peek().as_ref().map(|st| st.token);
                 if current == Some(token) {
@@ -229,7 +230,6 @@ pub async fn pump(mut s: AppState) {
             }
             Delta::FreeBusy { token, result } => s.free_busy.set((token, result)),
             Delta::AttachmentReady(path) => {
-            Delta::Contacts { token, items } => s.contacts.set((token, items)),
                 if let Err(e) = open::that_detached(&path) {
                     tracing::warn!(error = %e, ?path, "could not open attachment");
                 }

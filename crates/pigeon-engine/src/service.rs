@@ -251,12 +251,12 @@ pub enum Delta {
         token: u64,
         result: FreeBusy,
     },
-}
-
     Contacts {
         token: u64,
         items: Vec<Address>,
     },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServerSearch {
     Idle,
@@ -276,7 +276,6 @@ pub fn hue_for(email: &str) -> u8 {
     (h % 8) as u8 + 1
 }
 
-/// Replace `cid:` references with data URLs from the cached inline parts.
 /// An invite resolved against the local calendars.
 #[derive(Debug, Clone, PartialEq)]
 pub struct InviteView {
@@ -300,6 +299,7 @@ fn invite_view(store: &pigeon_core::store::Store, account_id: &str, inv: &Invite
     Ok(InviteView { event, busy })
 }
 
+/// Replace `cid:` references with data URLs from the cached inline parts.
 fn inline_images(mut body: StoredBody) -> StoredBody {
     let Some(html) = body.html.as_mut() else { return body };
     for a in &body.attachments {
@@ -329,6 +329,7 @@ struct Service {
     syncing: AtomicBool,
     sync_state: Mutex<SyncState>,
     toast_seq: std::sync::atomic::AtomicU64,
+    my_addresses: Mutex<Option<Vec<String>>>,
 }
 
 impl Service {
@@ -354,7 +355,6 @@ impl Service {
     }
 
     async fn publish_inner(&self) -> Result<()> {
-    my_addresses: Mutex<Option<Vec<String>>>,
         let (mailbox, threaded, calendar) = {
             let v = self.view.lock().await;
             (v.mailbox.clone(), v.threaded, v.calendar)
@@ -395,6 +395,21 @@ impl Service {
         Ok(())
     }
 
+    /// Every address the user sends from (accounts + aliases), cached after
+    /// the first lookup; falls back to account addresses if aliases fail.
+    async fn my_addresses(&self) -> Vec<String> {
+        let mut cache = self.my_addresses.lock().await;
+        if let Some(m) = cache.as_ref() {
+            return m.clone();
+        }
+        let mut mine: Vec<String> = self.app.accounts().unwrap_or_default().into_iter().map(|a| a.email).collect();
+        if let Ok(senders) = self.app.senders().await {
+            mine.extend(senders.into_iter().map(|s| s.address.email));
+            *cache = Some(mine.clone());
+        }
+        mine
+    }
+
     async fn set_sync(&self, f: impl FnOnce(&mut SyncState)) {
         let mut s = self.sync_state.lock().await;
         f(&mut s);
@@ -420,21 +435,6 @@ impl Service {
                         }
                     }
                 }
-    /// Every address the user sends from (accounts + aliases), cached after
-    /// the first lookup; falls back to account addresses if aliases fail.
-    async fn my_addresses(&self) -> Vec<String> {
-        let mut cache = self.my_addresses.lock().await;
-        if let Some(m) = cache.as_ref() {
-            return m.clone();
-        }
-        let mut mine: Vec<String> = self.app.accounts().unwrap_or_default().into_iter().map(|a| a.email).collect();
-        if let Ok(senders) = self.app.senders().await {
-            mine.extend(senders.into_iter().map(|s| s.address.email));
-            *cache = Some(mine.clone());
-        }
-        mine
-    }
-
             }
             Err(e) => errors.push(e.to_string()),
         }
@@ -591,6 +591,11 @@ impl Service {
                 self.view.lock().await.calendar = Some((from, to));
                 self.publish().await;
             }
+            Cmd::SuggestContacts { query, token, limit } => {
+                let mine = self.my_addresses().await;
+                let items = self.app.store().suggest_contacts(&query, &mine, limit as usize, now_ms())?;
+                self.send(Delta::Contacts { token, items });
+            }
             Cmd::Search { query, token, limit } => {
                 let q = pigeon_core::search::parse(&query);
                 let items = self.app.store().search_query(&q, limit)?;
@@ -625,11 +630,6 @@ impl Service {
                 }
                 let event = self.app.create_event(&account, &draft).await?;
                 self.toast(format!("Created “{}”", event.title), false, None);
-            Cmd::SuggestContacts { query, token, limit } => {
-                let mine = self.my_addresses().await;
-                let items = self.app.store().suggest_contacts(&query, &mine, limit as usize, now_ms())?;
-                self.send(Delta::Contacts { token, items });
-            }
                 self.publish().await;
             }
             Cmd::UpdateEvent { account_id, event_id, draft } => {
@@ -706,6 +706,7 @@ pub async fn run(app: Arc<Pigeon>, mut rx: mpsc::UnboundedReceiver<Cmd>, tx: mps
         syncing: AtomicBool::new(false),
         sync_state: Mutex::new(SyncState::default()),
         toast_seq: Default::default(),
+        my_addresses: Mutex::new(None),
     });
     svc.publish().await;
     let mut tick = tokio::time::interval(SYNC_EVERY);
@@ -740,7 +741,6 @@ mod tests {
     #[test]
     fn cid_images_become_data_urls() {
         let dir = std::env::temp_dir().join(format!("pigeon-cid-{}", pigeon_core::auth::random_token(6)));
-        my_addresses: Mutex::new(None),
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("logo.png");
         std::fs::write(&path, b"PNG").unwrap();
