@@ -10,7 +10,9 @@
 //! toward the palette's text color only when needed to reach WCAG contrast;
 //! both are marked in the data.
 //!
-//! Monokai Pro is intentionally absent: it's a commercial theme and no
+//! "Monokai" is the original 2006 scheme (Wimer Hazenberg), which is dark
+//! only; its light variant is derived from the same accents on a warm light
+//! background. Monokai Pro is not included: it's a commercial theme and no
 //! official public source documents its full palette (monokai.pro exposes
 //! only #2d2a2e / #19181a; the Monokai/monokai-pro-vscode repo ships no
 //! theme files).
@@ -323,6 +325,55 @@ pub static FAMILIES: &[Family] = &[
                 Hex("#A34D14"),
                 Hex("#036A96"),
                 Hex("#A3144D"),
+            ],
+        },
+    },
+    // Original Monokai (Wimer Hazenberg, 2006), values from the widely used
+    // port https://github.com/sickill/vim-monokai (colors/monokai.vim):
+    // Normal #f8f8f2 on #272822, Comment #75715e, CursorLine #3c3d37,
+    // Visual #49483e, LineNr #90908a, accents #f92672 #a6e22e #66d9ef
+    // #ae81ff #e6db74 #fd971f. Dark only upstream; the light mode is derived.
+    Family {
+        id: "monokai",
+        name: "Monokai",
+        source: "https://github.com/sickill/vim-monokai",
+        variants: ("Monokai", "Monokai Light (derived)"),
+        dark: ModeSpec {
+            bg: [Hex("#272822"), Mix("#272822", "#000000", 0.22), Hex("#3C3D37"), Hex("#49483E")],
+            text: [Hex("#F8F8F2"), Hex("#90908A"), Hex("#75715E")],
+            accent: Hex("#A6E22E"),
+            success: Hex("#A6E22E"),
+            warning: Hex("#FD971F"),
+            error: Hex("#F92672"),
+            info: Hex("#66D9EF"),
+            hues: [
+                Mix("#66D9EF", "#AE81FF", 0.55),
+                Hex("#E6DB74"),
+                Hex("#F92672"),
+                Hex("#AE81FF"),
+                Hex("#A6E22E"),
+                Hex("#FD971F"),
+                Hex("#66D9EF"),
+                Mix("#F92672", "#AE81FF", 0.5),
+            ],
+        },
+        light: ModeSpec {
+            bg: [Hex("#FAFAF6"), Mix("#FAFAF6", "#75715E", 0.07), Mix("#FAFAF6", "#75715E", 0.14), Hex("#FFFFFF")],
+            text: [Hex("#272822"), Mix("#49483E", "#272822", 0.2), Mix("#75715E", "#272822", 0.25)],
+            accent: Mix("#A6E22E", "#272822", 0.55),
+            success: Mix("#A6E22E", "#272822", 0.55),
+            warning: Mix("#FD971F", "#272822", 0.4),
+            error: Mix("#F92672", "#272822", 0.2),
+            info: Mix("#66D9EF", "#272822", 0.55),
+            hues: [
+                Mix("#66D9EF", "#AE81FF", 0.55),
+                Mix("#E6DB74", "#272822", 0.55),
+                Mix("#F92672", "#272822", 0.15),
+                Mix("#AE81FF", "#272822", 0.25),
+                Mix("#A6E22E", "#272822", 0.5),
+                Mix("#FD971F", "#272822", 0.35),
+                Mix("#66D9EF", "#272822", 0.5),
+                Mix("#F92672", "#AE81FF", 0.5),
             ],
         },
     },
@@ -732,7 +783,7 @@ mod tests {
 
     #[test]
     fn known_ids() {
-        assert!(is_known("pigeon") && is_known("dracula") && !is_known("monokai"));
+        assert!(is_known("pigeon") && is_known("dracula") && is_known("monokai") && !is_known("monokai-pro"));
         assert_eq!(choices()[0].0, DEFAULT);
     }
 }
