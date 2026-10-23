@@ -307,10 +307,10 @@ pub fn parse_events(text: &str) -> Vec<VEvent> {
                             });
                         }
                     }
-                    "X-GOOGLE-CONFERENCE" | "X-MICROSOFT-SKYPETEAMSMEETINGURL" | "URL" => {
-                        if meeting_link(value).is_some() || p.name != "URL" {
-                            e.online_url = Some(value.trim().to_string());
-                        }
+                    "X-GOOGLE-CONFERENCE" | "X-MICROSOFT-SKYPETEAMSMEETINGURL" | "URL"
+                        if (meeting_link(value).is_some() || p.name != "URL") =>
+                    {
+                        e.online_url = Some(value.trim().to_string());
                     }
                     _ => {}
                 }

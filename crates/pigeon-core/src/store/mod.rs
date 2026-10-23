@@ -290,7 +290,7 @@ impl Store {
         for (account, folder) in self.view_folders(q)? {
             out.extend(self.folder_page(&account, &folder, before, q.limit)?);
         }
-        out.sort_by(|a, b| b.header.received_at.cmp(&a.header.received_at));
+        out.sort_by_key(|m| std::cmp::Reverse(m.header.received_at));
         out.truncate(q.limit as usize);
         Ok(out)
     }
@@ -323,7 +323,7 @@ impl Store {
                 }
                 rows.extend(got.into_iter().map(|(at, t)| (at, account.clone(), t)));
             }
-            rows.sort_by(|a, b| b.0.cmp(&a.0));
+            rows.sort_by_key(|r| std::cmp::Reverse(r.0));
             picked.clear();
             seen.clear();
             for (_, account, thread) in rows {
