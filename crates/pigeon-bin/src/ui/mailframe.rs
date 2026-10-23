@@ -189,10 +189,16 @@ pub fn srcdoc(html: &str, palette: &str, dark: bool, adapted: bool, allow_remote
          body{padding:16px}img{max-width:100%;height:auto}"
             .to_string()
     };
+    // Pin the frame's color scheme to the app's theme (not the system's):
+    // WebKit paints an opaque backdrop behind a frame whose scheme differs
+    // from its embedder's, which turned adapted mail into dark text on
+    // black whenever the app theme and macOS appearance disagreed.
+    let scheme = if adapted && dark { "dark" } else { "light" };
     format!(
         "<!doctype html><html><head><meta charset=\"utf-8\">\
+         <meta name=\"color-scheme\" content=\"{scheme}\">\
          <meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; img-src {img_src}; font-src data:\">\
-         <base target=\"_blank\"><style>{style}{MARK_CSS}</style></head><body dir=\"auto\">{html}</body></html>"
+         <base target=\"_blank\"><style>{style}{MARK_CSS}:root{{color-scheme:{scheme}}}</style></head><body dir=\"auto\">{html}</body></html>"
     )
 }
 
@@ -211,6 +217,16 @@ mod tests {
         assert_eq!(shown(Some(r#"<img src="cid:x">"#), None), Shown::Html(r#"<img src="cid:x">"#));
         assert_eq!(shown(None, Some("  ")), Shown::Empty);
         assert_eq!(shown(Some("<p>&nbsp;</p>"), None), Shown::Empty);
+    }
+
+    #[test]
+    fn frame_color_scheme_follows_the_app_theme() {
+        // Light app on a dark Mac: the frame must not pick "dark".
+        let light = srcdoc("<p>x</p>", "pigeon", false, true, false);
+        assert!(light.contains(":root{color-scheme:light}") && !light.contains("color-scheme:dark"));
+        assert!(srcdoc("<p>x</p>", "pigeon", true, true, false).contains(":root{color-scheme:dark}"));
+        // Paper mode is always light.
+        assert!(srcdoc("<p>x</p>", "pigeon", true, false, false).contains(":root{color-scheme:light}"));
     }
 
     #[test]
