@@ -89,6 +89,23 @@ fn MailNav(many: bool) -> Element {
     let accounts = s.accounts.read().clone();
     let current = mailbox.read().clone();
 
+    // Account reordering: index being dragged, and the section hovered.
+    let drag = use_signal(|| None::<usize>);
+    let over = use_signal(|| None::<usize>);
+    use_hook(|| {
+        // WebKit only starts an HTML5 drag with data set, and only fires
+        // `drop` when `dragover` was cancelled synchronously; do both in JS.
+        document::eval(
+            "document.addEventListener('dragstart', e => {\
+               const h = e.target.closest && e.target.closest('[data-account-drag]');\
+               if (h) { e.dataTransfer.setData('text/plain', h.dataset.accountDrag); e.dataTransfer.effectAllowed = 'move'; }\
+             }, true);\
+             document.addEventListener('dragover', e => {\
+               if (e.target.closest && e.target.closest('[data-account-drop]')) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }\
+             }, true);",
+        );
+    });
+
     let unified_unread = |role: FolderRole| -> u32 {
         accounts.iter().flat_map(|a| &a.folders).filter(|f| f.folder.role == Some(role)).map(|f| f.unread).sum()
     };
@@ -111,15 +128,45 @@ fn MailNav(many: bool) -> Element {
                 }
             }
             for (i, a) in accounts.iter().enumerate() {
-                AccountSection { key: "{a.account.id}", nav: a.clone(), first: i == 0, many }
+                AccountSection { key: "{a.account.id}", nav: a.clone(), first: i == 0, many, index: i, count: accounts.len(), drag, over }
             }
         }
     }
 }
 
+/// Drop the dragged account onto section `target` and save the new order.
+fn finish_drag(s: AppState, mut drag: Signal<Option<usize>>, mut over: Signal<Option<usize>>, target: usize) {
+    let from = *drag.peek();
+    drag.set(None);
+    over.set(None);
+    let Some(from) = from.filter(|f| *f != target) else { return };
+    let mut accounts = s.accounts;
+    let ids: Vec<String> = {
+        let mut list = accounts.write();
+        crate::state::move_item(&mut list, from, target);
+        list.iter().map(|a| a.account.id.clone()).collect()
+    };
+    crate::prefs::update(|p| p.account_order = ids);
+}
+
 #[component]
-fn AccountSection(nav: AccountNav, first: bool, many: bool) -> Element {
+fn AccountSection(
+    nav: AccountNav,
+    first: bool,
+    many: bool,
+    index: usize,
+    count: usize,
+    drag: Signal<Option<usize>>,
+    over: Signal<Option<usize>>,
+) -> Element {
     let s = use_context::<AppState>();
+    let (mut drag_w, mut over_w) = (drag, over);
+    let draggable = count > 1;
+    // Line above when moving up, below when moving down.
+    let drop_side = match (*drag.read(), *over.read()) {
+        (Some(from), Some(o)) if o == index && from != index => Some(if from > index { "before" } else { "after" }),
+        _ => None,
+    };
     let mut mailbox = s.mailbox;
     let mut collapsed_set = s.collapsed_accounts;
     let id = nav.account.id.clone();
@@ -140,8 +187,18 @@ fn AccountSection(nav: AccountNav, first: bool, many: bool) -> Element {
     let toggle_id = id.clone();
 
     rsx! {
+        div { class: "nav-account", "data-account-drop": "{index}",
+            "data-drop": drop_side,
+            "data-dragging": (*drag.read() == Some(index)).then_some("true"),
+            ondragover: move |e| { e.prevent_default(); if *over_w.peek() != Some(index) { over_w.set(Some(index)); } },
+            ondrop: move |e| { e.prevent_default(); finish_drag(s, drag, over, index); },
         div { class: "nav-section", "data-hue": "{nav.hue}",
-            style: if first { "margin-top:18px;cursor:default" } else { "cursor:default" },
+            style: if first { "margin-top:18px" } else { "" },
+            draggable: if draggable { "true" } else { "false" },
+            "data-account-drag": "{index}",
+            title: if draggable { "Drag to reorder" } else { "" },
+            ondragstart: move |_| drag_w.set(Some(index)),
+            ondragend: move |_| { drag_w.set(None); over_w.set(None); },
             onclick: move |_| {
                 let mut set = collapsed_set.write();
                 if !set.remove(&toggle_id) { set.insert(toggle_id.clone()); }
@@ -149,6 +206,7 @@ fn AccountSection(nav: AccountNav, first: bool, many: bool) -> Element {
             if many { span { class: "pip", "{letter}" } } else { span { class: "dot" } }
             span { dir: "auto", style: "overflow:hidden;text-overflow:ellipsis;white-space:nowrap", "{name}" }
             span { class: "nav-section__meta", "{meta}" }
+            if draggable { Icon { name: "grip", class: "icon--xs nav-section__grip" } }
         }
         if !collapsed {
             for f in visible_folders(&nav) {
@@ -169,6 +227,7 @@ fn AccountSection(nav: AccountNav, first: bool, many: bool) -> Element {
                     }
                 }
             }
+        }
         }
     }
 }

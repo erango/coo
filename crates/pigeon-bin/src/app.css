@@ -28,3 +28,12 @@
 /* Bare inputs carry no chrome of their own (UA borders/outline off). */
 input.input--bare { border: 0; outline: none; }
 .editor-overlay .event-editor__body { padding-bottom: 16px; }
+
+/* Account reordering in the sidebar (drag a section header). */
+.nav-account { display: flex; flex-direction: column; gap: 1px; border-radius: var(--radius-sm); }
+.nav-account[data-drop="before"] { box-shadow: inset 0 2px 0 var(--accent); }
+.nav-account[data-drop="after"] { box-shadow: inset 0 -2px 0 var(--accent); }
+.nav-account[data-dragging] { opacity: 0.45; }
+.nav-section[draggable="true"] { cursor: grab; }
+.nav-section__grip { margin-left: 2px; opacity: 0; color: var(--text-3); transition: opacity var(--dur-fast, 120ms) var(--ease-standard, ease); }
+.nav-section:hover .nav-section__grip { opacity: 1; }

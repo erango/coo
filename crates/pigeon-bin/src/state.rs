@@ -178,7 +178,8 @@ pub async fn pump(mut s: AppState) {
     while let Some(delta) = rx.recv().await {
         match delta {
             Delta::Accounts(a) => {
-                s.accounts.set(a);
+                let order = crate::prefs::get().account_order;
+                s.accounts.set(order_by(a, &order, |n| n.account.id.as_str()));
                 s.loaded.set(true);
                 s.signing_in.set(false);
             }
@@ -235,5 +236,50 @@ pub async fn pump(mut s: AppState) {
                 }
             }
         }
+    }
+}
+
+/// Order `items` by saved ids: known ids first in saved order, then anything
+/// new in its original order. Stale saved ids are ignored.
+pub fn order_by<T>(items: Vec<T>, order: &[String], id: impl Fn(&T) -> &str) -> Vec<T> {
+    let rank = |t: &T| order.iter().position(|o| o == id(t)).unwrap_or(usize::MAX);
+    let mut indexed: Vec<(usize, usize, T)> = items.into_iter().enumerate().map(|(i, t)| (rank(&t), i, t)).collect();
+    indexed.sort_by_key(|(r, i, _)| (*r, *i));
+    indexed.into_iter().map(|(_, _, t)| t).collect()
+}
+
+/// Move the item at `from` so it ends up at index `to` (clamped).
+pub fn move_item<T>(v: &mut Vec<T>, from: usize, to: usize) {
+    if from >= v.len() {
+        return;
+    }
+    let item = v.remove(from);
+    let to = to.min(v.len());
+    v.insert(to, item);
+}
+
+#[cfg(test)]
+mod order_tests {
+    use super::*;
+
+    #[test]
+    fn orders_by_saved_ids_and_appends_new() {
+        let order = vec!["c".to_string(), "stale".to_string(), "a".to_string()];
+        let got = order_by(vec!["a", "b", "c", "d"], &order, |s| s);
+        assert_eq!(got, ["c", "a", "b", "d"]);
+        assert_eq!(order_by(vec!["x", "y"], &[], |s| s), ["x", "y"]);
+    }
+
+    #[test]
+    fn moves_items() {
+        let mut v = vec![1, 2, 3, 4];
+        move_item(&mut v, 0, 2);
+        assert_eq!(v, [2, 3, 1, 4]);
+        move_item(&mut v, 3, 0);
+        assert_eq!(v, [4, 2, 3, 1]);
+        move_item(&mut v, 1, 99);
+        assert_eq!(v, [4, 3, 1, 2]);
+        move_item(&mut v, 9, 0);
+        assert_eq!(v, [4, 3, 1, 2]);
     }
 }
