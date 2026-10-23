@@ -154,7 +154,38 @@ fn scrub_opt(s: &mut Option<String>) {
     }
 }
 
+/// Panic messages quote the offending data in backticks (e.g. a slice of
+/// an email snippet); keep the shape, drop the content.
+pub fn redact_quoted(s: &str) -> Cow<'_, str> {
+    if s.matches('`').count() < 2 {
+        return Cow::Borrowed(s);
+    }
+    let mut out = String::with_capacity(s.len());
+    let mut inside = false;
+    for part in s.split('`') {
+        if inside {
+            out.push_str("`<redacted>`");
+        } else {
+            out.push_str(part);
+        }
+        inside = !inside;
+    }
+    Cow::Owned(out)
+}
+
+fn redact_opt(s: &mut Option<String>) {
+    if let Some(v) = s
+        && let Cow::Owned(new) = redact_quoted(v)
+    {
+        *v = new;
+    }
+}
+
 pub fn scrub_event(e: &mut Event<'static>) {
+    redact_opt(&mut e.message);
+    for ex in e.exception.values.iter_mut() {
+        redact_opt(&mut ex.value);
+    }
     scrub_opt(&mut e.message);
     if let Some(le) = e.logentry.as_mut() {
         le.message = scrub(&le.message).into_owned();
@@ -203,6 +234,20 @@ mod tests {
             "503 from https://graph.microsoft.com/v1.0/me/messages/delta?<redacted> busy"
         );
         assert_eq!(scrub("what? really?"), "what? really?");
+    }
+
+    #[test]
+    fn panic_payloads_are_redacted() {
+        let msg = "byte index 12 is not a char boundary; it is inside 'ת' (bytes 11..13) of `שם הפונה: דנה 0500000000`";
+        assert_eq!(
+            redact_quoted(msg),
+            "byte index 12 is not a char boundary; it is inside 'ת' (bytes 11..13) of `<redacted>`"
+        );
+        let mut e = Event::default();
+        e.exception.values.push(sentry::protocol::Exception { value: Some(msg.into()), ..Default::default() });
+        scrub_event(&mut e);
+        assert!(!e.exception.values[0].value.as_deref().unwrap().contains("0500000000"));
+        assert_eq!(redact_quoted("no quotes"), "no quotes");
     }
 
     #[test]

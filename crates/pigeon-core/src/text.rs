@@ -45,7 +45,9 @@ pub fn decode_entities(s: &str) -> String {
     while let Some(i) = rest.find('&') {
         out.push_str(&rest[..i]);
         rest = &rest[i..];
-        let Some(end) = rest[..rest.len().min(12)].find(';') else {
+        // Search bytes: `;` is ASCII, so its index is always a char boundary
+        // (slicing the str at a fixed byte offset is not — Hebrew is 2 bytes).
+        let Some(end) = rest.as_bytes().iter().take(12).position(|&b| b == b';') else {
             out.push('&');
             rest = &rest[1..];
             continue;
@@ -78,6 +80,18 @@ pub fn decode_entities(s: &str) -> String {
     }
     out.push_str(rest);
     out
+}
+
+/// Cut `s` to at most `max_bytes`, backing off to a char boundary.
+pub fn truncate_utf8(s: &mut String, max_bytes: usize) {
+    if s.len() <= max_bytes {
+        return;
+    }
+    let mut cut = max_bytes;
+    while !s.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    s.truncate(cut);
 }
 
 /// Turn free text into a safe FTS5 query: every term becomes a quoted prefix
@@ -190,6 +204,24 @@ mod tests {
     #[test]
     fn entities_decode() {
         assert_eq!(decode_entities("Tom &amp; Jerry&#39;s &lt;3 &#x263A; &bogus; &"), "Tom & Jerry's <3 ☺ &bogus; &");
+    }
+
+    #[test]
+    fn entities_next_to_multibyte_text() {
+        // Regression: sync panicked slicing a Gmail snippet mid-character.
+        assert_eq!(decode_entities("&quot;דן תחבורה ציבורית&quot; שם"), "\"דן תחבורה ציבורית\" שם");
+        assert_eq!(decode_entities("a &שלום; b"), "a &שלום; b");
+        assert_eq!(decode_entities("&#1513;"), "ש");
+    }
+
+    #[test]
+    fn truncation_respects_char_boundaries() {
+        let mut s = "שלום".to_string(); // 8 bytes
+        truncate_utf8(&mut s, 3);
+        assert_eq!(s, "ש");
+        let mut s = "abc".to_string();
+        truncate_utf8(&mut s, 10);
+        assert_eq!(s, "abc");
     }
 
     #[test]

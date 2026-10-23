@@ -54,7 +54,7 @@ pub async fn send(mut make: impl FnMut() -> RequestBuilder) -> Result<Response> 
                 let url = resp.url().to_string();
                 let mut body = resp.text().await.unwrap_or_default();
                 if last || !is_retryable(status, &body) {
-                    body.truncate(MAX_BODY_IN_ERROR);
+                    crate::text::truncate_utf8(&mut body, MAX_BODY_IN_ERROR);
                     return Err(Error::Api { status: status.as_u16(), url, body });
                 }
                 let wait = retry_after.unwrap_or(backoff);
@@ -83,7 +83,7 @@ pub async fn send_once(req: RequestBuilder) -> Result<Response> {
     let status = resp.status().as_u16();
     let url = resp.url().to_string();
     let mut body = resp.text().await.unwrap_or_default();
-    body.truncate(MAX_BODY_IN_ERROR);
+    crate::text::truncate_utf8(&mut body, MAX_BODY_IN_ERROR);
     Err(Error::Api { status, url, body })
 }
 
