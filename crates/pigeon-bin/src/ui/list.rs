@@ -166,7 +166,7 @@ pub fn MailList() -> Element {
                     }
                 }
             } else if items.is_empty() && outgoing.is_empty() && expired.is_empty() {
-                Empty { syncing: s.sync.read().syncing || s.sync.read().last_ok.is_none() }
+                Empty { syncing: s.sync.read().syncing }
             } else {
                 div { class: "list", role: "listbox", "data-auth": (!expired.is_empty()).then_some("expired"),
                     onscroll: on_scroll,
@@ -192,23 +192,76 @@ pub fn MailList() -> Element {
     }
 }
 
+const SLEEPING_BIRD: &str = r##"<path d="M22 9C28 9 30 14 31 20C36 22 48 26 60 33L58 38C50 42 40 46 30 45C20 44 13 38 13 30C13 25 15 22 16 20C14 18 13 15 14 13C15 10 18 9 22 9Z" fill="#EDEEF0" stroke="var(--line-strong)" stroke-width="1"/><path d="M30 26C38 27 48 30 56 35C46 38 36 38 30 34Z" fill="#B9C3CF"/><path d="M16 20C18 24 22 26 27 25" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linecap="round"/><path d="M14 13.8L8 16.4L14 17.6Z" fill="var(--warning)"/><path d="M17.6 14.4Q19.5 16 21.4 14.4" fill="none" stroke="#1F3A5C" stroke-width="1.2" stroke-linecap="round"/><path d="M28 45V54M35 45V54" stroke="var(--warning)" stroke-width="2.4" stroke-linecap="round"/>"##;
+
+/// What an empty mailbox says: only the inbox gets the sleeping pigeon.
+fn empty_copy(role: Option<FolderRole>) -> (&'static str, &'static str) {
+    match role {
+        Some(FolderRole::Inbox) => ("All caught up", "Nothing left here. Enjoy the quiet."),
+        Some(FolderRole::Sent) => ("Nothing sent yet", "Messages you send show up here."),
+        Some(FolderRole::Drafts) => ("No drafts", "Unsent messages are kept here as you write."),
+        Some(FolderRole::Trash) => ("Trash is empty", "Deleted messages stay here until the server clears them."),
+        Some(FolderRole::Spam) => ("No junk", "Nothing suspicious got through."),
+        Some(FolderRole::Starred) => ("Nothing flagged", "Flag a message with F to keep it here."),
+        _ => ("No messages here", "This folder is empty."),
+    }
+}
+
 #[component]
 fn Empty(syncing: bool) -> Element {
+    let s = use_context::<AppState>();
+    let role = match &*s.mailbox.read() {
+        Mailbox::Unified(r) => Some(*r),
+        Mailbox::Folder { account_id, folder_id } => s
+            .accounts
+            .read()
+            .iter()
+            .find(|a| &a.account.id == account_id)
+            .and_then(|a| a.folders.iter().find(|f| &f.folder.id == folder_id))
+            .and_then(|f| f.folder.role),
+    };
+    let inbox = role == Some(FolderRole::Inbox);
+    let (title, body) = empty_copy(role);
+    // Inbox zero shows what's next today, as in the design.
+    let now = pigeon_core::now_ms();
+    let next = if inbox && !syncing {
+        s.next_up
+            .read()
+            .iter()
+            .find(|e| e.event.end_at > now && !e.event.all_day && format::same_day(e.event.start_at, now))
+            .cloned()
+    } else {
+        None
+    };
     rsx! {
         div { class: "empty-state",
-            div { class: "perch",
-                svg { class: "icon", style: "width:88px;height:80px", r#use { href: "#i-pigeon" } }
-                if !syncing {
-                    span { class: "perch__z", "z" }
-                    span { class: "perch__z", "z" }
+            if inbox || syncing {
+                div { class: "perch",
+                    // The app icon's bird, asleep (closed eye); collar and feet follow the theme.
+                    svg { view_box: "4 4 60 56", "aria-hidden": "true", dangerous_inner_html: SLEEPING_BIRD }
+                    if !syncing {
+                        span { class: "perch__z", "z" }
+                        span { class: "perch__z", "z" }
+                    }
                 }
             }
             if syncing {
                 div { class: "empty-state__title", "Fetching your mail…" }
                 div { class: "empty-state__body", "Recent messages show up first; older mail fills in behind." }
             } else {
-                div { class: "empty-state__title", "All caught up" }
-                div { class: "empty-state__body", "Nothing left here. Enjoy the quiet." }
+                div { class: "empty-state__title", "{title}" }
+                div { class: "empty-state__body", "{body}" }
+            }
+            if let Some(e) = next {
+                div { class: "empty-state__next",
+                    div { class: "next-up__item", "data-hue": "{s.hue(&e.account_id)}", style: "flex:1;min-width:0",
+                        span { class: "next-up__bar" }
+                        div {
+                            div { class: "next-up__title", dir: "auto", "{e.event.title}" }
+                            div { class: "next-up__when", "Next: {format::hhmm(e.event.start_at)}–{format::hhmm(e.event.end_at)}" }
+                        }
+                    }
+                }
             }
         }
     }

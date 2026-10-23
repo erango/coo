@@ -74,6 +74,11 @@ pub fn week_start(t: DateTime<Local>, first: chrono::Weekday) -> i64 {
         .unwrap_or_default()
 }
 
+/// Same local calendar day.
+pub fn same_day(a_ms: i64, b_ms: i64) -> bool {
+    matches!((local(a_ms), local(b_ms)), (Some(a), Some(b)) if a.date_naive() == b.date_naive())
+}
+
 pub fn hhmm(ms: i64) -> String {
     local(ms).map(|t| t.format("%H:%M").to_string()).unwrap_or_default()
 }
