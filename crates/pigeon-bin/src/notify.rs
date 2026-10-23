@@ -211,8 +211,8 @@ mod mac {
     use objc2_user_notifications::{
         UNAuthorizationOptions, UNMutableNotificationContent, UNNotification, UNNotificationAction,
         UNNotificationActionOptions, UNNotificationCategory, UNNotificationCategoryOptions,
-        UNNotificationPresentationOptions, UNNotificationRequest, UNNotificationResponse, UNUserNotificationCenter,
-        UNUserNotificationCenterDelegate,
+        UNNotificationInterruptionLevel, UNNotificationPresentationOptions, UNNotificationRequest,
+        UNNotificationResponse, UNUserNotificationCenter, UNUserNotificationCenterDelegate,
     };
 
     use super::{EVENT_CATEGORY, JOIN_ACTION, Note, on_click};
@@ -321,6 +321,13 @@ mod mac {
         content.setBody(&NSString::from_str(&note.body));
         // Banners are silent: Coo plays its own theme sound for mail and
         // reminders (sound.rs).
+        // Meeting reminders are Time Sensitive, so Focus / Do Not Disturb
+        // lets them through. Needs the time-sensitive entitlement (signed
+        // builds with a provisioning profile); without it macOS treats the
+        // request as a normal notification.
+        if matches!(note.target, super::Target::Event { .. }) && crate::prefs::get().reminders_time_sensitive {
+            content.setInterruptionLevel(UNNotificationInterruptionLevel::TimeSensitive);
+        }
         if note.join_url.is_some() {
             content.setCategoryIdentifier(&NSString::from_str(EVENT_CATEGORY));
         }

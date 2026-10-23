@@ -146,6 +146,12 @@ pub fn Notifications() -> Element {
                     onchange: move |_| set(|p| p.notify_events = !p.notify_events) }
                 span { class: "settings-field__hint", "A reminder before meetings start, with Join." }
             }
+            label { class: "settings-field",
+                span { class: "settings-field__label", "Through Focus" }
+                input { class: "switch", r#type: "checkbox", checked: cur.reminders_time_sensitive, disabled: !cur.notify_events,
+                    onchange: move |_| set(|p| p.reminders_time_sensitive = !p.reminders_time_sensitive) }
+                span { class: "settings-field__hint", "Meeting reminders are Time Sensitive, so Do Not Disturb and Focus still show them. New mail never is. macOS lets you turn this off per Focus too." }
+            }
             div { class: "settings-field settings-field--top",
                 span { class: "settings-field__label", "Sounds" }
                 div { style: "display:flex;flex-direction:column;gap:8px",

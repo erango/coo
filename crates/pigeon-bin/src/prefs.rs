@@ -43,6 +43,8 @@ pub struct Prefs {
     pub undo_send_seconds: u32,
     /// Plain-text signature per sending address (lowercased email).
     pub signatures: std::collections::BTreeMap<String, String>,
+    /// Meeting reminders break through Focus / Do Not Disturb.
+    pub reminders_time_sensitive: bool,
     /// Sound theme id (`sound::THEMES`: new mail + meeting reminder) or "none".
     pub sound_theme: String,
     /// Sound volume, 0–100.
@@ -70,6 +72,7 @@ impl Default for Prefs {
             undo_send_seconds: 10,
             signatures: Default::default(),
             list_width: 0,
+            reminders_time_sensitive: true,
             sound_theme: crate::sound::DEFAULT.into(),
             sound_volume: 60,
         }

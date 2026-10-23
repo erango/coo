@@ -8,6 +8,9 @@
 # Signing: with PIGEON_SIGN_IDENTITY set (e.g. "Developer ID Application:
 # Name (TEAMID)") the bundle is signed for distribution: hardened runtime,
 # secure timestamp, entitlements, helper CLI first. Otherwise ad-hoc.
+# PIGEON_PROVISION_PROFILE=<Developer ID .provisionprofile> embeds it and
+# adds the Time Sensitive Notifications entitlement (restricted: claiming it
+# without a matching profile stops the app from launching).
 # The `coo` CLI ships inside the bundle at Contents/Helpers/coo (not
 # MacOS/: the default case-insensitive disk would make it the same file as
 # MacOS/Coo) so agent setup can point at a stable path.
@@ -80,9 +83,21 @@ PLIST
 
 if [ -n "${PIGEON_SIGN_IDENTITY:-}" ]; then
   echo "==> signing with $PIGEON_SIGN_IDENTITY"
-  SIGN=(codesign --force --timestamp --options runtime --entitlements "$ROOT/scripts/Coo.entitlements" --sign "$PIGEON_SIGN_IDENTITY")
+  ENTITLEMENTS="$ROOT/scripts/Coo.entitlements"
+  if [ -n "${PIGEON_PROVISION_PROFILE:-}" ]; then
+    cp "$PIGEON_PROVISION_PROFILE" "$APP/Contents/embedded.provisionprofile"
+    ENTITLEMENTS="$(mktemp -d)/Coo.entitlements"
+    cp "$ROOT/scripts/Coo.entitlements" "$ENTITLEMENTS"
+    TEAM="$(security cms -D -i "$PIGEON_PROVISION_PROFILE" | plutil -extract TeamIdentifier.0 raw -o - -)"
+    plutil -insert com.apple.developer.usernotifications.time-sensitive -bool YES "$ENTITLEMENTS"
+    plutil -insert com.apple.application-identifier -string "$TEAM.il.co.frost-media.pigeon" "$ENTITLEMENTS"
+    plutil -insert com.apple.developer.team-identifier -string "$TEAM" "$ENTITLEMENTS"
+    echo "==> embedded provisioning profile (team $TEAM), Time Sensitive notifications on"
+  fi
+  SIGN=(codesign --force --timestamp --options runtime --entitlements "$ENTITLEMENTS" --sign "$PIGEON_SIGN_IDENTITY")
+  HELPER_SIGN=(codesign --force --timestamp --options runtime --entitlements "$ROOT/scripts/Coo.entitlements" --sign "$PIGEON_SIGN_IDENTITY")
   # Inside-out: nested code first, then the bundle (never --deep).
-  "${SIGN[@]}" "$APP/Contents/Helpers/coo"
+  "${HELPER_SIGN[@]}" "$APP/Contents/Helpers/coo"
   "${SIGN[@]}" "$APP"
   codesign --verify --strict --verbose=2 "$APP"
 else
