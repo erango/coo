@@ -272,6 +272,8 @@ pub fn App() -> Element {
         rsx! {
             div { class: "app",
                 sidebar::Sidebar {}
+                div { class: "splitter", "data-pane": "sidebar", role: "separator", "aria-orientation": "vertical",
+                    title: "Drag to resize · double-click to reset" }
                 if *s.settings_open.read() {
                     settings::Settings {}
                 } else {
@@ -411,6 +413,15 @@ pub fn list_width_css(px: u32) -> String {
     if px == 0 { String::new() } else { format!(":root{{--list-w:{}px}}", px.clamp(LIST_W_MIN, LIST_W_MAX)) }
 }
 
+/// Sidebar width bounds (px); the design default is `--sidebar-w`.
+pub const SIDEBAR_W_MIN: u32 = 200;
+pub const SIDEBAR_W_MAX: u32 = 360;
+
+/// Head CSS for a saved sidebar width (empty = design default).
+pub fn sidebar_width_css(px: u32) -> String {
+    if px == 0 { String::new() } else { format!(":root{{--sidebar-w:{}px}}", px.clamp(SIDEBAR_W_MIN, SIDEBAR_W_MAX)) }
+}
+
 async fn bridge_loop(s: AppState) {
     let mut eval = document::eval(bridge::JS);
     while let Ok(msg) = eval.recv::<Msg>().await {
@@ -420,6 +431,12 @@ async fn bridge_loop(s: AppState) {
                 os.set(msg.v == "dark");
             }
             "win" => window_action(&msg.v),
+            "sidebar-w" => {
+                let px: u32 = msg.v.parse().unwrap_or(0);
+                crate::prefs::update(|p| {
+                    p.sidebar_width = if px == 0 { 0 } else { px.clamp(SIDEBAR_W_MIN, SIDEBAR_W_MAX) }
+                });
+            }
             "list-w" => {
                 let px: u32 = msg.v.parse().unwrap_or(0);
                 crate::prefs::update(|p| p.list_width = if px == 0 { 0 } else { px.clamp(LIST_W_MIN, LIST_W_MAX) });
@@ -660,5 +677,14 @@ mod shell_tests {
         assert_eq!(title_double_click(Some("Maximize\n")), TitleDoubleClick::Zoom);
         assert_eq!(title_double_click(Some("Minimize\n")), TitleDoubleClick::Minimize);
         assert_eq!(title_double_click(Some("None")), TitleDoubleClick::Nothing);
+    }
+
+    #[test]
+    fn saved_pane_widths_are_clamped() {
+        assert_eq!(sidebar_width_css(0), "");
+        assert_eq!(sidebar_width_css(120), ":root{--sidebar-w:200px}");
+        assert_eq!(sidebar_width_css(280), ":root{--sidebar-w:280px}");
+        assert_eq!(sidebar_width_css(999), ":root{--sidebar-w:360px}");
+        assert_eq!(list_width_css(999), ":root{--list-w:760px}");
     }
 }

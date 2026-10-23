@@ -54,6 +54,8 @@ pub struct Prefs {
     pub compose_mode: String,
     /// Message list width in px (0 = the design default).
     pub list_width: u32,
+    /// Sidebar width in px (0 = the design default).
+    pub sidebar_width: u32,
 }
 
 impl Default for Prefs {
@@ -76,6 +78,7 @@ impl Default for Prefs {
             signatures: Default::default(),
             list_width: 0,
             compose_mode: "window".into(),
+            sidebar_width: 0,
             reminders_time_sensitive: true,
             sound_theme: crate::sound::DEFAULT.into(),
             sound_volume: 60,

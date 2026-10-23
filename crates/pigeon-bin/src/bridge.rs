@@ -283,12 +283,20 @@ pub const JS: &str = r#"
     if (inDragZone(e.target)) send('win', 'zoom');
   });
 
-  // ---- Pane splitter: drag to resize the message list, double-click resets ----
-  const LIST_MIN = 300, LIST_MAX = 760;
+  // ---- Pane splitters: drag to resize the sidebar or the message list,
+  // double-click resets. Bounds match ui::{SIDEBAR,LIST}_W_{MIN,MAX}. ----
+  const SPLITS = {
+    sidebar: { pane: '.sidebar', prop: '--sidebar-w', min: 200, max: 360, msg: 'sidebar-w' },
+    list: { pane: '.pane--list', prop: '--list-w', min: 300, max: 760, msg: 'list-w' },
+  };
+  const splitOf = (t) => {
+    const sp = t.closest && t.closest('.splitter');
+    return sp ? SPLITS[sp.dataset.pane || 'list'] : null;
+  };
   document.addEventListener('mousedown', (e) => {
-    const sp = e.target.closest && e.target.closest('.splitter');
-    if (!sp || e.button !== 0) return;
-    const pane = document.querySelector('.pane--list');
+    const cfg = splitOf(e.target);
+    if (!cfg || e.button !== 0) return;
+    const pane = document.querySelector(cfg.pane);
     if (!pane) return;
     e.preventDefault();
     const z = parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
@@ -296,22 +304,23 @@ pub const JS: &str = r#"
     let w = startW;
     document.body.dataset.resizing = '1';
     const move = (m) => {
-      w = Math.round(Math.min(LIST_MAX, Math.max(LIST_MIN, startW + (m.clientX - startX) / z)));
-      document.documentElement.style.setProperty('--list-w', w + 'px');
+      w = Math.round(Math.min(cfg.max, Math.max(cfg.min, startW + (m.clientX - startX) / z)));
+      document.documentElement.style.setProperty(cfg.prop, w + 'px');
     };
     const up = () => {
       document.removeEventListener('mousemove', move);
       document.removeEventListener('mouseup', up);
       delete document.body.dataset.resizing;
-      send('list-w', w);
+      send(cfg.msg, w);
     };
     document.addEventListener('mousemove', move);
     document.addEventListener('mouseup', up);
   }, true);
   document.addEventListener('dblclick', (e) => {
-    if (!(e.target.closest && e.target.closest('.splitter'))) return;
-    document.documentElement.style.removeProperty('--list-w');
-    send('list-w', 0);
+    const cfg = splitOf(e.target);
+    if (!cfg) return;
+    document.documentElement.style.removeProperty(cfg.prop);
+    send(cfg.msg, 0);
   }, true);
 
   // ---- Mail frames: fit height to content, open links in the browser ----

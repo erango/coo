@@ -61,13 +61,14 @@ pub fn head_html() -> String {
     let platform_css = if cfg!(target_os = "macos") { ":root{--titlebar-traffic:62px}" } else { "" };
     let zoom_css = ui::zoom::head_css(prefs.font_scale);
     let list_css = ui::list_width_css(prefs.list_width);
+    let sidebar_css = ui::sidebar_width_css(prefs.sidebar_width);
     let theme_mode = match prefs.theme_mode.as_str() {
         "dark" | "light" => prefs.theme_mode.as_str(),
         _ => "system",
     };
     let palette = if themes::is_known(&prefs.palette) { prefs.palette.as_str() } else { themes::DEFAULT };
     format!(
-        "<style>{}\n{}\n{}\n{platform_css}\n{zoom_css}\n{list_css}</style><script>document.documentElement.dataset.theme={theme_mode:?};\
+        "<style>{}\n{}\n{}\n{platform_css}\n{zoom_css}\n{list_css}\n{sidebar_css}</style><script>document.documentElement.dataset.theme={theme_mode:?};\
          document.documentElement.dataset.palette={palette:?};</script>",
         fonts::css(),
         CSS.join("\n"),
