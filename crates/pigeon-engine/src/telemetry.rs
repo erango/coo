@@ -196,6 +196,14 @@ pub fn scrub_event(e: &mut Event<'static>) {
     for v in e.extra.values_mut() {
         scrub_value(v);
     }
+    // tracing fields (e.g. `error = %e`) land in contexts, not extra.
+    for c in e.contexts.values_mut() {
+        if let sentry::protocol::Context::Other(map) = c {
+            for v in map.values_mut() {
+                scrub_value(v);
+            }
+        }
+    }
     for v in e.tags.values_mut() {
         *v = scrub(v).into_owned();
     }
@@ -234,6 +242,18 @@ mod tests {
             "503 from https://graph.microsoft.com/v1.0/me/messages/delta?<redacted> busy"
         );
         assert_eq!(scrub("what? really?"), "what? really?");
+    }
+
+    #[test]
+    fn tracing_field_contexts_are_scrubbed() {
+        let mut e = Event::default();
+        let mut fields = sentry::protocol::Map::new();
+        fields.insert("error".into(), "a.b@gmail.com: 403 from https://x.com/m/1?format=metadata".into());
+        e.contexts.insert("Rust Tracing Fields".into(), sentry::protocol::Context::Other(fields));
+        scrub_event(&mut e);
+        let sentry::protocol::Context::Other(m) = &e.contexts["Rust Tracing Fields"] else { panic!() };
+        let s = m["error"].as_str().unwrap();
+        assert!(!s.contains("a.b@gmail.com") && !s.contains("format=metadata"), "{s}");
     }
 
     #[test]

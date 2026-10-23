@@ -9,6 +9,10 @@ use serde::de::DeserializeOwned;
 use crate::{Error, Result};
 
 const MAX_ATTEMPTS: u32 = 5;
+/// Per-minute quota errors (Gmail "Units per minute per user") only clear
+/// when the minute window rolls over, so they get longer waits and more tries.
+const MAX_QUOTA_ATTEMPTS: u32 = 8;
+const QUOTA_MIN_WAIT: Duration = Duration::from_secs(15);
 const MAX_BODY_IN_ERROR: usize = 2000;
 
 pub fn client() -> &'static Client {
@@ -30,8 +34,11 @@ pub fn client() -> &'static Client {
 /// a fresh request per attempt.
 pub async fn send(mut make: impl FnMut() -> RequestBuilder) -> Result<Response> {
     let mut backoff = Duration::from_millis(500);
-    for attempt in 1..=MAX_ATTEMPTS {
-        let last = attempt == MAX_ATTEMPTS;
+    let mut attempt = 0;
+    let mut quota_hits = 0;
+    loop {
+        attempt += 1;
+        let last = attempt >= MAX_ATTEMPTS + quota_hits.min(MAX_QUOTA_ATTEMPTS - MAX_ATTEMPTS);
         let started = std::time::Instant::now();
         let req = make();
         let target = req.try_clone().and_then(|r| r.build().ok()).map(|r| {
@@ -57,7 +64,15 @@ pub async fn send(mut make: impl FnMut() -> RequestBuilder) -> Result<Response> 
                     crate::text::truncate_utf8(&mut body, MAX_BODY_IN_ERROR);
                     return Err(Error::Api { status: status.as_u16(), url, body });
                 }
-                let wait = retry_after.unwrap_or(backoff);
+                let quota = is_quota(status, &body);
+                if quota {
+                    quota_hits += 1;
+                }
+                let wait = match retry_after {
+                    Some(w) => w,
+                    None if quota => backoff.max(QUOTA_MIN_WAIT),
+                    None => backoff,
+                };
                 tracing::info!(%status, attempt, wait_s = wait.as_secs(), "throttled or transient error; retrying");
                 wait
             }
@@ -68,9 +83,16 @@ pub async fn send(mut make: impl FnMut() -> RequestBuilder) -> Result<Response> 
             Err(e) => return Err(e.into()),
         };
         tokio::time::sleep(wait + jitter()).await;
-        backoff = (backoff * 2).min(Duration::from_secs(30));
+        backoff = (backoff * 2).min(Duration::from_secs(60));
     }
-    unreachable!("loop returns on the last attempt")
+}
+
+/// Throttling that waits on a per-minute (or per-day) quota window.
+fn is_quota(status: StatusCode, body: &str) -> bool {
+    matches!(status.as_u16(), 403 | 429)
+        && (body.contains("ateLimitExceeded")
+            || body.contains("RATE_LIMIT_EXCEEDED")
+            || body.contains("Quota exceeded"))
 }
 
 /// Single attempt, for non-idempotent requests (sending mail): a retry after
@@ -121,5 +143,8 @@ mod tests {
         assert!(is_retryable(StatusCode::FORBIDDEN, r#"{"reason":"userRateLimitExceeded"}"#));
         assert!(!is_retryable(StatusCode::FORBIDDEN, r#"{"reason":"insufficientPermissions"}"#));
         assert!(!is_retryable(StatusCode::NOT_FOUND, ""));
+        let gmail = r#"{"error":{"code":403,"message":"Quota exceeded for quota metric 'Total Query Cost'","errors":[{"reason":"rateLimitExceeded"}]}}"#;
+        assert!(is_retryable(StatusCode::FORBIDDEN, gmail) && is_quota(StatusCode::FORBIDDEN, gmail));
+        assert!(!is_quota(StatusCode::SERVICE_UNAVAILABLE, ""));
     }
 }

@@ -3,3 +3,10 @@
 cli = "run -q -p pigeon-cli --"
 # Desktop app: `cargo app` (uses the real data dir; set PIGEON_DATA_DIR to isolate).
 app = "run -p pigeon-bin"
+
+# Run the desktop app from a dev Coo.app wrapper (name, icon, notifications).
+[target.aarch64-apple-darwin]
+runner = "scripts/cargo-runner.sh"
+
+[target.x86_64-apple-darwin]
+runner = "scripts/cargo-runner.sh"
