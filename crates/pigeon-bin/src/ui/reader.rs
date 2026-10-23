@@ -82,6 +82,10 @@ fn Thread(view: ReaderView) -> Element {
         }
     }
     let count = view.messages.len();
+    let terms = search_terms(&s);
+    let open_ids: Vec<String> =
+        view.messages.iter().filter(|m| expanded.read().contains(&m.id)).map(|m| m.id.clone()).collect();
+    let matches = match_count(&s, &view.account_id, &open_ids, &terms);
     let draft = s.draft.read().clone();
     let inline_draft = draft
         .filter(|d| d.reply.as_ref().is_some_and(|r| r.account_id == view.account_id && r.thread_id == view.thread_id));
@@ -94,6 +98,10 @@ fn Thread(view: ReaderView) -> Element {
                 span { class: "thread-meta__people", dir: "auto",
                     "{people.join(\", \")}"
                     if count > 1 { " · {count} messages" }
+                }
+                if matches > 0 {
+                    span { class: "spacer" }
+                    MatchNav { total: matches }
                 }
             }
             div { class: "thread",
@@ -198,6 +206,66 @@ fn Message(account_id: String, header: MessageHeader) -> Element {
     }
 }
 
+/// Highlight terms while the message was opened from search.
+fn search_terms(s: &AppState) -> Vec<String> {
+    s.search.read().as_ref().map(|st| mailframe::match_terms(&st.query)).unwrap_or_default()
+}
+
+/// Matches in the expanded messages' loaded bodies.
+fn match_count(s: &AppState, account_id: &str, ids: &[String], terms: &[String]) -> usize {
+    if terms.is_empty() {
+        return 0;
+    }
+    let bodies = s.bodies.read();
+    ids.iter()
+        .filter_map(|id| bodies.get(&(account_id.to_string(), id.clone())))
+        .map(|b| match &b.html {
+            Some(h) => mailframe::highlight_html(h, terms).1,
+            None => {
+                mailframe::split_matches(b.text.as_deref().unwrap_or_default(), terms).iter().filter(|r| r.1).count()
+            }
+        })
+        .sum()
+}
+
+/// "2 of 5" with previous/next: moves `data-current` across the marks in
+/// the reader (mail frames are same-origin srcdoc) and scrolls to it.
+#[component]
+fn MatchNav(total: usize) -> Element {
+    let current = use_signal(|| 0usize);
+    let go = move |i: usize| {
+        let mut c = current;
+        c.set(i);
+        document::eval(&format!(
+            "(()=>{{const r=document.querySelector('.pane--reader');if(!r)return;\
+             const marks=[];for(const n of r.querySelectorAll('.plain-body mark[data-pg-match], iframe.mail-frame')){{\
+             if(n.tagName==='IFRAME'){{try{{marks.push(...n.contentDocument.querySelectorAll('mark[data-pg-match]'))}}catch(_){{}}}}else marks.push(n);}}\
+             marks.forEach((m,k)=>{{if(k==={i})m.setAttribute('data-current','');else m.removeAttribute('data-current');}});\
+             const m=marks[{i}];if(!m)return;const f=m.ownerDocument.defaultView.frameElement;\
+             const top=(f?f.getBoundingClientRect().top:0)+m.getBoundingClientRect().top;\
+             const sc=r.querySelector('.reader');const box=(sc||r).getBoundingClientRect();\
+             (sc||r).scrollBy({{top:top-box.top-box.height/3,behavior:'smooth'}});}})()"
+        ));
+    };
+    // Mark the first match once the frames have loaded.
+    use_effect(move || {
+        spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+            go(0);
+        });
+    });
+    let i = *current.read();
+    rsx! {
+        div { class: "match-nav", role: "group", "aria-label": "Search matches",
+            span { "{i + 1} of {total}" }
+            button { class: "icon-btn icon-btn--xs", "aria-label": "Previous match",
+                onclick: move |_| go(if i == 0 { total - 1 } else { i - 1 }), Icon { name: "chev-up", class: "icon--sm" } }
+            button { class: "icon-btn icon-btn--xs", "aria-label": "Next match",
+                onclick: move |_| go((i + 1) % total), Icon { name: "chev-down", class: "icon--sm" } }
+        }
+    }
+}
+
 #[component]
 fn Body(account_id: String, message_id: String, body: StoredBody) -> Element {
     let s = use_context::<AppState>();
@@ -209,10 +277,12 @@ fn Body(account_id: String, message_id: String, body: StoredBody) -> Element {
     let attachments: Vec<_> = body.attachments.iter().filter(|a| !a.meta.is_inline).cloned().collect();
     let (id1, id2) = (message_id.clone(), message_id.clone());
 
+    let terms = search_terms(&s);
     let content = match &body.html {
         Some(html) => {
             let adapted = mailframe::is_complex(html) == flipped;
-            let doc = mailframe::srcdoc(html, &s.palette.read(), dark, adapted, allowed);
+            let (marked, _) = mailframe::highlight_html(html, &terms);
+            let doc = mailframe::srcdoc(&marked, &s.palette.read(), dark, adapted, allowed);
             rsx! {
                 div { class: "mail-body",
                     button { class: "btn btn--ghost btn--sm mail-body__toggle", r#type: "button",
@@ -226,7 +296,21 @@ fn Body(account_id: String, message_id: String, body: StoredBody) -> Element {
                 }
             }
         }
-        None => rsx! { div { class: "plain-body", dir: "auto", "{body.text.clone().unwrap_or_default()}" } },
+        None => {
+            let text = body.text.clone().unwrap_or_default();
+            let runs: Vec<(String, bool)> =
+                mailframe::split_matches(&text, &terms).into_iter().map(|(t, m)| (t.to_string(), m)).collect();
+            rsx! {
+                div { class: "plain-body", dir: "auto",
+                    // One inline run: .plain-body is a flex column.
+                    div { dir: "auto", style: "unicode-bidi:plaintext",
+                        for (i, (t, m)) in runs.into_iter().enumerate() {
+                            if m { mark { key: "{i}", "data-pg-match": "true", "{t}" } } else { span { key: "{i}", "{t}" } }
+                        }
+                    }
+                }
+            }
+        }
     };
 
     rsx! {

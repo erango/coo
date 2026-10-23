@@ -14,6 +14,139 @@ pub fn is_complex(html: &str) -> bool {
         || l.matches("<table").count() > 1
 }
 
+/// Free-text terms of a search query worth highlighting: lowercased,
+/// deduped, longest first (so "invoice" wins over "in").
+pub fn match_terms(query: &str) -> Vec<String> {
+    let mut terms: Vec<String> = pigeon_core::search::parse(query)
+        .text
+        .into_iter()
+        .map(|t| t.trim_matches(|c: char| c == '*' || c == '"').to_lowercase())
+        .filter(|t| t.chars().count() >= 2)
+        .collect();
+    terms.sort_by_key(|t| std::cmp::Reverse(t.chars().count()));
+    terms.dedup();
+    terms
+}
+
+/// Byte length of `term` matched case-insensitively at the start of `s`.
+fn match_at(s: &str, term: &str) -> Option<usize> {
+    let mut it = s.char_indices();
+    for tc in term.chars() {
+        let (_, c) = it.next()?;
+        if c.to_lowercase().ne(tc.to_lowercase()) {
+            return None;
+        }
+    }
+    Some(it.next().map_or(s.len(), |(i, _)| i))
+}
+
+/// Split plain text into (segment, is_match) runs.
+pub fn split_matches<'a>(text: &'a str, terms: &[String]) -> Vec<(&'a str, bool)> {
+    let mut out = Vec::new();
+    let (mut start, mut i) = (0, 0);
+    while i < text.len() {
+        if let Some(len) = terms.iter().find_map(|t| match_at(&text[i..], t)) {
+            if start < i {
+                out.push((&text[start..i], false));
+            }
+            out.push((&text[i..i + len], true));
+            i += len;
+            start = i;
+        } else {
+            i += text[i..].chars().next().map_or(1, char::len_utf8);
+        }
+    }
+    if start < text.len() {
+        out.push((&text[start..], false));
+    }
+    out
+}
+
+/// Wrap matches in text nodes of (sanitized) HTML with `<mark>`; tags,
+/// entities and style/script/title content are left alone. Returns the new
+/// HTML and the number of matches. Only the original characters plus our
+/// own `<mark>` tags are emitted, so it can't open a sanitization hole.
+pub fn highlight_html(html: &str, terms: &[String]) -> (String, usize) {
+    if terms.is_empty() {
+        return (html.to_string(), 0);
+    }
+    let mut out = String::with_capacity(html.len() + 64);
+    let mut count = 0;
+    let mut rest = html;
+    let mut skip_until: Option<String> = None;
+    while !rest.is_empty() {
+        let lt = rest.find('<').unwrap_or(rest.len());
+        let text = &rest[..lt];
+        if skip_until.is_some() {
+            out.push_str(text);
+        } else {
+            // Don't match across an entity: highlight between them only.
+            let mut t = text;
+            while !t.is_empty() {
+                let amp = t.find('&').unwrap_or(t.len());
+                for (seg, m) in split_matches(&t[..amp], terms) {
+                    if m {
+                        count += 1;
+                        out.push_str("<mark data-pg-match>");
+                        out.push_str(seg);
+                        out.push_str("</mark>");
+                    } else {
+                        out.push_str(seg);
+                    }
+                }
+                t = &t[amp..];
+                if !t.is_empty() {
+                    let end = t.find(';').filter(|&e| e <= 12).map_or(1, |e| e + 1);
+                    out.push_str(&t[..end]);
+                    t = &t[end..];
+                }
+            }
+        }
+        rest = &rest[lt..];
+        if rest.is_empty() {
+            break;
+        }
+        // A tag (or comment) through its closing '>', honoring quotes.
+        let end = if rest.starts_with("<!--") {
+            rest.find("-->").map_or(rest.len(), |e| e + 3)
+        } else {
+            let mut q: Option<char> = None;
+            let mut e = rest.len();
+            for (i, c) in rest.char_indices().skip(1) {
+                match (q, c) {
+                    (Some(open), c) if c == open => q = None,
+                    (None, '"' | '\'') => q = Some(c),
+                    (None, '>') => {
+                        e = i + 1;
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            e
+        };
+        let tag = &rest[..end];
+        let name = tag
+            .trim_start_matches('<')
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '/')
+            .collect::<String>()
+            .to_ascii_lowercase();
+        match &skip_until {
+            Some(close) if name == *close => skip_until = None,
+            None if matches!(name.as_str(), "style" | "script" | "title" | "textarea") => {
+                skip_until = Some(format!("/{name}"))
+            }
+            _ => {}
+        }
+        out.push_str(tag);
+        rest = &rest[end..];
+    }
+    (out, count)
+}
+
+const MARK_CSS: &str = "mark{background:#FFE58A;color:#111;border-radius:3px;padding:0 1px}mark[data-current]{background:#1F8A70;color:#fff}";
+
 /// `palette` + `dark` pick the adapted text/muted/link colors (the frame
 /// can't see the app's custom properties).
 pub fn srcdoc(html: &str, palette: &str, dark: bool, adapted: bool, allow_remote: bool) -> String {
@@ -32,7 +165,7 @@ pub fn srcdoc(html: &str, palette: &str, dark: bool, adapted: bool, allow_remote
     format!(
         "<!doctype html><html><head><meta charset=\"utf-8\">\
          <meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; img-src {img_src}; font-src data:\">\
-         <base target=\"_blank\"><style>{style}</style></head><body dir=\"auto\">{html}</body></html>"
+         <base target=\"_blank\"><style>{style}{MARK_CSS}</style></head><body dir=\"auto\">{html}</body></html>"
     )
 }
 
@@ -57,6 +190,26 @@ mod tests {
         let doc = srcdoc("", "dracula", true, true, false);
         assert!(doc.contains(&format!("--mail-fg: {fg}")) && doc.contains(&format!("--mail-link: {link}")));
         assert!(!doc.contains("#EDEEF0"));
+    }
+
+    #[test]
+    fn highlights_text_not_markup() {
+        let terms = match_terms("invoice from:dana Q4 a");
+        assert_eq!(terms, ["invoice", "q4"]);
+        let html = r#"<style>.invoice{color:red}</style><p class="invoice" title="Invoice">Your INVOICE for Q4 &amp; invoices</p><!-- invoice -->"#;
+        let (out, n) = highlight_html(html, &terms);
+        assert_eq!(n, 3);
+        assert!(out.starts_with(r#"<style>.invoice{color:red}</style><p class="invoice" title="Invoice">"#));
+        assert!(out.contains(
+            "<mark data-pg-match>INVOICE</mark> for <mark data-pg-match>Q4</mark> &amp; <mark data-pg-match>invoice</mark>s"
+        ));
+        assert!(out.ends_with("<!-- invoice -->"));
+        // Hebrew, case-insensitive non-ASCII, and no terms.
+        let (he, n) = highlight_html("<p>הזמנה מספר 4471</p>", &match_terms("הזמנה"));
+        assert_eq!((n, he.as_str()), (1, "<p><mark data-pg-match>הזמנה</mark> מספר 4471</p>"));
+        assert_eq!(highlight_html("<p>ÉCOLE</p>", &match_terms("école")).1, 1);
+        assert_eq!(highlight_html("<p>x</p>", &[]), ("<p>x</p>".to_string(), 0));
+        assert_eq!(split_matches("a Q4 b", &terms), [("a ", false), ("Q4", true), (" b", false)]);
     }
 
     #[test]

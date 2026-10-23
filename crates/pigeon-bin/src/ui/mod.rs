@@ -67,6 +67,16 @@ pub fn App() -> Element {
                 // compose:<to list>[|<partial>] — new draft, chips + autocomplete
                 "compose" => send_cmd(Cmd::NewDraft),
                 "search" => search::open(s, arg),
+                // find:<query>|<account_id>|<thread_id> — search, then open a thread from it
+                "find" => {
+                    let p: Vec<&str> = arg.split('|').collect();
+                    if let [q, account_id, thread_id] = p[..] {
+                        search::open(s, q);
+                        let mut sel = s.selected;
+                        sel.set(Some(format!("{account_id}|{thread_id}")));
+                        send_cmd(Cmd::OpenThread { account_id: account_id.into(), thread_id: thread_id.into() });
+                    }
+                }
                 // open:<account_id>|<thread_id>
                 "open" => {
                     if let Some((account_id, thread_id)) = arg.split_once('|') {
