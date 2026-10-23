@@ -1,0 +1,5 @@
+[alias]
+# Engine harness: `cargo cli login microsoft`, `cargo cli sync`, `cargo cli ls`.
+cli = "run -q -p pigeon-cli --"
+# Desktop app: `cargo app` (uses the real data dir; set PIGEON_DATA_DIR to isolate).
+app = "run -p pigeon-bin"

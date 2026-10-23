@@ -1,0 +1,635 @@
+//! The UI-facing engine loop: the UI sends [`Cmd`]s, the engine answers with
+//! [`Delta`]s rendered from the local store. Runs on its own Tokio runtime;
+//! the UI thread never touches SQL or the network.
+
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
+
+use base64::Engine as _;
+use pigeon_core::compose::{Draft, ReplyKind, Sender};
+use pigeon_core::model::*;
+use pigeon_core::store::{FolderSel, ListQuery};
+use pigeon_core::{Error, Result, now_ms};
+use tokio::sync::{Mutex, mpsc};
+
+use crate::{MailAction, Pigeon};
+
+const SYNC_EVERY: Duration = Duration::from_secs(30);
+const LIST_LIMIT: u32 = 300;
+const NEXT_UP_HOURS: i64 = 12;
+
+/// Which list the user is looking at.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Mailbox {
+    /// A role across every account (unified inbox, sent, ...).
+    Unified(FolderRole),
+    Folder {
+        account_id: String,
+        folder_id: String,
+    },
+}
+
+impl Mailbox {
+    fn query(&self) -> ListQuery {
+        match self {
+            Mailbox::Unified(role) => ListQuery::unified(*role, LIST_LIMIT),
+            Mailbox::Folder { account_id, folder_id } => ListQuery {
+                account_id: Some(account_id.clone()),
+                folder: FolderSel::Id(folder_id.clone()),
+                limit: LIST_LIMIT,
+                before: None,
+            },
+        }
+    }
+
+    /// The concrete folder a message was listed from (Gmail moves need it).
+    fn folder_for(&self, store_role: impl Fn(&str, FolderRole) -> Option<String>, account_id: &str) -> Option<String> {
+        match self {
+            Mailbox::Unified(role) => store_role(account_id, *role),
+            Mailbox::Folder { folder_id, .. } => Some(folder_id.clone()),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum Cmd {
+    ShowMailbox {
+        mailbox: Mailbox,
+        threaded: bool,
+    },
+    OpenThread {
+        account_id: String,
+        thread_id: String,
+    },
+    OpenMessage {
+        account_id: String,
+        message_id: String,
+    },
+    /// Act on messages; with `thread_id`, on that thread's messages in the
+    /// current mailbox (so archiving a thread leaves your Sent copies alone).
+    Act {
+        account_id: String,
+        ids: Vec<String>,
+        thread_id: Option<String>,
+        action: MailAction,
+        label: String,
+    },
+    Undo {
+        account_id: String,
+        handle: i64,
+    },
+    SyncNow,
+    Login(ProviderKind),
+    LoadSenders,
+    StartReply {
+        account_id: String,
+        message_id: String,
+        kind: ReplyKind,
+    },
+    NewDraft,
+    SaveDraft(Draft),
+    Send(Draft),
+    OpenAttachment {
+        account_id: String,
+        message_id: String,
+        attachment_id: String,
+    },
+    ShowCalendar {
+        from: i64,
+        to: i64,
+    },
+    Rsvp {
+        account_id: String,
+        calendar_id: String,
+        event_id: String,
+        response: Response,
+    },
+    CreateEvent {
+        account_id: String,
+        draft: EventDraft,
+    },
+    DeleteEvent {
+        account_id: String,
+        calendar_id: String,
+        event_id: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AccountNav {
+    pub account: Account,
+    /// Account color slot, 1..=8.
+    pub hue: u8,
+    pub folders: Vec<FolderInfo>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ListItem {
+    Thread(ThreadRow),
+    Message(MessageRow),
+}
+
+impl ListItem {
+    pub fn account_id(&self) -> &str {
+        match self {
+            ListItem::Thread(t) => &t.account_id,
+            ListItem::Message(m) => &m.account_id,
+        }
+    }
+
+    pub fn header(&self) -> &MessageHeader {
+        match self {
+            ListItem::Thread(t) => &t.latest,
+            ListItem::Message(m) => &m.header,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReaderView {
+    pub account_id: String,
+    pub thread_id: String,
+    /// Oldest first.
+    pub messages: Vec<MessageHeader>,
+    /// The message to expand (newest unless a single message was opened).
+    pub focus: String,
+    /// Opened as a single message from the unthreaded list.
+    pub single: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Toast {
+    pub id: u64,
+    pub message: String,
+    pub error: bool,
+    pub undo: Option<(String, i64)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct SyncState {
+    pub syncing: bool,
+    pub last_ok: Option<i64>,
+    pub error: Option<String>,
+    /// Accounts whose sign-in expired.
+    pub needs_sign_in: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub enum Delta {
+    Accounts(Vec<AccountNav>),
+    List {
+        mailbox: Mailbox,
+        threaded: bool,
+        items: Vec<ListItem>,
+    },
+    Reader(ReaderView),
+    /// Body with inline images resolved to data URLs.
+    Body {
+        account_id: String,
+        message_id: String,
+        body: StoredBody,
+    },
+    Toast(Toast),
+    Sync(SyncState),
+    NextUp(Vec<EventRow>),
+    Events {
+        from: i64,
+        to: i64,
+        events: Vec<EventRow>,
+        calendars: Vec<(String, Calendar)>,
+    },
+    Senders(Vec<Sender>),
+    Draft(Draft),
+    Sent {
+        draft_id: String,
+    },
+    SendFailed {
+        draft_id: String,
+        error: String,
+    },
+    AttachmentReady(std::path::PathBuf),
+}
+
+/// Stable 1..=8 color slot for an account address.
+pub fn hue_for(email: &str) -> u8 {
+    // FNV-1a: stable across runs and machines.
+    let mut h: u32 = 0x811c9dc5;
+    for b in email.to_lowercase().bytes() {
+        h ^= u32::from(b);
+        h = h.wrapping_mul(0x01000193);
+    }
+    (h % 8) as u8 + 1
+}
+
+/// Replace `cid:` references with data URLs from the cached inline parts.
+fn inline_images(mut body: StoredBody) -> StoredBody {
+    let Some(html) = body.html.as_mut() else { return body };
+    for a in &body.attachments {
+        let (Some(cid), Some(path)) = (&a.meta.content_id, &a.local_path) else { continue };
+        let needle = format!("cid:{cid}");
+        if !html.contains(&needle) {
+            continue;
+        }
+        let Ok(bytes) = std::fs::read(path) else { continue };
+        let ct = a.meta.content_type.as_deref().unwrap_or("image/png");
+        let url = format!("data:{ct};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes));
+        *html = html.replace(&needle, &url);
+    }
+    body
+}
+
+struct View {
+    mailbox: Mailbox,
+    threaded: bool,
+    calendar: Option<(i64, i64)>,
+}
+
+struct Service {
+    app: Arc<Pigeon>,
+    tx: mpsc::UnboundedSender<Delta>,
+    view: Mutex<View>,
+    syncing: AtomicBool,
+    sync_state: Mutex<SyncState>,
+    toast_seq: std::sync::atomic::AtomicU64,
+}
+
+impl Service {
+    fn send(&self, d: Delta) {
+        let _ = self.tx.send(d);
+    }
+
+    fn toast(&self, message: impl Into<String>, error: bool, undo: Option<(String, i64)>) {
+        let id = self.toast_seq.fetch_add(1, Ordering::Relaxed);
+        self.send(Delta::Toast(Toast { id, message: message.into(), error, undo }));
+    }
+
+    fn fail(&self, context: &str, e: &Error) {
+        tracing::error!(error = %e, "{context}");
+        self.toast(format!("{context}: {e}"), true, None);
+    }
+
+    /// Re-render everything derived from the store.
+    async fn publish(&self) {
+        if let Err(e) = self.publish_inner().await {
+            self.fail("Could not load mail", &e);
+        }
+    }
+
+    async fn publish_inner(&self) -> Result<()> {
+        let (mailbox, threaded, calendar) = {
+            let v = self.view.lock().await;
+            (v.mailbox.clone(), v.threaded, v.calendar)
+        };
+        let now = now_ms();
+        let (accounts, items, next_up, cal) = {
+            let store = self.app.store();
+            let mut accounts = Vec::new();
+            for a in store.accounts()? {
+                accounts.push(AccountNav { hue: hue_for(&a.email), folders: store.folders(&a.id)?, account: a });
+            }
+            let q = mailbox.query();
+            let items = if threaded {
+                store.list_threads(&q)?.into_iter().map(ListItem::Thread).collect()
+            } else {
+                store.list_messages(&q)?.into_iter().map(ListItem::Message).collect()
+            };
+            let next_up = store.events_between(now, now + NEXT_UP_HOURS * 3_600_000)?;
+            let cal = match calendar {
+                Some((from, to)) => {
+                    let events = store.events_between(from, to)?;
+                    let mut cals = Vec::new();
+                    for a in &accounts {
+                        cals.extend(store.calendars(&a.account.id)?.into_iter().map(|c| (a.account.id.clone(), c)));
+                    }
+                    Some((from, to, events, cals))
+                }
+                None => None,
+            };
+            (accounts, items, next_up, cal)
+        };
+        self.send(Delta::Accounts(accounts));
+        self.send(Delta::List { mailbox, threaded, items });
+        self.send(Delta::NextUp(next_up.into_iter().filter(|e| !e.event.all_day).take(3).collect()));
+        if let Some((from, to, events, calendars)) = cal {
+            self.send(Delta::Events { from, to, events, calendars });
+        }
+        Ok(())
+    }
+
+    async fn set_sync(&self, f: impl FnOnce(&mut SyncState)) {
+        let mut s = self.sync_state.lock().await;
+        f(&mut s);
+        self.send(Delta::Sync(s.clone()));
+    }
+
+    async fn sync(self: Arc<Self>) {
+        if self.syncing.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        self.set_sync(|s| s.syncing = true).await;
+        let reports = self.app.sync_all().await;
+        let mut errors = Vec::new();
+        let mut needs_sign_in = Vec::new();
+        match &reports {
+            Ok(reports) => {
+                for r in reports {
+                    for e in [r.mail.as_ref().err(), r.calendar.as_ref().err()].into_iter().flatten() {
+                        if matches!(e, Error::SignInRequired(_)) {
+                            needs_sign_in.push(r.account.id.clone());
+                        } else {
+                            errors.push(format!("{}: {e}", r.account.email));
+                        }
+                    }
+                }
+            }
+            Err(e) => errors.push(e.to_string()),
+        }
+        needs_sign_in.dedup();
+        for e in &errors {
+            tracing::error!(error = %e, "sync failed");
+        }
+        self.set_sync(|s| {
+            s.syncing = false;
+            if errors.is_empty() {
+                s.last_ok = Some(now_ms());
+            }
+            s.error = errors.first().cloned();
+            s.needs_sign_in = needs_sign_in;
+        })
+        .await;
+        self.syncing.store(false, Ordering::SeqCst);
+        self.publish().await;
+    }
+
+    async fn open_bodies(self: Arc<Self>, account: Account, ids: Vec<String>) {
+        for id in ids {
+            match self.app.body(&account, &id).await {
+                Ok(body) => {
+                    self.send(Delta::Body { account_id: account.id.clone(), message_id: id, body: inline_images(body) })
+                }
+                Err(e) => self.fail("Could not load message", &e),
+            }
+        }
+    }
+
+    async fn handle(self: Arc<Self>, cmd: Cmd) {
+        if let Err(e) = self.clone().handle_inner(cmd).await {
+            self.fail("Something went wrong", &e);
+        }
+    }
+
+    async fn handle_inner(self: Arc<Self>, cmd: Cmd) -> Result<()> {
+        match cmd {
+            Cmd::ShowMailbox { mailbox, threaded } => {
+                {
+                    let mut v = self.view.lock().await;
+                    v.mailbox = mailbox;
+                    v.threaded = threaded;
+                }
+                self.publish().await;
+            }
+            Cmd::OpenThread { account_id, thread_id } => {
+                let account = self.app.account(&account_id)?;
+                let messages = self.app.store().thread_messages(&account_id, &thread_id)?;
+                let Some(last) = messages.last() else { return Ok(()) };
+                let focus = last.id.clone();
+                self.open(account, thread_id, messages, focus, false).await?;
+            }
+            Cmd::OpenMessage { account_id, message_id } => {
+                let account = self.app.account(&account_id)?;
+                let Some(h) = self.app.store().message(&account_id, &message_id)? else { return Ok(()) };
+                let thread_id = h.thread_id.clone();
+                self.open(account, thread_id, vec![h], message_id, true).await?;
+            }
+            Cmd::Act { account_id, mut ids, thread_id, action, label } => {
+                let account = self.app.account(&account_id)?;
+                let from = {
+                    let v = self.view.lock().await;
+                    let store = self.app.store();
+                    v.mailbox.folder_for(|a, r| store.role_folder(a, r).ok().flatten(), &account_id)
+                };
+                if let Some(thread_id) = thread_id {
+                    let store = self.app.store();
+                    let in_view = |m: &MessageHeader| {
+                        let full = store.message(&account_id, &m.id).ok().flatten();
+                        from.as_ref().is_none_or(|f| full.is_some_and(|h| h.folder_ids.contains(f)))
+                    };
+                    let messages = store.thread_messages(&account_id, &thread_id)?;
+                    ids = match action {
+                        // Read state applies to the whole conversation.
+                        MailAction::MarkRead | MailAction::MarkUnread => {
+                            messages.iter().map(|m| m.id.clone()).collect()
+                        }
+                        // Flag the newest message, like Gmail/Outlook.
+                        MailAction::Flag | MailAction::Unflag => {
+                            messages.iter().rev().find(|m| in_view(m)).map(|m| vec![m.id.clone()]).unwrap_or_default()
+                        }
+                        _ => messages.iter().filter(|m| in_view(m)).map(|m| m.id.clone()).collect(),
+                    };
+                }
+                if ids.is_empty() {
+                    return Ok(());
+                }
+                let handle = self.app.act(&account, &ids, from.as_deref(), &action)?;
+                let undoable = !matches!(action, MailAction::MarkRead | MailAction::MarkUnread);
+                if undoable {
+                    self.toast(label, false, Some((account_id, handle)));
+                }
+                self.publish().await;
+                self.flush(account).await;
+            }
+            Cmd::Undo { account_id, handle } => {
+                let account = self.app.account(&account_id)?;
+                self.app.undo(&account, handle)?;
+                self.publish().await;
+                self.flush(account).await;
+            }
+            Cmd::SyncNow => tokio::spawn(self.clone().sync()).await.map_err(|e| Error::Other(e.to_string()))?,
+            Cmd::Login(provider) => {
+                let account = self.app.login(provider, |url| tracing::info!(url, "sign-in URL")).await?;
+                self.toast(format!("Signed in as {}", account.email), false, None);
+                self.publish().await;
+                tokio::spawn(self.clone().sync());
+            }
+            Cmd::LoadSenders => self.send(Delta::Senders(self.app.senders().await?)),
+            Cmd::StartReply { account_id, message_id, kind } => {
+                let account = self.app.account(&account_id)?;
+                let draft = self.app.reply(&account, &message_id, kind, None).await?;
+                self.send(Delta::Draft(draft));
+            }
+            Cmd::NewDraft => {
+                let senders = self.app.senders().await?;
+                let from = senders.into_iter().next().ok_or_else(|| Error::Other("add an account first".into()))?;
+                let mut draft = Draft::new(from, now_ms());
+                self.app.save_draft(&mut draft)?;
+                self.send(Delta::Draft(draft));
+            }
+            Cmd::SaveDraft(mut draft) => self.app.save_draft(&mut draft)?,
+            Cmd::Send(mut draft) => {
+                self.app.save_draft(&mut draft)?;
+                match self.app.send(&draft).await {
+                    Ok(_) => {
+                        self.send(Delta::Sent { draft_id: draft.id.clone() });
+                        self.toast(format!("Sent from {}", draft.from.address.email), false, None);
+                        tokio::spawn(self.clone().sync());
+                    }
+                    Err(e) => {
+                        self.send(Delta::SendFailed { draft_id: draft.id.clone(), error: e.to_string() });
+                        self.fail("Send failed, saved to Drafts", &e);
+                    }
+                }
+            }
+            Cmd::OpenAttachment { account_id, message_id, attachment_id } => {
+                let account = self.app.account(&account_id)?;
+                let path = self.app.attachment(&account, &message_id, &attachment_id).await?;
+                self.send(Delta::AttachmentReady(path));
+            }
+            Cmd::ShowCalendar { from, to } => {
+                self.view.lock().await.calendar = Some((from, to));
+                self.publish().await;
+            }
+            Cmd::Rsvp { account_id, calendar_id, event_id, response } => {
+                let account = self.app.account(&account_id)?;
+                self.app.rsvp(&account, &calendar_id, &event_id, response, None).await?;
+                self.toast(
+                    match response {
+                        Response::Accepted => "Accepted",
+                        Response::Tentative => "Replied maybe",
+                        _ => "Declined",
+                    },
+                    false,
+                    None,
+                );
+                self.publish().await;
+            }
+            Cmd::CreateEvent { account_id, mut draft } => {
+                let account = self.app.account(&account_id)?;
+                if draft.calendar_id.is_empty() {
+                    draft.calendar_id = self.app.primary_calendar(&account)?;
+                }
+                let event = self.app.create_event(&account, &draft).await?;
+                self.toast(format!("Created “{}”", event.title), false, None);
+                self.publish().await;
+            }
+            Cmd::DeleteEvent { account_id, calendar_id, event_id } => {
+                let account = self.app.account(&account_id)?;
+                self.app.delete_event(&account, &calendar_id, &event_id).await?;
+                self.toast("Event deleted", false, None);
+                self.publish().await;
+            }
+        }
+        Ok(())
+    }
+
+    async fn open(
+        self: Arc<Self>,
+        account: Account,
+        thread_id: String,
+        messages: Vec<MessageHeader>,
+        focus: String,
+        single: bool,
+    ) -> Result<()> {
+        let unread: Vec<String> = messages.iter().filter(|m| !m.is_read).map(|m| m.id.clone()).collect();
+        let ids: Vec<String> = messages.iter().map(|m| m.id.clone()).collect();
+        self.send(Delta::Reader(ReaderView { account_id: account.id.clone(), thread_id, messages, focus, single }));
+        if !unread.is_empty() {
+            self.app.act(&account, &unread, None, &MailAction::MarkRead)?;
+            self.publish().await;
+            tokio::spawn(self.clone().flush(account.clone()));
+        }
+        // Newest first: the expanded message is what the user reads.
+        tokio::spawn(self.clone().open_bodies(account, ids.into_iter().rev().collect()));
+        Ok(())
+    }
+
+    async fn flush(self: Arc<Self>, account: Account) {
+        match self.app.flush(&account).await {
+            Ok(r) => {
+                for (_, err) in &r.rejected {
+                    self.toast(format!("Change undone: the server refused it ({err})"), true, None);
+                }
+                if !r.rejected.is_empty() {
+                    self.publish().await;
+                }
+                if r.needs_sign_in {
+                    self.set_sync(|s| {
+                        if !s.needs_sign_in.contains(&account.id) {
+                            s.needs_sign_in.push(account.id.clone());
+                        }
+                    })
+                    .await;
+                }
+            }
+            Err(e) => tracing::warn!(error = %e, "flush failed"),
+        }
+    }
+}
+
+/// Run the engine until the command channel closes.
+pub async fn run(app: Arc<Pigeon>, mut rx: mpsc::UnboundedReceiver<Cmd>, tx: mpsc::UnboundedSender<Delta>) {
+    let svc = Arc::new(Service {
+        app,
+        tx,
+        view: Mutex::new(View { mailbox: Mailbox::Unified(FolderRole::Inbox), threaded: true, calendar: None }),
+        syncing: AtomicBool::new(false),
+        sync_state: Mutex::new(SyncState::default()),
+        toast_seq: Default::default(),
+    });
+    svc.publish().await;
+    let mut tick = tokio::time::interval(SYNC_EVERY);
+    loop {
+        tokio::select! {
+            cmd = rx.recv() => match cmd {
+                Some(cmd) => { tokio::spawn(svc.clone().handle(cmd)); }
+                None => break,
+            },
+            _ = tick.tick() => { tokio::spawn(svc.clone().sync()); }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hues_are_stable_and_in_range() {
+        let h = hue_for("Me@Work.com");
+        assert_eq!(h, hue_for("me@work.com"));
+        assert!((1..=8).contains(&h));
+        let distinct: std::collections::HashSet<u8> =
+            ["a@x.com", "b@x.com", "c@x.com", "d@x.com", "e@x.com", "f@x.com", "g@x.com"]
+                .iter()
+                .map(|e| hue_for(e))
+                .collect();
+        assert!(distinct.len() >= 4, "spread across slots");
+    }
+
+    #[test]
+    fn cid_images_become_data_urls() {
+        let dir = std::env::temp_dir().join(format!("pigeon-cid-{}", pigeon_core::auth::random_token(6)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("logo.png");
+        std::fs::write(&path, b"PNG").unwrap();
+        let body = StoredBody {
+            html: Some(r#"<img src="cid:logo@x"><img src="cid:missing">"#.into()),
+            attachments: vec![StoredAttachment {
+                meta: AttachmentMeta {
+                    id: "1".into(),
+                    name: "logo.png".into(),
+                    content_type: Some("image/png".into()),
+                    content_id: Some("logo@x".into()),
+                    is_inline: true,
+                    ..Default::default()
+                },
+                local_path: Some(path.to_string_lossy().into_owned()),
+            }],
+            ..Default::default()
+        };
+        let html = inline_images(body).html.unwrap();
+        assert!(html.contains("data:image/png;base64,UE5H"));
+        assert!(html.contains("cid:missing"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

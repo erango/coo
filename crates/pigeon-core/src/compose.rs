@@ -1,0 +1,428 @@
+//! Drafts, reply/forward construction, and MIME building.
+//!
+//! The From address is just a field on the draft: a reply to mail that came
+//! in on account A can go out from account B. Threading survives because we
+//! build the MIME ourselves with `In-Reply-To` / `References`.
+
+use serde::{Deserialize, Serialize};
+
+use crate::model::{Address, MessageHeader, StoredBody};
+use crate::text::{escape_html, html_to_text, text_to_html};
+use crate::{Error, Result, auth};
+
+/// An address we can send as, and the account that sends it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Sender {
+    pub account_id: String,
+    pub address: Address,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReplyKind {
+    Reply,
+    ReplyAll,
+    Forward,
+}
+
+/// What the draft answers; kept independent of the sending account.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReplyContext {
+    pub kind: ReplyKind,
+    pub account_id: String,
+    pub message_id: String,
+    pub thread_id: String,
+    pub internet_message_id: Option<String>,
+    pub references: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DraftAttachment {
+    pub name: String,
+    pub content_type: Option<String>,
+    pub source: AttachmentSource,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AttachmentSource {
+    File {
+        path: String,
+    },
+    /// Carried over from a forwarded message; downloaded at send time.
+    Message {
+        account_id: String,
+        message_id: String,
+        attachment_id: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Draft {
+    pub id: String,
+    pub from: Sender,
+    pub to: Vec<Address>,
+    pub cc: Vec<Address>,
+    pub bcc: Vec<Address>,
+    pub subject: String,
+    /// Composer HTML. Paragraphs carry `dir="auto"` or an explicit override.
+    pub html: String,
+    pub attachments: Vec<DraftAttachment>,
+    pub reply: Option<ReplyContext>,
+    pub updated_at: i64,
+}
+
+impl Draft {
+    pub fn new(from: Sender, now: i64) -> Self {
+        Draft {
+            id: auth::random_token(12),
+            from,
+            to: Vec::new(),
+            cc: Vec::new(),
+            bcc: Vec::new(),
+            subject: String::new(),
+            html: String::new(),
+            attachments: Vec::new(),
+            reply: None,
+            updated_at: now,
+        }
+    }
+
+    /// Change the sending address/account; everything else stays.
+    pub fn switch_from(&mut self, from: Sender) {
+        self.from = from;
+    }
+
+    /// The provider thread to file the sent message into: only meaningful
+    /// when replying from the same account that received the original.
+    pub fn thread_hint(&self) -> Option<&str> {
+        let r = self.reply.as_ref()?;
+        (r.account_id == self.from.account_id && r.kind != ReplyKind::Forward).then_some(r.thread_id.as_str())
+    }
+
+    /// Replying from a different account than the one the original reached.
+    pub fn crosses_accounts(&self) -> bool {
+        self.reply.as_ref().is_some_and(|r| r.account_id != self.from.account_id)
+    }
+}
+
+/// Default sender for answering `original` (received on `account_id`): the
+/// address of that account it was sent to, else the account's primary.
+pub fn default_sender<'a>(account_id: &str, original: &MessageHeader, senders: &'a [Sender]) -> Option<&'a Sender> {
+    let mine: Vec<&Sender> = senders.iter().filter(|s| s.account_id == account_id).collect();
+    let addressed =
+        |s: &&&Sender| original.to.iter().chain(&original.cc).any(|a| a.email.eq_ignore_ascii_case(&s.address.email));
+    mine.iter().find(addressed).or(mine.first()).copied()
+}
+
+fn prefixed(prefix: &str, subject: &str) -> String {
+    let s = subject.trim();
+    let lower = s.to_lowercase();
+    let already = match prefix {
+        "Re:" => lower.starts_with("re:"),
+        _ => lower.starts_with("fwd:") || lower.starts_with("fw:"),
+    };
+    if already { s.to_string() } else { format!("{prefix} {s}") }
+}
+
+fn quote_header(original: &MessageHeader) -> String {
+    let when = chrono::DateTime::from_timestamp_millis(original.received_at)
+        .map(|d| d.format("%a, %b %-d, %Y at %H:%M UTC").to_string())
+        .unwrap_or_default();
+    let who = original.from.as_ref().map(|a| match &a.name {
+        Some(n) => format!("{n} <{}>", a.email),
+        None => a.email.clone(),
+    });
+    format!("On {when}, {} wrote:", who.unwrap_or_else(|| "someone".into()))
+}
+
+fn original_html(body: &StoredBody) -> String {
+    body.html.clone().or_else(|| body.text.as_deref().map(text_to_html)).unwrap_or_default()
+}
+
+/// Build a reply / reply-all / forward draft. `my_addresses` are every
+/// address of the user, so reply-all never includes ourselves.
+pub fn reply_draft(
+    kind: ReplyKind,
+    account_id: &str,
+    original: &MessageHeader,
+    body: &StoredBody,
+    from: Sender,
+    my_addresses: &[String],
+    now: i64,
+) -> Draft {
+    let mut d = Draft::new(from, now);
+    let is_me = |a: &Address| my_addresses.iter().any(|m| m.eq_ignore_ascii_case(&a.email));
+    let mut references = body.references.clone();
+    if let Some(id) = &original.internet_message_id
+        && !references.contains(id)
+    {
+        references.push(id.clone());
+    }
+    d.reply = Some(ReplyContext {
+        kind,
+        account_id: account_id.to_string(),
+        message_id: original.id.clone(),
+        thread_id: original.thread_id.clone(),
+        internet_message_id: original.internet_message_id.clone(),
+        references,
+    });
+
+    match kind {
+        ReplyKind::Reply | ReplyKind::ReplyAll => {
+            d.subject = prefixed("Re:", &original.subject);
+            // Answering our own sent message goes back to its recipients.
+            let from_me = original.from.as_ref().is_some_and(is_me);
+            d.to = match (&original.from, from_me) {
+                (Some(f), false) => vec![f.clone()],
+                _ => original.to.clone(),
+            };
+            if kind == ReplyKind::ReplyAll {
+                let mut seen: Vec<String> = d.to.iter().map(|a| a.email.to_lowercase()).collect();
+                for a in original.to.iter().chain(&original.cc) {
+                    if !is_me(a) && !seen.contains(&a.email.to_lowercase()) {
+                        seen.push(a.email.to_lowercase());
+                        d.cc.push(a.clone());
+                    }
+                }
+            }
+            d.html = format!(
+                "<div dir=\"auto\"><br></div><div class=\"pigeon-quote\"><div dir=\"auto\">{}</div>\
+                 <blockquote style=\"margin:0 0 0 .8ex;border-inline-start:1px solid #ccc;padding-inline-start:1ex\">{}</blockquote></div>",
+                escape_html(&quote_header(original)),
+                original_html(body)
+            );
+        }
+        ReplyKind::Forward => {
+            d.subject = prefixed("Fwd:", &original.subject);
+            let list = |v: &[Address]| v.iter().map(|a| escape_html(&a.email)).collect::<Vec<_>>().join(", ");
+            d.html = format!(
+                "<div dir=\"auto\"><br></div><div class=\"pigeon-quote\"><div>---------- Forwarded message ---------</div>\
+                 <div>From: {}</div><div>Subject: {}</div><div>To: {}</div><br>{}</div>",
+                original.from.as_ref().map(|a| escape_html(&a.email)).unwrap_or_default(),
+                escape_html(&original.subject),
+                list(&original.to),
+                original_html(body)
+            );
+            d.attachments = body
+                .attachments
+                .iter()
+                .filter(|a| !a.meta.is_inline)
+                .map(|a| DraftAttachment {
+                    name: a.meta.name.clone(),
+                    content_type: a.meta.content_type.clone(),
+                    source: AttachmentSource::Message {
+                        account_id: account_id.to_string(),
+                        message_id: original.id.clone(),
+                        attachment_id: a.meta.id.clone(),
+                    },
+                })
+                .collect();
+        }
+    }
+    d
+}
+
+fn strip_brackets(id: &str) -> &str {
+    id.trim().trim_start_matches('<').trim_end_matches('>')
+}
+
+/// Serialize a draft to RFC 5322. `attachments` holds the bytes for
+/// `draft.attachments`, same order. Returns (Message-ID, MIME bytes).
+pub fn build_mime(draft: &Draft, attachments: &[Vec<u8>], now_secs: i64) -> Result<(String, Vec<u8>)> {
+    use mail_builder::MessageBuilder;
+    use mail_builder::headers::address::Address as MbAddress;
+
+    if draft.to.is_empty() && draft.cc.is_empty() && draft.bcc.is_empty() {
+        return Err(Error::Other("no recipients".into()));
+    }
+    if attachments.len() != draft.attachments.len() {
+        return Err(Error::Other("attachment bytes missing".into()));
+    }
+    let addr = |a: &Address| MbAddress::new_address(a.name.clone(), a.email.clone());
+    let list = |v: &[Address]| MbAddress::new_list(v.iter().map(addr).collect());
+
+    let domain = draft.from.address.email.rsplit_once('@').map(|(_, d)| d).unwrap_or("pigeon.invalid");
+    let message_id = format!("{}@{domain}", auth::random_token(18));
+    let html = format!("<!doctype html><html><head><meta charset=\"utf-8\"></head><body>{}</body></html>", draft.html);
+
+    let mut mb = MessageBuilder::new()
+        .from(addr(&draft.from.address))
+        .subject(draft.subject.clone())
+        .date(now_secs)
+        .message_id(message_id.clone())
+        .html_body(html)
+        .text_body(html_to_text(&draft.html));
+    if !draft.to.is_empty() {
+        mb = mb.to(list(&draft.to));
+    }
+    if !draft.cc.is_empty() {
+        mb = mb.cc(list(&draft.cc));
+    }
+    if !draft.bcc.is_empty() {
+        mb = mb.bcc(list(&draft.bcc));
+    }
+    if let Some(r) = &draft.reply
+        && r.kind != ReplyKind::Forward
+    {
+        if let Some(parent) = &r.internet_message_id {
+            mb = mb.in_reply_to(strip_brackets(parent).to_string());
+        }
+        if !r.references.is_empty() {
+            mb = mb.references(r.references.iter().map(|id| strip_brackets(id).to_string()).collect::<Vec<_>>());
+        }
+    }
+    for (a, bytes) in draft.attachments.iter().zip(attachments) {
+        let ct = a.content_type.clone().unwrap_or_else(|| "application/octet-stream".into());
+        mb = mb.attachment(ct, a.name.clone(), bytes.clone());
+    }
+    let mime = mb.write_to_vec()?;
+    Ok((format!("<{message_id}>"), mime))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{AttachmentMeta, StoredAttachment};
+
+    fn sender(account: &str, email: &str) -> Sender {
+        Sender { account_id: account.into(), address: Address::new(Some("Me"), email) }
+    }
+
+    fn original() -> MessageHeader {
+        MessageHeader {
+            id: "m1".into(),
+            thread_id: "t1".into(),
+            internet_message_id: Some("<orig@cust.com>".into()),
+            subject: "Order שלום".into(),
+            from: Some(Address::new(Some("Customer"), "c@cust.com")),
+            to: vec![Address::new(None, "support@biz.com"), Address::new(None, "boss@biz.com")],
+            cc: vec![Address::new(None, "me@work.com"), Address::new(None, "c@cust.com")],
+            received_at: 0,
+            ..Default::default()
+        }
+    }
+
+    fn body() -> StoredBody {
+        StoredBody {
+            html: Some("<p>Hi</p>".into()),
+            references: vec!["<root@cust.com>".into()],
+            attachments: vec![
+                StoredAttachment {
+                    meta: AttachmentMeta { id: "a1".into(), name: "inv.pdf".into(), ..Default::default() },
+                    local_path: None,
+                },
+                StoredAttachment {
+                    meta: AttachmentMeta {
+                        id: "a2".into(),
+                        name: "logo".into(),
+                        is_inline: true,
+                        ..Default::default()
+                    },
+                    local_path: None,
+                },
+            ],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn default_sender_prefers_the_addressed_alias() {
+        let senders = vec![
+            sender("google:main", "main@gmail.com"),
+            sender("google:main", "support@biz.com"),
+            sender("ms:work", "me@work.com"),
+        ];
+        assert_eq!(default_sender("google:main", &original(), &senders).unwrap().address.email, "support@biz.com");
+        assert_eq!(default_sender("ms:work", &original(), &senders).unwrap().address.email, "me@work.com");
+        assert!(default_sender("nope", &original(), &senders).is_none());
+    }
+
+    #[test]
+    fn reply_all_excludes_me_and_dedupes() {
+        let mine = vec!["support@biz.com".to_string(), "me@work.com".to_string()];
+        let d = reply_draft(
+            ReplyKind::ReplyAll,
+            "google:main",
+            &original(),
+            &body(),
+            sender("google:main", "support@biz.com"),
+            &mine,
+            0,
+        );
+        assert_eq!(d.to.iter().map(|a| a.email.as_str()).collect::<Vec<_>>(), ["c@cust.com"]);
+        assert_eq!(d.cc.iter().map(|a| a.email.as_str()).collect::<Vec<_>>(), ["boss@biz.com"]);
+        assert_eq!(d.subject, "Re: Order שלום");
+        assert!(
+            d.html.contains("<blockquote")
+                && d.html.contains("<p>Hi</p>")
+                && d.html.contains("Customer &lt;c@cust.com&gt;")
+        );
+        let r = d.reply.as_ref().unwrap();
+        assert_eq!(r.references, ["<root@cust.com>", "<orig@cust.com>"]);
+        assert_eq!(d.thread_hint(), Some("t1"));
+        assert!(!d.crosses_accounts());
+    }
+
+    #[test]
+    fn switching_from_to_another_account_keeps_content_and_threading_headers() {
+        let mut d = reply_draft(
+            ReplyKind::Reply,
+            "google:main",
+            &original(),
+            &body(),
+            sender("google:main", "support@biz.com"),
+            &[],
+            0,
+        );
+        d.html.insert_str(0, "<div dir=\"auto\">תשובה</div>");
+        let before = d.clone();
+        d.switch_from(sender("ms:work", "me@work.com"));
+        assert_eq!((d.to.clone(), d.html.clone(), d.reply.clone()), (before.to, before.html, before.reply));
+        assert!(d.crosses_accounts());
+        assert_eq!(d.thread_hint(), None, "provider thread ids don't cross accounts");
+
+        let (msgid, mime) = build_mime(&d, &[], 1_700_000_000).unwrap();
+        let mime = String::from_utf8(mime).unwrap();
+        assert!(msgid.ends_with("@work.com>"));
+        assert!(mime.contains("In-Reply-To: <orig@cust.com>"), "{mime}");
+        assert!(mime.contains("References: <root@cust.com> <orig@cust.com>"), "{mime}");
+        assert!(mime.contains("me@work.com"));
+        assert!(mime.contains("Subject: =?utf-8?"), "non-ASCII subject is encoded: {mime}");
+    }
+
+    #[test]
+    fn forward_carries_attachments_not_threading() {
+        let d = reply_draft(
+            ReplyKind::Forward,
+            "google:main",
+            &original(),
+            &body(),
+            sender("google:main", "x@gmail.com"),
+            &[],
+            0,
+        );
+        assert_eq!(d.subject, "Fwd: Order שלום");
+        assert!(d.to.is_empty());
+        assert_eq!(d.attachments.len(), 1, "inline parts are not re-attached");
+        assert_eq!(d.thread_hint(), None);
+        assert_eq!(prefixed("Fwd:", "FW: x"), "FW: x");
+        assert_eq!(prefixed("Re:", "RE: x"), "RE: x");
+    }
+
+    #[test]
+    fn mime_requires_recipients_and_bytes() {
+        let mut d = Draft::new(sender("a", "me@x.com"), 0);
+        assert!(build_mime(&d, &[], 0).is_err());
+        d.to.push(Address::new(None, "you@y.com"));
+        d.attachments.push(DraftAttachment {
+            name: "a.txt".into(),
+            content_type: Some("text/plain".into()),
+            source: AttachmentSource::File { path: "/tmp/a.txt".into() },
+        });
+        assert!(build_mime(&d, &[], 0).is_err());
+        let (_, mime) = build_mime(&d, &[b"hello".to_vec()], 0).unwrap();
+        let mime = String::from_utf8(mime).unwrap();
+        assert!(mime.contains("multipart/mixed") && mime.contains("a.txt"));
+    }
+}

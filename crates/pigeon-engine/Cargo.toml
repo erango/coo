@@ -1,0 +1,17 @@
+[package]
+name = "pigeon-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+chrono.workspace = true
+pigeon-core.workspace = true
+pigeon-google.workspace = true
+pigeon-graph.workspace = true
+tracing.workspace = true
+futures.workspace = true
+base64.workspace = true
+tokio.workspace = true
+sentry.workspace = true
+tracing-subscriber.workspace = true

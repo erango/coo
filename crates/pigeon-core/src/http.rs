@@ -1,0 +1,110 @@
+//! Shared HTTP client with retry/backoff for provider APIs.
+
+use std::sync::OnceLock;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use reqwest::{Client, RequestBuilder, Response, StatusCode};
+use serde::de::DeserializeOwned;
+
+use crate::{Error, Result};
+
+const MAX_ATTEMPTS: u32 = 5;
+const MAX_BODY_IN_ERROR: usize = 2000;
+
+pub fn client() -> &'static Client {
+    static CLIENT: OnceLock<Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        Client::builder()
+            .user_agent(concat!("pigeon/", env!("CARGO_PKG_VERSION")))
+            .gzip(true)
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(60))
+            .pool_idle_timeout(Duration::from_secs(90))
+            .build()
+            .expect("http client")
+    })
+}
+
+/// Send a request, retrying throttling and transient failures. Honors
+/// `Retry-After`; otherwise backs off exponentially with jitter. `make` builds
+/// a fresh request per attempt.
+pub async fn send(mut make: impl FnMut() -> RequestBuilder) -> Result<Response> {
+    let mut backoff = Duration::from_millis(500);
+    for attempt in 1..=MAX_ATTEMPTS {
+        let last = attempt == MAX_ATTEMPTS;
+        let wait = match make().send().await {
+            Ok(resp) if resp.status().is_success() => return Ok(resp),
+            Ok(resp) => {
+                let status = resp.status();
+                let retry_after = retry_after(&resp);
+                let url = resp.url().to_string();
+                let mut body = resp.text().await.unwrap_or_default();
+                if last || !is_retryable(status, &body) {
+                    body.truncate(MAX_BODY_IN_ERROR);
+                    return Err(Error::Api { status: status.as_u16(), url, body });
+                }
+                tracing::debug!(%status, %url, attempt, "retrying");
+                retry_after.unwrap_or(backoff)
+            }
+            Err(e) if !last && (e.is_timeout() || e.is_connect()) => {
+                tracing::debug!(error = %e, attempt, "retrying");
+                backoff
+            }
+            Err(e) => return Err(e.into()),
+        };
+        tokio::time::sleep(wait + jitter()).await;
+        backoff = (backoff * 2).min(Duration::from_secs(30));
+    }
+    unreachable!("loop returns on the last attempt")
+}
+
+/// Single attempt, for non-idempotent requests (sending mail): a retry after
+/// a timeout could deliver twice.
+pub async fn send_once(req: RequestBuilder) -> Result<Response> {
+    let resp = req.send().await?;
+    if resp.status().is_success() {
+        return Ok(resp);
+    }
+    let status = resp.status().as_u16();
+    let url = resp.url().to_string();
+    let mut body = resp.text().await.unwrap_or_default();
+    body.truncate(MAX_BODY_IN_ERROR);
+    Err(Error::Api { status, url, body })
+}
+
+pub async fn get_json<T: DeserializeOwned>(make: impl FnMut() -> RequestBuilder) -> Result<T> {
+    Ok(send(make).await?.json().await?)
+}
+
+fn is_retryable(status: StatusCode, body: &str) -> bool {
+    match status.as_u16() {
+        429 | 500 | 502 | 503 | 504 => true,
+        // Gmail reports per-user throttling as 403.
+        403 => body.contains("ateLimitExceeded"),
+        _ => false,
+    }
+}
+
+fn retry_after(resp: &Response) -> Option<Duration> {
+    let secs: u64 = resp.headers().get("retry-after")?.to_str().ok()?.trim().parse().ok()?;
+    Some(Duration::from_secs(secs.min(120)))
+}
+
+fn jitter() -> Duration {
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0);
+    Duration::from_millis(u64::from(nanos % 250))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retryable_statuses() {
+        assert!(is_retryable(StatusCode::TOO_MANY_REQUESTS, ""));
+        assert!(is_retryable(StatusCode::SERVICE_UNAVAILABLE, ""));
+        assert!(is_retryable(StatusCode::FORBIDDEN, r#"{"reason":"userRateLimitExceeded"}"#));
+        assert!(!is_retryable(StatusCode::FORBIDDEN, r#"{"reason":"insufficientPermissions"}"#));
+        assert!(!is_retryable(StatusCode::NOT_FOUND, ""));
+    }
+}

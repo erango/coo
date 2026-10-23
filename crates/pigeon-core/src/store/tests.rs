@@ -1,0 +1,403 @@
+use super::*;
+use crate::now_ms;
+
+fn account(provider: ProviderKind, email: &str) -> Account {
+    Account { id: Account::make_id(provider, email), provider, email: email.into(), display_name: email.into() }
+}
+
+fn folder(id: &str, role: Option<FolderRole>) -> Folder {
+    Folder { id: id.into(), name: id.to_uppercase(), parent_id: None, role, kind: FolderKind::Folder }
+}
+
+fn msg(id: &str, thread: &str, at: i64, folders: &[&str]) -> MessageHeader {
+    MessageHeader {
+        id: id.into(),
+        thread_id: thread.into(),
+        subject: format!("Subject {id}"),
+        from: Some(Address::new(Some(&format!("Sender {id}")), &format!("{id}@example.com"))),
+        to: vec![Address::new(Some("Me"), "me@example.com")],
+        snippet: format!("snippet for {id}"),
+        received_at: at,
+        folder_ids: folders.iter().map(|f| f.to_string()).collect(),
+        ..Default::default()
+    }
+}
+
+fn setup() -> (Store, Account, Account) {
+    let mut s = Store::open_in_memory().unwrap();
+    let ms = account(ProviderKind::Microsoft, "Me@Work.com");
+    let g = account(ProviderKind::Google, "me@gmail.com");
+    s.upsert_account(&ms).unwrap();
+    s.upsert_account(&g).unwrap();
+    s.replace_folders(&ms.id, &[folder("in-ms", Some(FolderRole::Inbox)), folder("proj", None)]).unwrap();
+    s.replace_folders(&g.id, &[folder("INBOX", Some(FolderRole::Inbox)), folder("STARRED", Some(FolderRole::Starred))])
+        .unwrap();
+    (s, ms, g)
+}
+
+#[test]
+fn migrations_are_idempotent() {
+    let dir = std::env::temp_dir().join(format!("pigeon-store-{}", crate::auth::random_token(6)));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("p.db");
+    drop(Store::open(&path).unwrap());
+    let s = Store::open(&path).unwrap();
+    assert!(s.accounts().unwrap().is_empty());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn account_ids_are_lowercased() {
+    let (s, ms, _) = setup();
+    assert_eq!(ms.id, "microsoft:me@work.com");
+    assert_eq!(s.accounts().unwrap().len(), 2);
+}
+
+#[test]
+fn unified_inbox_merges_accounts_newest_first() {
+    let (mut s, ms, g) = setup();
+    s.apply_mail(&ms.id, "f", &[MailChange::Upsert(msg("a", "t1", 100, &["in-ms"]))], "c1").unwrap();
+    s.apply_mail(&g.id, "mail", &[MailChange::Upsert(msg("b", "t2", 200, &["INBOX", "STARRED"]))], "h1").unwrap();
+    s.apply_mail(&ms.id, "f", &[MailChange::Upsert(msg("c", "t3", 300, &["proj"]))], "c2").unwrap();
+
+    let rows = s.list_messages(&ListQuery::unified(FolderRole::Inbox, 50)).unwrap();
+    let ids: Vec<_> = rows.iter().map(|r| r.header.id.as_str()).collect();
+    assert_eq!(ids, ["b", "a"]);
+    assert_eq!(rows[0].account_id, g.id);
+    assert_eq!(rows[0].header.from.as_ref().unwrap().display(), "Sender b");
+
+    let q =
+        ListQuery { account_id: Some(ms.id.clone()), folder: FolderSel::Id("proj".into()), limit: 50, before: None };
+    assert_eq!(s.list_messages(&q).unwrap()[0].header.id, "c");
+
+    let page = ListQuery { before: Some(200), ..ListQuery::unified(FolderRole::Inbox, 50) };
+    assert_eq!(s.list_messages(&page).unwrap()[0].header.id, "a");
+
+    assert_eq!(s.cursor(&ms.id, "f").unwrap().as_deref(), Some("c2"));
+    assert_eq!(s.cursor(&g.id, "mail").unwrap().as_deref(), Some("h1"));
+}
+
+#[test]
+fn folder_id_listing_requires_account() {
+    let (s, ..) = setup();
+    let q = ListQuery { account_id: None, folder: FolderSel::Id("proj".into()), limit: 5, before: None };
+    assert!(s.list_messages(&q).is_err());
+}
+
+#[test]
+fn upsert_replaces_membership_and_unlink_deletes_orphans() {
+    let (mut s, ms, _) = setup();
+    s.apply_mail(&ms.id, "f", &[MailChange::Upsert(msg("a", "t1", 100, &["in-ms"]))], "1").unwrap();
+    // Moved: shows up in the new folder first, then the old folder reports removal.
+    s.apply_mail(&ms.id, "f", &[MailChange::Upsert(msg("a", "t1", 100, &["proj"]))], "2").unwrap();
+    s.apply_mail(&ms.id, "f", &[MailChange::Unlink { id: "a".into(), folder_id: "in-ms".into() }], "3").unwrap();
+    assert!(s.list_messages(&ListQuery::unified(FolderRole::Inbox, 5)).unwrap().is_empty());
+    let infos = s.folders(&ms.id).unwrap();
+    let proj = infos.iter().find(|f| f.folder.id == "proj").unwrap();
+    assert_eq!((proj.total, proj.unread), (1, 1));
+
+    s.apply_mail(&ms.id, "f", &[MailChange::Unlink { id: "a".into(), folder_id: "proj".into() }], "4").unwrap();
+    assert!(s.search("Subject", 10).unwrap().is_empty());
+}
+
+#[test]
+fn delete_removes_message_everywhere() {
+    let (mut s, _, g) = setup();
+    s.apply_mail(&g.id, "mail", &[MailChange::Upsert(msg("b", "t", 1, &["INBOX", "STARRED"]))], "1").unwrap();
+    s.apply_mail(&g.id, "mail", &[MailChange::Delete { id: "b".into() }], "2").unwrap();
+    assert!(s.folders(&g.id).unwrap().iter().all(|f| f.total == 0));
+}
+
+#[test]
+fn threads_group_and_count() {
+    let (mut s, ms, _) = setup();
+    let mut read = msg("a1", "t", 100, &["in-ms"]);
+    read.is_read = true;
+    s.apply_mail(
+        &ms.id,
+        "f",
+        &[
+            MailChange::Upsert(read),
+            MailChange::Upsert(msg("a2", "t", 300, &["in-ms"])),
+            // Same thread, other folder: counts toward the thread size only.
+            MailChange::Upsert(msg("a3", "t", 200, &["proj"])),
+            MailChange::Upsert(msg("b1", "u", 250, &["in-ms"])),
+        ],
+        "1",
+    )
+    .unwrap();
+    let threads = s.list_threads(&ListQuery::unified(FolderRole::Inbox, 10)).unwrap();
+    assert_eq!(threads.len(), 2);
+    let t = &threads[0];
+    assert_eq!((t.thread_id.as_str(), t.latest.id.as_str()), ("t", "a2"));
+    assert_eq!((t.message_count, t.unread_count), (3, 1));
+    assert_eq!(t.participants.len(), 2);
+    assert_eq!(threads[1].thread_id, "u");
+
+    let all = s.thread_messages(&ms.id, "t").unwrap();
+    assert_eq!(all.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["a1", "a3", "a2"]);
+}
+
+#[test]
+fn search_matches_prefixes_across_fields() {
+    let (mut s, ms, _) = setup();
+    let mut m = msg("a", "t", 1, &["in-ms"]);
+    m.subject = "Quarterly invoice from Acme".into();
+    m.cc = vec![Address::new(Some("Zoë Finance"), "zoe@acme.io")];
+    s.apply_mail(&ms.id, "f", &[MailChange::Upsert(m.clone())], "1").unwrap();
+    assert_eq!(s.search("invo acme", 10).unwrap().len(), 1);
+    assert_eq!(s.search("zoe", 10).unwrap().len(), 1, "diacritics folded");
+    assert_eq!(s.search("nomatch", 10).unwrap().len(), 0);
+    assert_eq!(s.search(r#"bad " query*"#, 10).unwrap().len(), 0);
+
+    // Updates re-index.
+    m.subject = "Renamed".into();
+    s.apply_mail(&ms.id, "f", &[MailChange::Upsert(m)], "2").unwrap();
+    assert_eq!(s.search("invoice", 10).unwrap().len(), 0);
+    assert_eq!(s.search("renamed", 10).unwrap().len(), 1);
+}
+
+#[test]
+fn deleting_account_cascades() {
+    let (mut s, ms, _) = setup();
+    s.apply_mail(&ms.id, "f", &[MailChange::Upsert(msg("a", "t", 1, &["in-ms"]))], "1").unwrap();
+    s.delete_account(&ms.id).unwrap();
+    assert!(s.list_messages(&ListQuery::unified(FolderRole::Inbox, 5)).unwrap().is_empty());
+    assert_eq!(s.cursor(&ms.id, "f").unwrap(), None);
+    assert!(s.search("subject", 5).unwrap().is_empty());
+}
+
+fn event(id: &str, start: i64, end: i64) -> Event {
+    Event {
+        id: id.into(),
+        calendar_id: "cal".into(),
+        title: id.into(),
+        start_at: start,
+        end_at: end,
+        attendees: vec![Attendee {
+            address: Address::new(None, "x@y.z"),
+            response: Response::Tentative,
+            optional: true,
+        }],
+        ..Default::default()
+    }
+}
+
+#[test]
+fn events_replace_window_and_query_overlap() {
+    let (mut s, ms, _) = setup();
+    let cal = Calendar { id: "cal".into(), name: "Work".into(), color: None, is_primary: true, can_edit: true };
+    s.replace_calendars(&ms.id, std::slice::from_ref(&cal)).unwrap();
+    s.replace_events(&ms.id, "cal", 0, 1000, &[event("a", 10, 20), event("b", 500, 600), event("old", 900, 950)])
+        .unwrap();
+    // Refresh drops "old" (gone upstream) and keeps the rest.
+    s.replace_events(&ms.id, "cal", 0, 1000, &[event("a", 10, 20), event("b", 500, 600)]).unwrap();
+    let got = s.events_between(15, 550).unwrap();
+    assert_eq!(got.iter().map(|e| e.event.id.as_str()).collect::<Vec<_>>(), ["a", "b"]);
+    assert_eq!(got[0].event.attendees[0].response, Response::Tentative);
+    assert!(s.events_between(900, 1000).unwrap().is_empty());
+
+    // Removing the calendar removes its events.
+    s.replace_calendars(&ms.id, &[]).unwrap();
+    assert!(s.events_between(0, 1000).unwrap().is_empty());
+    assert!(s.calendars(&ms.id).unwrap().is_empty());
+}
+
+#[test]
+fn bodies_roundtrip_and_cascade() {
+    let (mut s, ms, _) = setup();
+    s.apply_mail(&ms.id, "f", &[MailChange::Upsert(msg("a", "t", 1, &["in-ms"]))], "1").unwrap();
+    assert_eq!(s.body(&ms.id, "a").unwrap(), None);
+    let body = StoredBody {
+        html: Some("<p>hi</p>".into()),
+        text: None,
+        has_remote_content: true,
+        in_reply_to: Some("<x@y>".into()),
+        references: vec!["<w@y>".into(), "<x@y>".into()],
+        attachments: vec![
+            StoredAttachment {
+                meta: AttachmentMeta { id: "1".into(), name: "a.pdf".into(), size: Some(10), ..Default::default() },
+                local_path: None,
+            },
+            StoredAttachment {
+                meta: AttachmentMeta {
+                    id: "2".into(),
+                    name: "logo.png".into(),
+                    content_id: Some("logo".into()),
+                    is_inline: true,
+                    ..Default::default()
+                },
+                local_path: Some("/tmp/logo.png".into()),
+            },
+        ],
+        fetched_at: 5,
+    };
+    assert!(s.save_body(&ms.id, "a", &body).unwrap());
+    assert_eq!(s.body(&ms.id, "a").unwrap().unwrap(), body);
+    s.set_attachment_path(&ms.id, "a", "1", "/tmp/a.pdf").unwrap();
+    assert_eq!(s.attachments(&ms.id, "a").unwrap()[0].local_path.as_deref(), Some("/tmp/a.pdf"));
+    assert!(!s.save_body(&ms.id, "missing", &body).unwrap());
+
+    s.apply_mail(&ms.id, "f", &[MailChange::Delete { id: "a".into() }], "2").unwrap();
+    assert!(s.attachments(&ms.id, "a").unwrap().is_empty());
+}
+
+fn gmail_with_labels() -> (Store, Account) {
+    let mut s = Store::open_in_memory().unwrap();
+    let g = account(ProviderKind::Google, "me@gmail.com");
+    s.upsert_account(&g).unwrap();
+    let label =
+        |id: &str, role| Folder { id: id.into(), name: id.into(), parent_id: None, role, kind: FolderKind::Label };
+    s.replace_folders(
+        &g.id,
+        &[
+            label("INBOX", Some(FolderRole::Inbox)),
+            label("STARRED", Some(FolderRole::Starred)),
+            label("TRASH", Some(FolderRole::Trash)),
+            label("L1", None),
+        ],
+    )
+    .unwrap();
+    s.apply_mail(&g.id, "mail", &[MailChange::Upsert(msg("a", "t", 1, &["INBOX"]))], "1").unwrap();
+    (s, g)
+}
+
+fn state(s: &Store, account: &Account, id: &str) -> MessageState {
+    s.message_states(&account.id, &[id.to_string()]).unwrap().remove(0)
+}
+
+#[test]
+fn optimistic_ops_apply_and_survive_sync_until_confirmed() {
+    let (mut s, g) = gmail_with_labels();
+    let archive = MailOp::Relabel { ids: vec!["a".into()], add: vec![], remove: vec!["INBOX".into()] };
+    let id = s.enqueue(&g.id, &archive).unwrap();
+    assert!(s.list_messages(&ListQuery::unified(FolderRole::Inbox, 5)).unwrap().is_empty());
+
+    // A sync page that still shows the old server state must not resurrect it.
+    s.apply_mail(&g.id, "mail", &[MailChange::Upsert(msg("a", "t", 1, &["INBOX"]))], "2").unwrap();
+    assert!(s.list_messages(&ListQuery::unified(FolderRole::Inbox, 5)).unwrap().is_empty());
+
+    let due = s.due_ops(&g.id, now_ms()).unwrap();
+    assert_eq!((due.len(), due[0].id, &due[0].op), (1, id, &archive));
+    assert_eq!(due[0].snapshot[0].folder_ids, ["INBOX"]);
+
+    s.mark_op_done(id).unwrap();
+    assert!(s.due_ops(&g.id, now_ms()).unwrap().is_empty());
+    assert!(!s.cancel_pending_op(id).unwrap(), "already sent");
+}
+
+#[test]
+fn cancel_before_send_restores_state() {
+    let (mut s, g) = gmail_with_labels();
+    let id = s.enqueue(&g.id, &MailOp::SetFlagged { ids: vec!["a".into()], flagged: true }).unwrap();
+    let st = state(&s, &g, "a");
+    assert!(st.is_flagged);
+    assert_eq!(st.folder_ids, ["INBOX", "STARRED"], "gmail star label follows the flag");
+
+    assert!(s.cancel_pending_op(id).unwrap());
+    let st = state(&s, &g, "a");
+    assert!(!st.is_flagged);
+    assert_eq!(st.folder_ids, ["INBOX"]);
+    assert!(s.outbox_entry(id).unwrap().is_none());
+}
+
+#[test]
+fn rollback_and_retry_bookkeeping() {
+    let (mut s, g) = gmail_with_labels();
+    let id = s.enqueue(&g.id, &MailOp::Trash { ids: vec!["a".into()] }).unwrap();
+    assert_eq!(state(&s, &g, "a").folder_ids, ["TRASH"]);
+    s.mark_op_retry(id, "503", now_ms() + 60_000).unwrap();
+    assert!(s.due_ops(&g.id, now_ms()).unwrap().is_empty(), "backing off");
+    assert!(!s.cancel_pending_op(id).unwrap(), "may have reached the server");
+    s.rollback_op(id).unwrap();
+    assert_eq!(state(&s, &g, "a").folder_ids, ["INBOX"]);
+}
+
+#[test]
+fn undo_ops_invert_changes() {
+    let orig =
+        vec![MessageState { id: "a".into(), is_read: false, is_flagged: false, folder_ids: vec!["INBOX".into()] }];
+    let trashed =
+        vec![MessageState { id: "a".into(), is_read: true, is_flagged: false, folder_ids: vec!["TRASH".into()] }];
+    assert_eq!(
+        undo_ops(true, Some("TRASH"), &orig, &trashed),
+        vec![
+            MailOp::SetRead { ids: vec!["a".into()], read: false },
+            MailOp::Untrash { ids: vec!["a".into()] },
+            MailOp::Relabel { ids: vec!["a".into()], add: vec!["INBOX".into()], remove: vec![] },
+        ]
+    );
+    let moved =
+        vec![MessageState { id: "a".into(), is_read: false, is_flagged: false, folder_ids: vec!["arch".into()] }];
+    assert_eq!(
+        undo_ops(false, Some("del"), &orig, &moved),
+        vec![MailOp::MoveTo { ids: vec!["a".into()], folder_id: "INBOX".into() }]
+    );
+    assert!(undo_ops(false, None, &orig, &orig).is_empty());
+}
+
+#[test]
+fn drafts_roundtrip_and_follow_account_deletion() {
+    let (s, ms, g) = setup();
+    let from = crate::compose::Sender { account_id: g.id.clone(), address: Address::new(None, "me@gmail.com") };
+    let mut d = crate::compose::Draft::new(from, 5);
+    d.subject = "Hi".into();
+    s.save_draft(&d).unwrap();
+    assert_eq!(s.draft(&d.id).unwrap().unwrap(), d);
+
+    // Switching From to another account re-files the draft under it.
+    d.switch_from(crate::compose::Sender { account_id: ms.id.clone(), address: Address::new(None, "me@work.com") });
+    s.save_draft(&d).unwrap();
+    s.delete_account(&g.id).unwrap();
+    assert_eq!(s.drafts().unwrap(), vec![d.clone()]);
+    s.delete_draft(&d.id).unwrap();
+    assert!(s.drafts().unwrap().is_empty());
+}
+
+#[test]
+fn single_message_includes_folders() {
+    let (mut s, _, g) = setup();
+    s.apply_mail(&g.id, "mail", &[MailChange::Upsert(msg("b", "t", 1, &["INBOX", "STARRED"]))], "1").unwrap();
+    let h = s.message(&g.id, "b").unwrap().unwrap();
+    let mut folders = h.folder_ids.clone();
+    folders.sort();
+    assert_eq!(folders, ["INBOX", "STARRED"]);
+    assert!(s.message(&g.id, "nope").unwrap().is_none());
+}
+
+#[test]
+fn incremental_event_changes_and_single_event_writes() {
+    let (mut s, ms, _) = setup();
+    let cal = Calendar { id: "cal".into(), name: "Work".into(), color: None, is_primary: true, can_edit: true };
+    s.replace_calendars(&ms.id, std::slice::from_ref(&cal)).unwrap();
+    let mut inst = event("s_1", 30, 40);
+    inst.series_id = Some("s".into());
+    s.apply_events(
+        &ms.id,
+        "cal",
+        "cal:cal",
+        &[CalendarChange::Upsert(event("a", 10, 20)), CalendarChange::Upsert(inst)],
+        true,
+        Some("tok"),
+    )
+    .unwrap();
+    assert_eq!(s.cursor(&ms.id, "cal:cal").unwrap().as_deref(), Some("tok"));
+    // Deleting a series removes its instances.
+    s.apply_events(&ms.id, "cal", "cal:cal", &[CalendarChange::Delete { id: "s".into() }], false, None).unwrap();
+    assert_eq!(s.events_between(0, 100).unwrap().len(), 1);
+    assert_eq!(s.cursor(&ms.id, "cal:cal").unwrap().as_deref(), Some("tok"), "no cursor = keep the old one");
+
+    s.set_my_response(&ms.id, "cal", "a", Response::Declined).unwrap();
+    assert_eq!(s.event(&ms.id, "cal", "a").unwrap().unwrap().my_response, Response::Declined);
+    let mut b = event("b", 50, 60);
+    b.cancelled = true;
+    s.upsert_event(&ms.id, &b).unwrap();
+    assert!(s.event(&ms.id, "cal", "b").unwrap().unwrap().cancelled);
+    assert_eq!(s.events_between(0, 100).unwrap().len(), 1, "cancelled events are hidden");
+    s.delete_event(&ms.id, "cal", "a").unwrap();
+    assert!(s.event(&ms.id, "cal", "a").unwrap().is_none());
+
+    // A calendar that disappears takes its cursor with it.
+    s.replace_calendars(&ms.id, &[]).unwrap();
+    assert_eq!(s.cursor(&ms.id, "cal:cal").unwrap(), None);
+}

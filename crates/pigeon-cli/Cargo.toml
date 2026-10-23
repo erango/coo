@@ -1,0 +1,16 @@
+[package]
+name = "pigeon-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "pigeon"
+path = "src/main.rs"
+
+[dependencies]
+chrono.workspace = true
+clap.workspace = true
+pigeon-core.workspace = true
+pigeon-engine.workspace = true
+tokio.workspace = true
