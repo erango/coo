@@ -41,10 +41,56 @@ pub fn send_current(s: AppState) {
     spawn(async move {
         let typed = bridge::editor_html(&editor_id(&draft)).await;
         let mut d = draft;
-        d.html = format!("{typed}{}", d.html);
+        d.body_html = typed;
         s.track_outgoing(d.clone(), crate::state::OutState::Sending);
         send_cmd(Cmd::Send(d));
     });
+}
+
+/// Autosave after typing pauses (the bridge sends the editor's id).
+pub fn autosave(s: AppState, editor: &str) {
+    let Some(draft) = s.draft.read().clone() else { return };
+    if editor_id(&draft) != editor || *s.sending.read() {
+        return;
+    }
+    let editor = editor.to_string();
+    let mut state = s.draft;
+    spawn(async move {
+        let typed = bridge::editor_html(&editor).await;
+        // Keep the open composer in step so a later send/close has it.
+        if let Some(d) = state.write().as_mut()
+            && d.id == draft.id
+        {
+            d.body_html = typed.clone();
+        }
+        let mut d = draft;
+        d.body_html = typed;
+        send_cmd(Cmd::SaveDraft(d));
+    });
+}
+
+/// Close the composer, saving what's in the editor (here and, after a
+/// moment, on the server).
+pub fn save_and_close(s: AppState) {
+    let Some(draft) = s.draft.read().clone() else { return };
+    let mut state = s.draft;
+    state.set(None);
+    spawn(async move {
+        let typed = bridge::editor_html(&editor_id(&draft)).await;
+        let mut d = draft;
+        if !typed.is_empty() {
+            d.body_html = typed;
+        }
+        send_cmd(Cmd::SaveDraft(d));
+    });
+}
+
+/// Throw the draft away, including its server copy.
+fn discard(s: AppState) {
+    let Some(draft) = s.draft.read().clone() else { return };
+    let mut state = s.draft;
+    state.set(None);
+    send_cmd(Cmd::DiscardDraft { draft_id: draft.id });
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -165,7 +211,7 @@ pub fn InlineReply(draft: Draft) -> Element {
                     button { class: "btn btn--ghost btn--sm", r#type: "button", onclick: move |_| show_cc.set(true), "Cc" }
                 }
                 button { class: "icon-btn icon-btn--sm", "aria-label": "Discard draft",
-                    onclick: move |_| state.set(None),
+                    onclick: move |_| discard(s),
                     Icon { name: "x" }
                 }
             }
@@ -179,6 +225,7 @@ pub fn InlineReply(draft: Draft) -> Element {
             if let Some(h) = hint { div { class: "cross-account-hint", dir: "auto", "{h}" } }
             div { class: "inline-reply__editor", id: "{id}", contenteditable: "true", "data-editor": "true",
                 dir: "auto", "data-placeholder": "Write a reply…  Ctrl+Right Shift for RTL",
+                dangerous_inner_html: "{draft.body_html}",
             }
             if !current.html.is_empty() {
                 button { class: "inline-reply__quoted", r#type: "button", title: "Quoted text is included", "•••" }
@@ -258,10 +305,7 @@ fn Composer(draft: Draft) -> Element {
             div { class: "composer",
                 div { class: "composer__titlebar",
                     button { class: "icon-btn icon-btn--sm", "aria-label": "Close (Esc)",
-                        onclick: move |_| {
-                            if let Some(d) = state.read().clone() { send_cmd(Cmd::SaveDraft(d)); }
-                            state.set(None);
-                        },
+                        onclick: move |_| save_and_close(s),
                         Icon { name: "x" }
                     }
                     span { class: "composer__title", dir: "auto", "{title}" }
@@ -305,7 +349,8 @@ fn Composer(draft: Draft) -> Element {
                     }
                 }
                 div { class: "composer__body",
-                    div { class: "composer__editor", id: "{id}", contenteditable: "true", "data-editor": "true", dir: "auto" }
+                    div { class: "composer__editor", id: "{id}", contenteditable: "true", "data-editor": "true", dir: "auto",
+                        dangerous_inner_html: "{draft.body_html}" }
                 }
                 div { class: "composer__footer",
                     span { class: "t-caption", "Ctrl+Right Shift: RTL · Ctrl+Left Shift: LTR" }

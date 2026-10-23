@@ -125,3 +125,26 @@ pub trait MailSearch: Sync {
         limit: u32,
     ) -> impl Future<Output = Result<Vec<MailChange>>> + Send;
 }
+
+/// Server-side drafts, so a draft started here shows up on the user's other
+/// devices (and vice versa).
+pub trait DraftSync: Sync {
+    /// Create the draft, or replace `existing`, from a full MIME message.
+    /// Returns the server id, which may change on every save.
+    fn put_draft(
+        &self,
+        mime: &[u8],
+        existing: Option<&str>,
+        thread_id: Option<&str>,
+    ) -> impl Future<Output = Result<String>> + Send;
+
+    /// Delete a server draft; already-gone counts as success.
+    fn delete_draft(&self, id: &str) -> impl Future<Output = Result<()>> + Send;
+
+    /// The server draft id behind a synced draft message ("Edit draft").
+    fn draft_for_message(&self, message_id: &str) -> impl Future<Output = Result<Option<String>>> + Send;
+
+    /// Send a draft already saved with `mime` (via `put_draft`), removing it
+    /// from Drafts. Implementations send the stored draft where the API can.
+    fn send_draft(&self, id: &str, mime: &[u8], thread_id: Option<&str>) -> impl Future<Output = Result<()>> + Send;
+}

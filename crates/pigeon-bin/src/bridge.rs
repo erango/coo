@@ -79,6 +79,9 @@ pub const JS: &str = r#"
     if (!ed) return;
     if (ed.firstChild && ed.firstChild.nodeType === 3) blockOf(ed);
     for (const c of ed.children) if (!c.hasAttribute('dir')) c.setAttribute('dir', 'auto');
+    // Autosave: tell Rust once typing pauses.
+    clearTimeout(ed._pgSave);
+    ed._pgSave = setTimeout(() => send('draft-input', ed.id), 1500);
   }, true);
 
   // ---- Mail frames: fit height to content, open links in the browser ----

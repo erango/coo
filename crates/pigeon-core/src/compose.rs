@@ -70,6 +70,20 @@ pub struct Draft {
     pub attachments: Vec<DraftAttachment>,
     pub reply: Option<ReplyContext>,
     pub updated_at: i64,
+    /// What the user typed in the composer. `html` holds the quoted
+    /// original (replies/forwards) that follows it; see [`Draft::full_html`].
+    #[serde(default)]
+    pub body_html: String,
+    /// The copy saved on the From account's server, if any.
+    #[serde(default)]
+    pub server: Option<ServerDraft>,
+}
+
+/// A draft's server-side copy (Gmail draft id, Graph message id, IMAP id).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServerDraft {
+    pub account_id: String,
+    pub id: String,
 }
 
 impl Draft {
@@ -85,7 +99,14 @@ impl Draft {
             attachments: Vec::new(),
             reply: None,
             updated_at: now,
+            body_html: String::new(),
+            server: None,
         }
+    }
+
+    /// The message body as sent: typed text, then the quoted original.
+    pub fn full_html(&self) -> String {
+        format!("{}{}", self.body_html, self.html)
     }
 
     /// Change the sending address/account; everything else stays.
@@ -244,7 +265,8 @@ pub fn build_mime(draft: &Draft, attachments: &[Vec<u8>], now_secs: i64) -> Resu
 
     let domain = draft.from.address.email.rsplit_once('@').map(|(_, d)| d).unwrap_or("pigeon.invalid");
     let message_id = format!("{}@{domain}", auth::random_token(18));
-    let html = format!("<!doctype html><html><head><meta charset=\"utf-8\"></head><body>{}</body></html>", draft.html);
+    let html =
+        format!("<!doctype html><html><head><meta charset=\"utf-8\"></head><body>{}</body></html>", draft.full_html());
 
     let mut mb = MessageBuilder::new()
         .from(addr(&draft.from.address))
@@ -252,7 +274,7 @@ pub fn build_mime(draft: &Draft, attachments: &[Vec<u8>], now_secs: i64) -> Resu
         .date(now_secs)
         .message_id(message_id.clone())
         .html_body(html)
-        .text_body(html_to_text(&draft.html));
+        .text_body(html_to_text(&draft.full_html()));
     if !draft.to.is_empty() {
         mb = mb.to(list(&draft.to));
     }

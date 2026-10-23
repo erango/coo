@@ -222,6 +222,7 @@ async fn bridge_loop(s: AppState) {
                 }
             }
             "key" => on_key(s, &msg.v),
+            "draft-input" => compose::autosave(s, &msg.v),
             _ => {}
         }
     }
@@ -352,10 +353,7 @@ fn on_key(s: AppState, key: &str) {
                 return search::close(s);
             }
             if draft.read().is_some() {
-                if let Some(d) = draft.read().clone() {
-                    send_cmd(Cmd::SaveDraft(d));
-                }
-                draft.set(None);
+                compose::save_and_close(s);
             }
             return;
         }

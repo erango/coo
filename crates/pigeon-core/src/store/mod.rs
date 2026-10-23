@@ -22,6 +22,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("004_drafts.sql"),
     include_str!("005_invites.sql"),
     include_str!("006_folder_counts.sql"),
+    include_str!("007_server_drafts.sql"),
 ];
 
 /// Which folder a list query reads.
@@ -526,8 +527,16 @@ impl Store {
 
     pub fn save_draft(&self, draft: &crate::compose::Draft) -> Result<()> {
         self.conn.execute(
-            "INSERT OR REPLACE INTO drafts (id, account_id, json, updated_at) VALUES (?1, ?2, ?3, ?4)",
-            params![draft.id, draft.from.account_id, serde_json::to_string(draft)?, draft.updated_at],
+            "INSERT OR REPLACE INTO drafts (id, account_id, json, updated_at, server_account, server_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                draft.id,
+                draft.from.account_id,
+                serde_json::to_string(draft)?,
+                draft.updated_at,
+                draft.server.as_ref().map(|s| s.account_id.as_str()),
+                draft.server.as_ref().map(|s| s.id.as_str())
+            ],
         )?;
         Ok(())
     }

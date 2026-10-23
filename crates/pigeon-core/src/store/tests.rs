@@ -656,3 +656,16 @@ fn threads_found_past_a_long_thread_and_paged_with_before() {
     let m = s.list_messages(&ListQuery::unified(FolderRole::Inbox, 3)).unwrap();
     assert_eq!(m.iter().map(|m| m.header.id.as_str()).collect::<Vec<_>>(), ["long199", "long198", "long197"]);
 }
+
+#[test]
+fn draft_server_reference_roundtrips() {
+    let (s, _, g) = setup();
+    let from = crate::compose::Sender { account_id: g.id.clone(), address: Address::new(None, "me@gmail.com") };
+    let mut d = crate::compose::Draft::new(from, 5);
+    d.body_html = "<div dir=\"auto\">hi</div>".into();
+    d.server = Some(crate::compose::ServerDraft { account_id: g.id.clone(), id: "r-123".into() });
+    s.save_draft(&d).unwrap();
+    let back = s.draft(&d.id).unwrap().unwrap();
+    assert_eq!(back.server, d.server);
+    assert_eq!(back.full_html(), "<div dir=\"auto\">hi</div>");
+}

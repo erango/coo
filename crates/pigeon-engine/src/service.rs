@@ -126,7 +126,17 @@ pub enum Cmd {
         kind: ReplyKind,
     },
     NewDraft,
+    /// Save locally now; push to the server after a short pause.
     SaveDraft(Draft),
+    /// Delete a draft here and on the server.
+    DiscardDraft {
+        draft_id: String,
+    },
+    /// Open a synced server draft in the composer.
+    EditDraft {
+        account_id: String,
+        message_id: String,
+    },
     Send(Draft),
     OpenAttachment {
         account_id: String,
@@ -354,9 +364,41 @@ struct Service {
     sync_state: Mutex<SyncState>,
     toast_seq: std::sync::atomic::AtomicU64,
     my_addresses: Mutex<Option<Vec<String>>>,
+    /// Save generation per draft: a server sync only runs if no newer save
+    /// arrived during the debounce.
+    draft_gen: std::sync::Mutex<std::collections::HashMap<String, u64>>,
+    /// Drafts being sent; their server copy must not be re-created.
+    draft_sending: std::sync::Mutex<std::collections::HashSet<String>>,
 }
 
+/// Pause after the last save before a draft goes to the server.
+const DRAFT_SYNC_DELAY: Duration = Duration::from_secs(2);
+
 impl Service {
+    /// Debounced server save for a draft.
+    fn schedule_draft_sync(self: &Arc<Self>, draft_id: String) {
+        let generation = {
+            let mut g = self.draft_gen.lock().unwrap_or_else(|p| p.into_inner());
+            let n = g.entry(draft_id.clone()).or_insert(0);
+            *n += 1;
+            *n
+        };
+        let svc = self.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(DRAFT_SYNC_DELAY).await;
+            let current = svc.draft_gen.lock().unwrap_or_else(|p| p.into_inner()).get(&draft_id).copied();
+            let sending = svc.draft_sending.lock().unwrap_or_else(|p| p.into_inner()).contains(&draft_id);
+            if current != Some(generation) || sending {
+                return;
+            }
+            match svc.app.sync_draft(&draft_id).await {
+                Ok(_) => {}
+                // Drafts stay local when the server can't take them.
+                Err(e) => tracing::warn!(error = %e, "draft not saved to the server"),
+            }
+        });
+    }
+
     fn send(&self, d: Delta) {
         let _ = self.tx.send(d);
     }
@@ -622,10 +664,26 @@ impl Service {
                 self.app.save_draft(&mut draft)?;
                 self.send(Delta::Draft(draft));
             }
-            Cmd::SaveDraft(mut draft) => self.app.save_draft(&mut draft)?,
+            Cmd::SaveDraft(mut draft) => {
+                self.app.save_draft(&mut draft)?;
+                self.schedule_draft_sync(draft.id);
+            }
+            Cmd::DiscardDraft { draft_id } => {
+                self.draft_gen.lock().unwrap_or_else(|p| p.into_inner()).remove(&draft_id);
+                self.app.discard_draft(&draft_id).await?;
+                self.toast("Draft discarded", false, None);
+            }
+            Cmd::EditDraft { account_id, message_id } => {
+                let account = self.app.account(&account_id)?;
+                let draft = self.app.edit_draft(&account, &message_id).await?;
+                self.send(Delta::Draft(draft));
+            }
             Cmd::Send(mut draft) => {
                 self.app.save_draft(&mut draft)?;
-                match self.app.send(&draft).await {
+                self.draft_sending.lock().unwrap_or_else(|p| p.into_inner()).insert(draft.id.clone());
+                let sent = self.app.send(&draft).await;
+                self.draft_sending.lock().unwrap_or_else(|p| p.into_inner()).remove(&draft.id);
+                match sent {
                     Ok(_) => {
                         self.send(Delta::Sent { draft_id: draft.id.clone() });
                         self.toast(format!("Sent from {}", draft.from.address.email), false, None);
@@ -762,6 +820,8 @@ pub async fn run(app: Arc<Pigeon>, mut rx: mpsc::UnboundedReceiver<Cmd>, tx: mps
         sync_state: Mutex::new(SyncState::default()),
         toast_seq: Default::default(),
         my_addresses: Mutex::new(None),
+        draft_gen: Default::default(),
+        draft_sending: Default::default(),
     });
     svc.publish().await;
     let mut tick = tokio::time::interval(SYNC_EVERY);

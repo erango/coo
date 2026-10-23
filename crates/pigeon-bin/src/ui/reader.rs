@@ -173,6 +173,18 @@ fn Message(account_id: String, header: MessageHeader) -> Element {
                     div { class: "msg-head__from", dir: "auto", "{from.display()} " span { class: "msg-head__addr", "{from.email}" } }
                     div { class: "msg-head__to", dir: "auto", "to {to_line}" }
                 }
+                if header.is_draft {
+                    {
+                        let (account_id, message_id) = (account_id.clone(), header.id.clone());
+                        rsx! {
+                            button { class: "btn btn--secondary btn--sm", r#type: "button",
+                                onclick: move |_| send_cmd(Cmd::EditDraft { account_id: account_id.clone(), message_id: message_id.clone() }),
+                                Icon { name: "edit", class: "icon--sm" }
+                                "Edit draft"
+                            }
+                        }
+                    }
+                }
                 span { class: "msg-head__time", "{time}" }
             }
             if let Some((inv, view)) = invite {

@@ -17,9 +17,11 @@ use futures::future::join_all;
 use pigeon_core::actions::{FlushReport, flush_outbox};
 use pigeon_core::auth::{self, OAuthApp, TokenSource};
 use pigeon_core::bodies::{download_attachment, load_body};
-use pigeon_core::compose::{AttachmentSource, Draft, ReplyKind, Sender, build_mime, default_sender, reply_draft};
+use pigeon_core::compose::{
+    AttachmentSource, Draft, ReplyContext, ReplyKind, Sender, ServerDraft, build_mime, default_sender, reply_draft,
+};
 use pigeon_core::model::{Account, Address, FolderRole, ProviderKind, StoredBody};
-use pigeon_core::provider::{MailSearch, MailSender};
+use pigeon_core::provider::{DraftSync, MailSearch, MailSender};
 use pigeon_core::store::{Store, undo_ops};
 use pigeon_core::sync::{CalendarStats, MailStats, sync_calendars, sync_mail};
 use pigeon_core::tokens::TokenStore;
@@ -288,9 +290,120 @@ impl Pigeon {
         Ok(per_account.into_iter().flatten().collect())
     }
 
+    /// Save locally. The UI's copy may predate the last server sync, so a
+    /// missing server reference is taken from what's stored.
     pub fn save_draft(&self, draft: &mut Draft) -> Result<()> {
         draft.updated_at = pigeon_core::now_ms();
-        self.store().save_draft(draft)
+        let store = self.store();
+        if draft.server.is_none()
+            && let Some(stored) = store.draft(&draft.id)?
+        {
+            draft.server = stored.server;
+        }
+        store.save_draft(draft)
+    }
+
+    /// Push the stored draft to its From account's server (create or
+    /// replace). If From moved to another account, the old account's copy is
+    /// deleted first. Returns the new server reference.
+    pub async fn sync_draft(&self, draft_id: &str) -> Result<Option<ServerDraft>> {
+        let Some(mut draft) = self.store().draft(draft_id)? else { return Ok(None) };
+        let account = self.account(&draft.from.account_id)?;
+        let mut existing = None;
+        if let Some(old) = draft.server.take() {
+            if old.account_id == account.id {
+                existing = Some(old.id);
+            } else if let Ok(old_account) = self.account(&old.account_id)
+                && let Err(e) = self.delete_server_draft(&old_account, &old.id).await
+            {
+                tracing::warn!(error = %e, "could not remove the draft from the previous account");
+            }
+        }
+        let (_, mime) = self.draft_mime(&draft).await?;
+        let thread = draft.thread_hint().map(String::from);
+        let id = match &*self.backend(&account)? {
+            Backend::Microsoft(p) => p.put_draft(&mime, existing.as_deref(), thread.as_deref()).await?,
+            Backend::Google(p) => p.put_draft(&mime, existing.as_deref(), thread.as_deref()).await?,
+            Backend::ICloud(p) => p.mail.put_draft(&mime, existing.as_deref(), thread.as_deref()).await?,
+        };
+        let server = ServerDraft { account_id: account.id.clone(), id };
+        // Re-read: the user may have kept typing while this was in flight.
+        let latest = self.store().draft(draft_id)?;
+        match latest {
+            Some(mut latest) => {
+                latest.server = Some(server.clone());
+                self.store().save_draft(&latest)?;
+                Ok(Some(server))
+            }
+            // Sent or discarded while this save was in flight: don't leave
+            // an orphan copy in Drafts.
+            None => {
+                self.delete_server_draft(&account, &server.id).await?;
+                Ok(None)
+            }
+        }
+    }
+
+    async fn delete_server_draft(&self, account: &Account, id: &str) -> Result<()> {
+        match &*self.backend(account)? {
+            Backend::Microsoft(p) => p.delete_draft(id).await,
+            Backend::Google(p) => p.delete_draft(id).await,
+            Backend::ICloud(p) => p.mail.delete_draft(id).await,
+        }
+    }
+
+    /// Throw a draft away, here and on the server.
+    pub async fn discard_draft(&self, draft_id: &str) -> Result<()> {
+        let stored = self.store().draft(draft_id)?;
+        if let Some(server) = stored.and_then(|d| d.server)
+            && let Ok(account) = self.account(&server.account_id)
+        {
+            self.delete_server_draft(&account, &server.id).await?;
+        }
+        self.store().delete_draft(draft_id)
+    }
+
+    /// Open a draft that synced in from the server (e.g. written on the
+    /// phone) as an editable local draft linked to its server copy.
+    pub async fn edit_draft(&self, account: &Account, message_id: &str) -> Result<Draft> {
+        let h = self
+            .store()
+            .message(&account.id, message_id)?
+            .ok_or_else(|| Error::Other(format!("draft {message_id} is not synced")))?;
+        let body = self.body(account, message_id).await?;
+        let senders = self.senders().await?;
+        let from = h
+            .from
+            .as_ref()
+            .and_then(|f| {
+                senders.iter().find(|s| s.account_id == account.id && s.address.email.eq_ignore_ascii_case(&f.email))
+            })
+            .or_else(|| senders.iter().find(|s| s.account_id == account.id))
+            .cloned()
+            .ok_or_else(|| Error::Other("no sender for this account".into()))?;
+        let server_id = match &*self.backend(account)? {
+            Backend::Microsoft(p) => p.draft_for_message(message_id).await?,
+            Backend::Google(p) => p.draft_for_message(message_id).await?,
+            Backend::ICloud(p) => p.mail.draft_for_message(message_id).await?,
+        };
+        let mut d = edit_from_message(&h, &body, from, pigeon_core::now_ms());
+        d.server = server_id.map(|id| ServerDraft { account_id: account.id.clone(), id });
+        self.save_draft(&mut d)?;
+        Ok(d)
+    }
+
+    async fn draft_mime(&self, draft: &Draft) -> Result<(String, Vec<u8>)> {
+        let mut bytes = Vec::with_capacity(draft.attachments.len());
+        for a in &draft.attachments {
+            let path = match &a.source {
+                AttachmentSource::File { path } => PathBuf::from(path),
+                AttachmentSource::Message { account_id, message_id, attachment_id } => {
+                    self.attachment(&self.account(account_id)?, message_id, attachment_id).await?
+                }
+            };
+            bytes.push(std::fs::read(&path)?);
+        }
+        build_mime(draft, &bytes, Utc::now().timestamp())
     }
 
     /// Start a reply/reply-all/forward to a stored message. `from` overrides
@@ -321,24 +434,34 @@ impl Pigeon {
     }
 
     /// Send a draft from whichever account its From belongs to, then drop
-    /// it. Returns the Message-ID.
+    /// it here and on the server. A server copy on the From account is sent
+    /// through the provider's draft API (Gmail keeps the thread); a copy on
+    /// another account is deleted. Returns the Message-ID.
     pub async fn send(&self, draft: &Draft) -> Result<String> {
-        let mut bytes = Vec::with_capacity(draft.attachments.len());
-        for a in &draft.attachments {
-            let path = match &a.source {
-                AttachmentSource::File { path } => PathBuf::from(path),
-                AttachmentSource::Message { account_id, message_id, attachment_id } => {
-                    self.attachment(&self.account(account_id)?, message_id, attachment_id).await?
-                }
-            };
-            bytes.push(std::fs::read(&path)?);
-        }
-        let (message_id, mime) = build_mime(draft, &bytes, Utc::now().timestamp())?;
+        let (message_id, mime) = self.draft_mime(draft).await?;
         let account = self.account(&draft.from.account_id)?;
-        match &*self.backend(&account)? {
-            Backend::Microsoft(p) => p.send_mime(&mime, draft.thread_hint()).await?,
-            Backend::Google(p) => p.send_mime(&mime, draft.thread_hint()).await?,
-            Backend::ICloud(p) => p.mail.send_mime(&mime, draft.thread_hint()).await?,
+        let stored_server = self.store().draft(&draft.id)?.and_then(|d| d.server);
+        let server = draft.server.clone().or(stored_server);
+        let thread = draft.thread_hint();
+        match server.as_ref().filter(|s| s.account_id == account.id) {
+            Some(sd) => match &*self.backend(&account)? {
+                Backend::Microsoft(p) => p.send_draft(&sd.id, &mime, thread).await?,
+                Backend::Google(p) => p.send_draft(&sd.id, &mime, thread).await?,
+                Backend::ICloud(p) => p.mail.send_draft(&sd.id, &mime, thread).await?,
+            },
+            None => {
+                match &*self.backend(&account)? {
+                    Backend::Microsoft(p) => p.send_mime(&mime, thread).await?,
+                    Backend::Google(p) => p.send_mime(&mime, thread).await?,
+                    Backend::ICloud(p) => p.mail.send_mime(&mime, thread).await?,
+                }
+                if let Some(other) = &server
+                    && let Ok(other_account) = self.account(&other.account_id)
+                    && let Err(e) = self.delete_server_draft(&other_account, &other.id).await
+                {
+                    tracing::warn!(error = %e, "sent, but could not remove the draft from the other account");
+                }
+            }
         }
         self.store().delete_draft(&draft.id)?;
         Ok(message_id)
@@ -426,5 +549,68 @@ impl Pigeon {
             [] => Err(Error::Other(format!("no account matches {needle:?}"))),
             _ => Err(Error::Other(format!("{needle:?} matches several accounts"))),
         }
+    }
+}
+
+/// A local draft rebuilt from a server draft message: recipients, subject,
+/// body (into `body_html`, the editable part) and threading headers, so a
+/// reply drafted elsewhere still threads when sent from here.
+pub fn edit_from_message(h: &pigeon_core::model::MessageHeader, body: &StoredBody, from: Sender, now: i64) -> Draft {
+    let mut d = Draft::new(from.clone(), now);
+    d.to = h.to.clone();
+    d.cc = h.cc.clone();
+    d.subject = h.subject.clone();
+    d.body_html =
+        body.html.clone().or_else(|| body.text.as_deref().map(pigeon_core::text::text_to_html)).unwrap_or_default();
+    if body.in_reply_to.is_some() || !body.references.is_empty() {
+        d.reply = Some(ReplyContext {
+            kind: ReplyKind::Reply,
+            account_id: from.account_id,
+            message_id: String::new(),
+            thread_id: h.thread_id.clone(),
+            internet_message_id: body.in_reply_to.clone(),
+            references: body.references.clone(),
+        });
+    }
+    d
+}
+
+#[cfg(test)]
+mod draft_tests {
+    use pigeon_core::model::{Address, MessageHeader};
+
+    use super::*;
+
+    #[test]
+    fn edit_from_message_keeps_recipients_body_and_threading() {
+        let h = MessageHeader {
+            id: "m".into(),
+            thread_id: "t9".into(),
+            subject: "Re: שלום".into(),
+            to: vec![Address::new(None, "c@cust.com")],
+            ..Default::default()
+        };
+        let body = StoredBody {
+            text: Some("draft from phone".into()),
+            in_reply_to: Some("<p@x>".into()),
+            references: vec!["<r@x>".into(), "<p@x>".into()],
+            ..Default::default()
+        };
+        let from = Sender { account_id: "google:a@b.c".into(), address: Address::new(None, "a@b.c") };
+        let d = edit_from_message(&h, &body, from, 1);
+        assert_eq!(d.subject, "Re: שלום");
+        assert_eq!(d.to[0].email, "c@cust.com");
+        assert!(d.body_html.contains("draft from phone"));
+        assert!(d.html.is_empty(), "no quote appended twice");
+        let r = d.reply.unwrap();
+        assert_eq!((r.thread_id.as_str(), r.internet_message_id.as_deref()), ("t9", Some("<p@x>")));
+        // Same account: the provider thread id applies on send.
+        let d2 = edit_from_message(
+            &h,
+            &body,
+            Sender { account_id: "google:a@b.c".into(), address: Address::new(None, "a@b.c") },
+            1,
+        );
+        assert_eq!(d2.thread_hint(), Some("t9"));
     }
 }

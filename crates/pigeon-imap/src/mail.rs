@@ -4,7 +4,7 @@ use async_imap::types::{Fetch, Flag, NameAttribute};
 use futures::TryStreamExt;
 use mail_parser::{MessageParser, MimeHeaders};
 use pigeon_core::model::*;
-use pigeon_core::provider::{BodyProvider, MailActions, MailPage, MailProvider, MailSearch, MailSender};
+use pigeon_core::provider::{BodyProvider, DraftSync, MailActions, MailPage, MailProvider, MailSearch, MailSender};
 use pigeon_core::search::SearchQuery;
 use pigeon_core::{Error, Result, now_ms};
 
@@ -436,9 +436,94 @@ impl MailSender for Imap {
     }
 }
 
+/// The Message-ID of a MIME message, without angle brackets.
+fn mime_message_id(mime: &[u8]) -> Option<String> {
+    MessageParser::new().parse(mime).and_then(|m| m.message_id().map(String::from))
+}
+
+impl Imap {
+    /// Expunge one message by our id (`uidvalidity:uid:mailbox`).
+    async fn expunge_one(&self, id: &str) -> Result<()> {
+        let (_, uid, mailbox) = parse::split_id(id)?;
+        let mailbox = mailbox.to_string();
+        let set = uid.to_string();
+        self.with(async |s| {
+            s.select(&mailbox).await.map_err(imap_err)?;
+            let _: Vec<Fetch> = s
+                .uid_store(&set, "+FLAGS.SILENT (\\Deleted)")
+                .await
+                .map_err(imap_err)?
+                .try_collect()
+                .await
+                .map_err(imap_err)?;
+            let _: Vec<u32> = s.uid_expunge(&set).await.map_err(imap_err)?.try_collect().await.map_err(imap_err)?;
+            Ok(())
+        })
+        .await
+    }
+}
+
+impl DraftSync for Imap {
+    /// APPEND to Drafts with \\Draft, find the new UID by Message-ID (no
+    /// reliance on UIDPLUS), then expunge the previous version.
+    async fn put_draft(&self, mime: &[u8], existing: Option<&str>, _thread_id: Option<&str>) -> Result<String> {
+        let drafts = self
+            .role_folder(FolderRole::Drafts)
+            .await?
+            .ok_or_else(|| Error::Other("this account has no Drafts folder".into()))?;
+        let msgid = mime_message_id(mime).ok_or_else(|| Error::Other("draft has no Message-ID".into()))?;
+        let id = self
+            .with(async |s| {
+                s.append(&drafts, Some("(\\Draft \\Seen)"), None, mime).await.map_err(imap_err)?;
+                let mb = s.select(&drafts).await.map_err(imap_err)?;
+                let uv = mb.uid_validity.unwrap_or(0);
+                let hits = search(s, &format!("HEADER Message-ID \"{}\"", msgid.replace('"', "")), false).await?;
+                let uid =
+                    hits.into_iter().max().ok_or_else(|| Error::Other("saved draft not found in Drafts".into()))?;
+                Ok(parse::message_id(uv, uid, &drafts))
+            })
+            .await?;
+        if let Some(old) = existing
+            && old != id
+            && let Err(e) = self.expunge_one(old).await
+        {
+            tracing::warn!(error = %e, "could not remove the previous draft version");
+        }
+        Ok(id)
+    }
+
+    async fn delete_draft(&self, id: &str) -> Result<()> {
+        match self.expunge_one(id).await {
+            // A stale id (folder renamed/resynced) means it's gone already.
+            Err(Error::Other(m)) if m.starts_with("not an IMAP message id") => Ok(()),
+            r => r,
+        }
+    }
+
+    async fn draft_for_message(&self, message_id: &str) -> Result<Option<String>> {
+        Ok(Some(message_id.to_string()))
+    }
+
+    /// SMTP has no notion of a stored draft: send the MIME, then drop it.
+    async fn send_draft(&self, id: &str, mime: &[u8], thread_id: Option<&str>) -> Result<()> {
+        self.send_mime(mime, thread_id).await?;
+        if let Err(e) = self.delete_draft(id).await {
+            tracing::warn!(error = %e, "sent, but could not remove the draft");
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn draft_message_id_without_brackets() {
+        let mime = b"Message-ID: <abc.123@example.com>\r\nSubject: x\r\n\r\nhi";
+        assert_eq!(mime_message_id(mime).as_deref(), Some("abc.123@example.com"));
+        assert_eq!(mime_message_id(b"Subject: x\r\n\r\nhi"), None);
+    }
 
     #[test]
     fn parses_full_message_with_windows_1255_text_and_attachments() {

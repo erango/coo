@@ -5,6 +5,7 @@ mod actions;
 mod body;
 mod calendar;
 mod calendar_write;
+mod drafts;
 mod gmail;
 mod send;
 
