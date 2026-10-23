@@ -265,6 +265,11 @@ pub struct SyncState {
 
 #[derive(Debug, Clone)]
 pub enum Delta {
+    /// An OAuth sign-in failed (the UI decides whether it's admin consent).
+    LoginFailed {
+        provider: ProviderKind,
+        error: String,
+    },
     /// Unread inbox mail that arrived since the last sync (never on first
     /// sync), newest first. The UI decides whether to notify.
     NewMail(Vec<MessageRow>),
@@ -753,7 +758,17 @@ impl Service {
             }
             Cmd::SyncNow => tokio::spawn(self.clone().sync()).await.map_err(|e| Error::Other(e.to_string()))?,
             Cmd::Login(provider) => {
-                let account = self.app.login(provider, |url| tracing::info!(url, "sign-in URL")).await?;
+                let account = match self.app.login(provider, |url| tracing::info!(url, "sign-in URL")).await {
+                    Ok(a) => a,
+                    Err(e) => {
+                        self.send(Delta::LoginFailed { provider, error: e.to_string() });
+                        if pigeon_core::auth::admin_consent_code(&e.to_string()).is_some() {
+                            self.toast("Your organization's admin has to approve Coo first", true, None);
+                            return Ok(());
+                        }
+                        return Err(e);
+                    }
+                };
                 self.toast(format!("Signed in as {}", account.email), false, None);
                 self.publish().await;
                 tokio::spawn(self.clone().sync());

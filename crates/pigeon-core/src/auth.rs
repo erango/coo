@@ -335,6 +335,31 @@ impl TokenSource {
     }
 }
 
+/// Microsoft sign-in failed because the tenant requires an admin to approve
+/// the app: returns the AADSTS code (or "consent_required").
+pub fn admin_consent_code(error: &str) -> Option<&'static str> {
+    const CODES: [&str; 4] = ["AADSTS65001", "AADSTS90094", "AADSTS90095", "AADSTS900941"];
+    let e = error.to_ascii_lowercase();
+    if let Some(c) = CODES.iter().find(|c| e.contains(&c.to_ascii_lowercase())) {
+        return Some(c);
+    }
+    (e.contains("consent_required") || e.contains("admin approval") || e.contains("need admin approval"))
+        .then_some("consent_required")
+}
+
+/// The Microsoft client id in effect (runtime env, else baked in).
+pub fn microsoft_client_id() -> Option<String> {
+    std::env::var("PIGEON_MS_CLIENT_ID")
+        .ok()
+        .or(option_env!("PIGEON_MS_CLIENT_ID").map(String::from))
+        .filter(|v| !v.is_empty())
+}
+
+/// Where a tenant admin approves the app for everyone in the organization.
+pub fn admin_consent_url(client_id: &str) -> String {
+    format!("https://login.microsoftonline.com/organizations/adminconsent?client_id={client_id}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -366,5 +391,19 @@ mod tests {
         );
         assert_eq!(parse_callback(&req("/favicon.ico"), "s1"), Callback::Ignore);
         assert_eq!(parse_callback("", "s1"), Callback::Ignore);
+    }
+
+    #[test]
+    fn detects_admin_consent_errors() {
+        assert_eq!(
+            admin_consent_code(
+                "access_denied: AADSTS65001: The user or administrator has not consented to use the application"
+            ),
+            Some("AADSTS65001")
+        );
+        assert_eq!(admin_consent_code("consent_required: AADSTS90094: Need admin approval"), Some("AADSTS90094"));
+        assert_eq!(admin_consent_code("interaction_required: consent_required"), Some("consent_required"));
+        assert_eq!(admin_consent_code("access_denied: User said no"), None);
+        assert!(admin_consent_url("abc").ends_with("adminconsent?client_id=abc"));
     }
 }

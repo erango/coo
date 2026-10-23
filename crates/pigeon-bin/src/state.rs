@@ -106,6 +106,11 @@ pub struct AppState {
     pub outgoing: Signal<Vec<Outgoing>>,
     /// Settings should open the iCloud password form (re-sign-in).
     pub icloud_form: Signal<bool>,
+    /// Last OAuth sign-in failure (provider, message), shown by onboarding.
+    pub login_error: Signal<Option<(pigeon_core::model::ProviderKind, String)>>,
+    /// This session started with no accounts: show first-sync progress
+    /// after the first sign-in instead of an empty inbox.
+    pub first_run: Signal<bool>,
     /// Draft id whose send was just cancelled (its Draft delta reopens it).
     pub reopening: Signal<Option<String>>,
     /// Event editor form while open.
@@ -171,6 +176,8 @@ impl AppState {
             window_focused: Signal::new(true),
             outgoing: Signal::new(Vec::new()),
             icloud_form: Signal::new(false),
+            login_error: Signal::new(None),
+            first_run: Signal::new(false),
             reopening: Signal::new(None),
             editor: Signal::new(None),
             free_busy: Signal::new((0, Vec::new())),
@@ -289,6 +296,22 @@ fn debug_patch(s: &AppState, delta: Delta) -> Delta {
             st.error = Some("network unreachable".into());
             Delta::Sync(st)
         }
+        ("consent", Delta::Accounts(_)) => {
+            let mut e = s.login_error;
+            e.set(Some((
+                pigeon_core::model::ProviderKind::Microsoft,
+                "access_denied: AADSTS65001: The user or administrator has not consented to use the application".into(),
+            )));
+            Delta::Accounts(Vec::new())
+        }
+        ("first-sync", Delta::Accounts(mut a)) => {
+            let mut f = s.first_run;
+            f.set(true);
+            for (i, n) in a.iter_mut().enumerate() {
+                n.first_sync_done = i == 0;
+            }
+            Delta::Accounts(a)
+        }
         ("cold", Delta::Accounts(mut a)) => {
             a.iter_mut().for_each(|n| n.first_sync_done = false);
             Delta::Accounts(a)
@@ -351,7 +374,14 @@ fn apply(s: &mut AppState, delta: Delta) {
                     }
                 }
             }
+            Delta::LoginFailed { provider, error } => {
+                s.signing_in.set(false);
+                s.login_error.set(Some((provider, error)));
+            }
             Delta::Accounts(a) => {
+                if a.is_empty() && !*s.loaded.peek() {
+                    s.first_run.set(true);
+                }
                 let order = crate::prefs::get().account_order;
                 s.accounts.set(order_by(a, &order, |n| n.account.id.as_str()));
                 s.loaded.set(true);
