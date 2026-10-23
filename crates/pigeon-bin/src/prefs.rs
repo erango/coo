@@ -17,11 +17,20 @@ pub struct Prefs {
     pub account_order: Vec<String>,
     /// Multiplier on the base font size (⌘+ / ⌘- / ⌘0).
     pub font_scale: f32,
+    /// "system" | "light" | "dark".
+    pub theme_mode: String,
+    /// Color theme family id (`themes::FAMILIES`, or "pigeon").
+    pub palette: String,
 }
 
 impl Default for Prefs {
     fn default() -> Self {
-        Prefs { account_order: Vec::new(), font_scale: 1.0 }
+        Prefs {
+            account_order: Vec::new(),
+            font_scale: 1.0,
+            theme_mode: "system".into(),
+            palette: crate::themes::DEFAULT.into(),
+        }
     }
 }
 

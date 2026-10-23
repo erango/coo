@@ -58,3 +58,26 @@ input.input--bare { border: 0; outline: none; }
 .sidebar__nav .nav-item { height: calc(var(--nav-item-h) + 4px); }
 .sidebar__nav .nav-item--child { height: 32px; }
 .sidebar__nav .nav-section { margin-top: 16px; }
+
+/* ---------- Settings › Appearance (app-only; tokens only) ---------- */
+.settings-group { display: flex; flex-direction: column; gap: 18px; padding: 16px 18px; border-radius: var(--radius-lg); background: var(--bg-0); box-shadow: inset 0 0 0 1px var(--line); }
+.settings-field { display: flex; align-items: center; gap: 16px; }
+.settings-field--top { align-items: flex-start; }
+.settings-field__label { width: 84px; flex: none; font-size: var(--fs-ui); font-weight: var(--fw-semibold); color: var(--text-2); }
+.settings-field--top .settings-field__label { padding-top: 6px; }
+.settings-field__hint { font-size: var(--fs-caption); color: var(--text-3); }
+.text-size { display: flex; align-items: center; gap: 8px; }
+.text-size__value { min-width: 44px; text-align: center; font: var(--fs-ui) var(--font-mono); color: var(--text-1); }
+
+.theme-grid { flex: 1; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.theme-card { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 0; border-radius: var(--radius-lg); background: var(--bg-1); box-shadow: inset 0 0 0 1px var(--line); text-align: left; color: var(--text-1); cursor: pointer; }
+.theme-card:hover { background: var(--bg-2); }
+.theme-card[aria-checked="true"] { box-shadow: inset 0 0 0 1.5px var(--accent), 0 0 0 4px var(--focus-halo); }
+.theme-card__preview { height: 64px; display: flex; border-radius: var(--radius-md); overflow: hidden; box-shadow: 0 0 0 1px var(--line); }
+.theme-card__half { flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding: 7px; }
+.theme-card__bar { height: 14px; border-radius: 4px; display: flex; align-items: center; padding: 0 4px; }
+.theme-card__accent { width: 18px; height: 5px; border-radius: 3px; }
+.theme-card__dots { display: flex; gap: 4px; }
+.theme-card__dots > span { width: 9px; height: 9px; border-radius: 50%; }
+.theme-card__name { font-size: var(--fs-ui); font-weight: var(--fw-semibold); }
+.theme-card__variants { margin-top: -4px; font-size: var(--fs-caption); color: var(--text-3); }

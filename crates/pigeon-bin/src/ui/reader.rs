@@ -199,7 +199,7 @@ fn Body(account_id: String, message_id: String, body: StoredBody) -> Element {
     let content = match &body.html {
         Some(html) => {
             let adapted = mailframe::is_complex(html) == flipped;
-            let doc = mailframe::srcdoc(html, dark, adapted, allowed);
+            let doc = mailframe::srcdoc(html, &s.palette.read(), dark, adapted, allowed);
             rsx! {
                 div { class: "mail-body",
                     button { class: "btn btn--ghost btn--sm mail-body__toggle", r#type: "button",

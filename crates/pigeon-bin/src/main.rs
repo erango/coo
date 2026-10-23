@@ -5,6 +5,7 @@ mod bridge;
 mod format;
 mod prefs;
 mod state;
+mod themes;
 mod ui;
 
 use std::sync::{Arc, Mutex, OnceLock};
@@ -88,7 +89,19 @@ fn main() {
     // Styles in <head> so the first paint is already styled.
     let platform_css = if cfg!(target_os = "macos") { ":root{--titlebar-traffic:62px}" } else { "" };
     let zoom_css = ui::zoom::head_css(prefs.font_scale);
-    let head = format!("<style>{}\n{platform_css}\n{zoom_css}</style>", CSS.join("\n"));
+    // Theme attributes before the body exists, so there's no flash of the
+    // default palette.
+    let theme_mode = match prefs.theme_mode.as_str() {
+        "dark" | "light" => prefs.theme_mode.as_str(),
+        _ => "system",
+    };
+    let palette = if themes::is_known(&prefs.palette) { prefs.palette.as_str() } else { themes::DEFAULT };
+    let head = format!(
+        "<style>{}\n{}\n{platform_css}\n{zoom_css}</style><script>document.documentElement.dataset.theme={theme_mode:?};\
+         document.documentElement.dataset.palette={palette:?};</script>",
+        CSS.join("\n"),
+        themes::css()
+    );
 
     dioxus::LaunchBuilder::desktop()
         .with_cfg(

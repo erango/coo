@@ -1,10 +1,8 @@
 //! Building the sandboxed `srcdoc` for an email body.
 
-const ADAPTED_CSS: &str = include_str!("../../../../design/mail-adapted.css");
+use crate::themes;
 
-/// (text, muted, link) per theme, from tokens.css.
-const DARK: (&str, &str, &str) = ("#EDEEF0", "#A3A6AE", "#7AAEFF");
-const LIGHT: (&str, &str, &str) = ("#16171A", "#52555C", "#2459C7");
+const ADAPTED_CSS: &str = include_str!("../../../../design/mail-adapted.css");
 
 /// Authored-layout email (newsletters, receipts) that should keep its own
 /// white background ("paper") rather than adapt to the theme.
@@ -16,10 +14,12 @@ pub fn is_complex(html: &str) -> bool {
         || l.matches("<table").count() > 1
 }
 
-pub fn srcdoc(html: &str, dark: bool, adapted: bool, allow_remote: bool) -> String {
+/// `palette` + `dark` pick the adapted text/muted/link colors (the frame
+/// can't see the app's custom properties).
+pub fn srcdoc(html: &str, palette: &str, dark: bool, adapted: bool, allow_remote: bool) -> String {
     let img_src = if allow_remote { "data: https: http:" } else { "data:" };
     let style = if adapted {
-        let (fg, muted, link) = if dark { DARK } else { LIGHT };
+        let (fg, muted, link) = themes::mail_colors(palette, dark);
         ADAPTED_CSS
             .replace("--mail-fg: #EDEEF0", &format!("--mail-fg: {fg}"))
             .replace("--mail-muted: #A3A6AE", &format!("--mail-muted: {muted}"))
@@ -42,17 +42,21 @@ mod tests {
 
     #[test]
     fn csp_blocks_remote_until_allowed() {
-        let blocked = srcdoc("<p>x</p>", true, true, false);
+        let blocked = srcdoc("<p>x</p>", "pigeon", true, true, false);
         assert!(blocked.contains("img-src data:;"));
-        assert!(srcdoc("<p>x</p>", true, true, true).contains("img-src data: https: http:"));
+        assert!(srcdoc("<p>x</p>", "pigeon", true, true, true).contains("img-src data: https: http:"));
         assert!(blocked.contains("default-src 'none'"));
     }
 
     #[test]
-    fn adapted_colors_follow_theme() {
-        assert!(srcdoc("", false, true, false).contains("--mail-fg: #16171A"));
-        assert!(srcdoc("", true, true, false).contains("--mail-fg: #EDEEF0"));
-        assert!(!srcdoc("", true, false, false).contains("--mail-fg"));
+    fn adapted_colors_follow_theme_and_palette() {
+        assert!(srcdoc("", "pigeon", false, true, false).contains("--mail-fg: #16171A"));
+        assert!(srcdoc("", "pigeon", true, true, false).contains("--mail-fg: #EDEEF0"));
+        assert!(!srcdoc("", "pigeon", true, false, false).contains("--mail-fg"));
+        let (fg, _, link) = themes::mail_colors("dracula", true);
+        let doc = srcdoc("", "dracula", true, true, false);
+        assert!(doc.contains(&format!("--mail-fg: {fg}")) && doc.contains(&format!("--mail-link: {link}")));
+        assert!(!doc.contains("#EDEEF0"));
     }
 
     #[test]

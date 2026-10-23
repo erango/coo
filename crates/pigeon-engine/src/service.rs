@@ -99,6 +99,10 @@ pub enum Cmd {
     },
     SyncNow,
     Login(ProviderKind),
+    /// Sign out and delete the account's local data.
+    Logout {
+        account_id: String,
+    },
     LoadSenders,
     StartReply {
         account_id: String,
@@ -553,6 +557,13 @@ impl Service {
                 self.toast(format!("Signed in as {}", account.email), false, None);
                 self.publish().await;
                 tokio::spawn(self.clone().sync());
+            }
+            Cmd::Logout { account_id } => {
+                let account = self.app.account(&account_id)?;
+                self.app.logout(&account_id)?;
+                *self.my_addresses.lock().await = None;
+                self.toast(format!("Signed out of {}", account.email), false, None);
+                self.publish().await;
             }
             Cmd::LoadSenders => self.send(Delta::Senders(self.app.senders().await?)),
             Cmd::StartReply { account_id, message_id, kind } => {

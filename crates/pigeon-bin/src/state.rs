@@ -31,6 +31,24 @@ pub enum Theme {
     Light,
 }
 
+impl Theme {
+    pub fn from_pref(s: &str) -> Self {
+        match s {
+            "dark" => Theme::Dark,
+            "light" => Theme::Light,
+            _ => Theme::System,
+        }
+    }
+
+    pub fn as_pref(self) -> &'static str {
+        match self {
+            Theme::System => "system",
+            Theme::Dark => "dark",
+            Theme::Light => "light",
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Default)]
 pub struct CalendarData {
     pub from: i64,
@@ -89,6 +107,9 @@ pub struct AppState {
     /// Monday 00:00 local of the shown week, epoch ms.
     pub week_start: Signal<i64>,
     pub theme: Signal<Theme>,
+    /// Color theme family id (see `themes`).
+    pub palette: Signal<String>,
+    pub settings_open: Signal<bool>,
     pub os_dark: Signal<bool>,
     pub signing_in: Signal<bool>,
     pub collapsed_accounts: Signal<HashSet<String>>,
@@ -125,7 +146,12 @@ impl AppState {
             mode: Signal::new(Mode::Mail),
             calendar: Signal::new(CalendarData::default()),
             week_start: Signal::new(crate::format::week_start(chrono::Local::now())),
-            theme: Signal::new(Theme::System),
+            theme: Signal::new(Theme::from_pref(&crate::prefs::get().theme_mode)),
+            palette: Signal::new({
+                let p = crate::prefs::get().palette;
+                if crate::themes::is_known(&p) { p } else { crate::themes::DEFAULT.to_string() }
+            }),
+            settings_open: Signal::new(false),
             os_dark: Signal::new(true),
             signing_in: Signal::new(false),
             collapsed_accounts: Signal::new(HashSet::new()),

@@ -1,14 +1,15 @@
 mod calendar;
 mod compose;
-mod invite;
 pub mod event_editor;
+mod invite;
 mod list;
 pub mod mailframe;
 mod onboarding;
 mod palette;
 mod reader;
-mod search;
 mod recipients;
+mod search;
+mod settings;
 mod sidebar;
 mod toasts;
 pub mod zoom;
@@ -71,6 +72,19 @@ pub fn App() -> Element {
                     let mut m = s.mode;
                     m.set(Mode::Calendar);
                 }
+                "settings" => {
+                    let mut o = s.settings_open;
+                    o.set(true);
+                }
+                // theme:<palette>:<system|light|dark>
+                "theme" => {
+                    let (palette, mode) = arg.split_once(':').unwrap_or((arg, "system"));
+                    let (mut p, mut t) = (s.palette, s.theme);
+                    if crate::themes::is_known(palette) {
+                        p.set(palette.to_string());
+                    }
+                    t.set(Theme::from_pref(mode));
+                }
                 "event-new" => {
                     let guests = arg.to_string();
                     let mut m = s.mode;
@@ -93,12 +107,19 @@ pub fn App() -> Element {
         }
     });
 
+    // Apply and remember light/dark/system and the color theme.
     use_effect(move || {
-        bridge::set_theme(match *s.theme.read() {
-            Theme::Dark => "dark",
-            Theme::Light => "light",
-            Theme::System => "system",
-        })
+        let theme = *s.theme.read();
+        let palette = s.palette.read().clone();
+        bridge::set_theme(theme.as_pref());
+        bridge::set_palette(&palette);
+        let saved = crate::prefs::get();
+        if saved.theme_mode != theme.as_pref() || saved.palette != palette {
+            crate::prefs::update(|p| {
+                p.theme_mode = theme.as_pref().to_string();
+                p.palette = palette;
+            });
+        }
     });
 
     // Tell the engine what to list whenever the view changes.
@@ -123,12 +144,16 @@ pub fn App() -> Element {
         rsx! {
             div { class: "app",
                 sidebar::Sidebar {}
-                match *s.mode.read() {
-                    Mode::Mail => rsx! {
-                        list::MailList {}
-                        reader::Reader {}
-                    },
-                    Mode::Calendar => rsx! { calendar::CalendarView {} },
+                if *s.settings_open.read() {
+                    settings::Settings {}
+                } else {
+                    match *s.mode.read() {
+                        Mode::Mail => rsx! {
+                            list::MailList {}
+                            reader::Reader {}
+                        },
+                        Mode::Calendar => rsx! { calendar::CalendarView {} },
+                    }
                 }
             }
             compose::ComposerOverlay {}
@@ -257,6 +282,11 @@ fn on_key(s: AppState, key: &str) {
             let v = *p.read();
             return p.set(!v);
         }
+        "meta+," => {
+            let mut o = s.settings_open;
+            let v = *o.read();
+            return o.set(!v);
+        }
         "Escape" => {
             if *s.palette_open.read() {
                 let mut p = s.palette_open;
@@ -265,6 +295,10 @@ fn on_key(s: AppState, key: &str) {
             if s.editor.read().is_some() {
                 let mut e = s.editor;
                 return e.set(None);
+            }
+            if draft.read().is_none() && *s.settings_open.read() {
+                let mut o = s.settings_open;
+                return o.set(false);
             }
             if draft.read().is_none() && s.search.read().is_some() {
                 return search::close(s);
