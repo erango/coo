@@ -29,6 +29,10 @@ use crate::send_cmd;
 use crate::state::{self, AppState, Mode, Theme};
 
 const ICONS: &str = include_str!("../../../../design/icons.svg");
+/// App-only icons the design sprite lacks. `i-gear`: the design's
+/// `i-settings` is a circle with rays and reads as a sun next to the theme
+/// toggle. Gear path from Lucide (ISC license).
+const APP_ICONS: &str = r#"<svg xmlns="http://www.w3.org/2000/svg"><defs><symbol id="i-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol></defs></svg>"#;
 const DAY_MS: i64 = 86_400_000;
 
 #[component]
@@ -273,6 +277,7 @@ pub fn App() -> Element {
 
     rsx! {
         div { style: "display:none", dangerous_inner_html: ICONS }
+        div { style: "display:none", dangerous_inner_html: APP_ICONS }
         {body}
         if *s.agent_setup_open.read() { agent_setup::AgentSetup {} }
     }

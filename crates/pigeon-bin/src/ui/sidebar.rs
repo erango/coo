@@ -360,7 +360,7 @@ fn SyncFooter() -> Element {
                     button { class: "icon-btn icon-btn--sm", "aria-label": "Settings", title: "Settings (⌘,)",
                         "aria-pressed": if on { "true" } else { "false" },
                         onclick: move |_| { let v = !*open.read(); open.set(v); },
-                        Icon { name: "settings", class: "icon--sm" }
+                        Icon { name: "gear", class: "icon--sm" }
                     }
                 }
             }

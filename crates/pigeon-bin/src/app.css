@@ -188,3 +188,9 @@ body[data-resizing] iframe { pointer-events: none; }
 
 /* Reader: an empty message says so instead of showing a blank frame. */
 .body-empty { flex-direction: row; align-items: center; gap: 8px; color: var(--text-3); font-style: italic; }
+
+/* Sidebar footer: even visual spacing between the theme, Settings and sync
+   icons (buttons carry 6px around a 14px icon, the sync status doesn't), and
+   the first icon lines up with the nav icons above. */
+.sidebar__footer { gap: var(--space-1); padding-left: 12px; }
+.sidebar__footer .sync-status { margin-left: 6px; min-width: 0; }
