@@ -156,6 +156,8 @@ enum Cmd {
         #[arg(long, default_value_t = 24)]
         hours: i64,
     },
+    /// Send a test error to Sentry (verifies PIGEON_SENTRY_DSN + scrubbing).
+    TelemetryTest,
     /// Upcoming events across all calendars.
     Events {
         #[arg(short, long, default_value_t = 7)]
@@ -177,8 +179,21 @@ async fn main() -> ExitCode {
 }
 
 async fn run(cli: Cli) -> pigeon_core::Result<()> {
+    if let Cmd::TelemetryTest = cli.cmd {
+        if !sentry_enabled() {
+            return Err(pigeon_core::Error::Other("telemetry is off: set PIGEON_SENTRY_DSN".into()));
+        }
+        // The address below must arrive as <email> in Sentry.
+        tracing::error!(
+            account = "microsoft:test@example.com",
+            "telemetry test from pigeon-cli (scrub check: test@example.com)"
+        );
+        println!("sent a test error; check Sentry for “telemetry test from pigeon-cli”");
+        return Ok(());
+    }
     let app = Pigeon::open()?;
     match cli.cmd {
+        Cmd::TelemetryTest => unreachable!(),
         Cmd::Login { provider } => {
             let kind = ProviderKind::parse(&provider)
                 .ok_or_else(|| pigeon_core::Error::Other(format!("unknown provider {provider:?}")))?;
@@ -477,6 +492,10 @@ async fn find_sender(app: &Pigeon, email: &str) -> pigeon_core::Result<pigeon_co
 
 fn addresses(list: &[String]) -> Vec<pigeon_core::model::Address> {
     list.iter().flat_map(|s| pigeon_core::text::parse_address_list(s)).collect()
+}
+
+fn sentry_enabled() -> bool {
+    pigeon_engine::telemetry::enabled()
 }
 
 fn print_flush(r: &pigeon_core::actions::FlushReport) {

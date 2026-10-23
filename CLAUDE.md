@@ -59,7 +59,7 @@ cargo cli events --days 3
   `~/Library/Application Support/il.co.frost-media.pigeon`).
 - `RUST_LOG=pigeon=debug` for request-level logs.
 - Crash/error reporting: Sentry, on only when `PIGEON_SENTRY_DSN` is set
-  (`PIGEON_TELEMETRY=off` forces it off). `tracing::error!` becomes a Sentry
+  (`PIGEON_TELEMETRY=off` forces it off). Verify with `cargo cli telemetry-test`. `tracing::error!` becomes a Sentry
   event, `warn!`/`info!` breadcrumbs. Everything is scrubbed of email
   addresses and URL query strings (`pigeon-engine/src/telemetry.rs`). Never
   log mail content, subjects, names or event titles; account ids contain the

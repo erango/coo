@@ -14,3 +14,4 @@ clap.workspace = true
 pigeon-core.workspace = true
 pigeon-engine.workspace = true
 tokio.workspace = true
+tracing.workspace = true

@@ -26,6 +26,11 @@ fn dsn() -> Option<String> {
         .filter(|d| !d.trim().is_empty())
 }
 
+/// Whether a Sentry client is active in this process.
+pub fn enabled() -> bool {
+    sentry::Hub::current().client().is_some_and(|c| c.is_enabled())
+}
+
 /// Set up logging (stderr) and, when configured, Sentry. `release` is e.g.
 /// `pigeon-app@0.1.0`. Keep the guard alive for the life of the process so
 /// pending events flush on exit.

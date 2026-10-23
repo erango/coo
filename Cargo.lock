@@ -4011,6 +4011,7 @@ dependencies = [
  "pigeon-core",
  "pigeon-engine",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
