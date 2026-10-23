@@ -1,5 +1,5 @@
 mod agent_setup;
-mod calendar;
+pub mod calendar;
 pub mod compose;
 pub mod event_editor;
 mod icloud;
@@ -218,7 +218,7 @@ pub fn App() -> Element {
 
     use_effect(move || {
         if *s.mode.read() == Mode::Calendar {
-            let (from, to) = calendar::view_range(*s.cal_view.read(), *s.cal_day.read());
+            let (from, to) = calendar::view_range(*s.cal_view.read(), *s.cal_day.read(), *s.first_weekday.read());
             send_cmd(Cmd::ShowCalendar { from, to });
         }
     });

@@ -13,6 +13,7 @@ mod prefs;
 mod state;
 mod themes;
 mod ui;
+mod week;
 
 use std::sync::{Arc, Mutex, OnceLock};
 

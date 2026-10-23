@@ -149,6 +149,8 @@ pub struct AppState {
     pub week_start: Signal<i64>,
     /// Day / Week / Month.
     pub cal_view: Signal<CalView>,
+    /// First day of the week in effect (setting or macOS).
+    pub first_weekday: Signal<chrono::Weekday>,
     /// The day the calendar is focused on (Day view shows it; Month shows its month).
     pub cal_day: Signal<chrono::NaiveDate>,
     pub theme: Signal<Theme>,
@@ -197,7 +199,8 @@ impl AppState {
             sending: Signal::new(false),
             mode: Signal::new(Mode::Mail),
             calendar: Signal::new(CalendarData::default()),
-            week_start: Signal::new(crate::format::week_start(chrono::Local::now())),
+            week_start: Signal::new(crate::format::week_start(chrono::Local::now(), crate::week::first_day())),
+            first_weekday: Signal::new(crate::week::first_day()),
             cal_view: Signal::new(CalView::Week),
             cal_day: Signal::new(chrono::Local::now().date_naive()),
             theme: Signal::new(Theme::from_pref(&crate::prefs::get().theme_mode)),

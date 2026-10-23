@@ -31,6 +31,8 @@ pub struct Prefs {
     pub event_reminder_minutes: u32,
     /// Account ids that never notify.
     pub notify_accounts_muted: Vec<String>,
+    /// First day of the week, 0 = Sunday … 6 = Saturday; None = follow macOS.
+    pub week_start: Option<u8>,
     /// Undo-send window in seconds (0 = send immediately).
     pub undo_send_seconds: u32,
     /// Plain-text signature per sending address (lowercased email).
@@ -49,6 +51,7 @@ impl Default for Prefs {
             notify_events: true,
             event_reminder_minutes: 10,
             notify_accounts_muted: Vec::new(),
+            week_start: None,
             undo_send_seconds: 10,
             signatures: Default::default(),
         }

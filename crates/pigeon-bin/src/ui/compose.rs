@@ -64,24 +64,23 @@ fn at_local(t: DateTime<Local>, day_offset: i64, h: u32, m: u32) -> i64 {
 
 /// Send-later presets: (label, hint, epoch ms). "Later today" only while
 /// there's a sensible later today (3 h out, before 20:00).
-pub fn send_later_options(now: DateTime<Local>) -> Vec<(&'static str, String, i64)> {
+pub fn send_later_options(now: DateTime<Local>, first: Weekday) -> Vec<(String, String, i64)> {
     let mut out = Vec::new();
     let later = now + Duration::hours(3);
     if later.date_naive() == now.date_naive() && later.time() < NaiveTime::from_hms_opt(20, 0, 0).expect("valid") {
         let ms = at_local(now, 0, later.time().format("%H").to_string().parse().unwrap_or(0), 0);
-        out.push(("Later today", crate::format::hhmm(ms), ms));
+        out.push(("Later today".into(), crate::format::hhmm(ms), ms));
     }
     let tomorrow = at_local(now, 1, 8, 0);
-    out.push(("Tomorrow morning", format!("{} 08:00", (now + Duration::days(1)).format("%a")), tomorrow));
-    let to_monday = match now.weekday() {
-        Weekday::Mon => 7,
-        w => 7 - i64::from(w.num_days_from_monday()),
-    };
-    if to_monday > 1 {
+    out.push(("Tomorrow morning".into(), format!("{} 08:00", (now + Duration::days(1)).format("%a")), tomorrow));
+    // Start of next week (Sunday in Israel, Monday elsewhere).
+    let to_next_week = 7 - i64::from((7 + now.weekday().num_days_from_sunday() - first.num_days_from_sunday()) % 7);
+    if to_next_week > 1 {
+        let day = now + Duration::days(to_next_week);
         out.push((
-            "Monday morning",
-            format!("Mon {} 08:00", (now + Duration::days(to_monday)).format("%-d %b")),
-            at_local(now, to_monday, 8, 0),
+            format!("{} morning", day.format("%A")),
+            format!("{} 08:00", day.format("%a %-d %b")),
+            at_local(now, to_next_week, 8, 0),
         ));
     }
     out
@@ -361,7 +360,7 @@ fn SendButton() -> Element {
     let mut menu = use_signal(debug_extras);
     let mut pick = use_signal(String::new);
     let sending = *s.sending.read();
-    let options = send_later_options(Local::now());
+    let options = send_later_options(Local::now(), *s.first_weekday.read());
     rsx! {
         span { style: "position:relative",
             div { class: "split",
@@ -666,16 +665,22 @@ mod tests {
     #[test]
     fn send_later_presets() {
         let fri_10 = Local.with_ymd_and_hms(2026, 10, 23, 10, 0, 0).unwrap();
-        let o = send_later_options(fri_10);
-        let labels: Vec<&str> = o.iter().map(|x| x.0).collect();
+        let o = send_later_options(fri_10, Weekday::Mon);
+        let labels: Vec<&str> = o.iter().map(|x| x.0.as_str()).collect();
         assert_eq!(labels, ["Later today", "Tomorrow morning", "Monday morning"]);
         assert_eq!(o[0].2, Local.with_ymd_and_hms(2026, 10, 23, 13, 0, 0).unwrap().timestamp_millis());
         assert_eq!(o[2].2, Local.with_ymd_and_hms(2026, 10, 26, 8, 0, 0).unwrap().timestamp_millis());
-        // Evening: no "later today". Sunday: Monday is tomorrow, so no duplicate.
+        // Sunday-start weeks: next week begins Sunday.
+        let il = send_later_options(fri_10, Weekday::Sun);
+        assert_eq!(il[2].0, "Sunday morning");
+        assert_eq!(il[2].2, Local.with_ymd_and_hms(2026, 10, 25, 8, 0, 0).unwrap().timestamp_millis());
+        // Evening: no "later today". Day before the week starts: no duplicate of tomorrow.
         let fri_19 = Local.with_ymd_and_hms(2026, 10, 23, 19, 0, 0).unwrap();
-        assert!(send_later_options(fri_19).iter().all(|x| x.0 != "Later today"));
+        assert!(send_later_options(fri_19, Weekday::Mon).iter().all(|x| x.0 != "Later today"));
         let sun = Local.with_ymd_and_hms(2026, 10, 25, 9, 0, 0).unwrap();
-        assert!(send_later_options(sun).iter().all(|x| x.0 != "Monday morning"));
+        assert!(send_later_options(sun, Weekday::Mon).iter().all(|x| x.0 != "Monday morning"));
+        let sat = Local.with_ymd_and_hms(2026, 10, 24, 9, 0, 0).unwrap();
+        assert_eq!(send_later_options(sat, Weekday::Sun).len(), 2);
         assert!(parse_local_datetime("2026-10-24T09:30").is_some());
         assert!(parse_local_datetime("tomorrow").is_none());
     }

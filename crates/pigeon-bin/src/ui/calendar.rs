@@ -5,7 +5,7 @@
 //! sends `cal-create | cal-move | cal-resize` on drop; snapping and the new
 //! times are computed here.
 
-use chrono::{Datelike, Duration, Local, NaiveDate, TimeZone};
+use chrono::{Datelike, Duration, Local, NaiveDate, TimeZone, Weekday};
 use dioxus::prelude::*;
 use pigeon_core::model::{Attendee, EventDraft, EventRow, Response};
 use pigeon_engine::service::Cmd;
@@ -14,6 +14,7 @@ use super::{DAY_MS, Icon};
 use crate::format;
 use crate::send_cmd;
 use crate::state::{AppState, CalView};
+use crate::week;
 
 const HOUR_PX: f64 = 60.0;
 /// Drag snapping, minutes.
@@ -70,35 +71,22 @@ pub fn midnight(d: NaiveDate) -> i64 {
         .unwrap_or_else(|| d.and_hms_opt(0, 0, 0).expect("midnight").and_utc().timestamp_millis())
 }
 
-fn monday_of(d: NaiveDate) -> NaiveDate {
-    d - Duration::days(i64::from(d.weekday().num_days_from_monday()))
-}
-
 fn first_of_month(d: NaiveDate) -> NaiveDate {
     NaiveDate::from_ymd_opt(d.year(), d.month(), 1).unwrap_or(d)
 }
 
-/// The 6×7 days a month grid shows (Monday first).
-pub fn month_grid(d: NaiveDate) -> Vec<NaiveDate> {
-    let start = monday_of(first_of_month(d));
-    (0..42).map(|i| start + Duration::days(i)).collect()
-}
-
-/// Days a view shows.
-pub fn view_days(view: CalView, d: NaiveDate) -> Vec<NaiveDate> {
+/// Days a view shows; weeks start on `first`.
+pub fn view_days(view: CalView, d: NaiveDate, first: Weekday) -> Vec<NaiveDate> {
     match view {
         CalView::Day => vec![d],
-        CalView::Week => {
-            let m = monday_of(d);
-            (0..7).map(|i| m + Duration::days(i)).collect()
-        }
-        CalView::Month => month_grid(d),
+        CalView::Week => week::week_days(d, first),
+        CalView::Month => week::month_grid(d, first),
     }
 }
 
 /// The [from, to) range of events a view needs.
-pub fn view_range(view: CalView, d: NaiveDate) -> (i64, i64) {
-    let days = view_days(view, d);
+pub fn view_range(view: CalView, d: NaiveDate, first: Weekday) -> (i64, i64) {
+    let days = view_days(view, d, first);
     let first = days[0];
     let last = *days.last().expect("non-empty");
     (midnight(first), midnight(last + Duration::days(1)))
@@ -122,7 +110,7 @@ pub fn step(view: CalView, d: NaiveDate, forward: bool) -> NaiveDate {
 pub fn go_to(s: AppState, d: NaiveDate) {
     let (mut day, mut ws) = (s.cal_day, s.week_start);
     day.set(d);
-    ws.set(midnight(monday_of(d)));
+    ws.set(midnight(week::start_of_week(d, *s.first_weekday.peek())));
 }
 
 /// Events touching `day`, all-day first then by start; split into the
@@ -270,12 +258,13 @@ fn rsvp_attr(r: Response) -> Option<&'static str> {
     }
 }
 
-fn title_for(view: CalView, d: NaiveDate) -> (String, String) {
+fn title_for(view: CalView, d: NaiveDate, first: Weekday) -> (String, String) {
     match view {
         CalView::Day => (d.format("%A, %B %-d").to_string(), d.format("%Y").to_string()),
         CalView::Week => {
-            let m = monday_of(d);
-            (m.format("%B %Y").to_string(), format!("Week {}", m.iso_week().week()))
+            let m = week::start_of_week(d, first);
+            let n = week::week_number(m, first).map(|n| format!("Week {n}")).unwrap_or_default();
+            (m.format("%B %Y").to_string(), n)
         }
         CalView::Month => (d.format("%B %Y").to_string(), String::new()),
     }
@@ -288,7 +277,8 @@ pub fn CalendarView() -> Element {
     let selected = use_signal(|| None::<(String, String)>);
     let v = *view.read();
     let day = *s.cal_day.read();
-    let (title, sub) = title_for(v, day);
+    let first = *s.first_weekday.read();
+    let (title, sub) = title_for(v, day, first);
     let data = s.calendar.read().clone();
     let selected_event = selected
         .read()
@@ -323,7 +313,7 @@ pub fn CalendarView() -> Element {
             if v == CalView::Month {
                 MonthGrid { on_select: move |k| sel.set(Some(k)) }
             } else {
-                TimeGrid { days: view_days(v, day), selected }
+                TimeGrid { days: view_days(v, day, first), selected }
             }
             if let Some(e) = selected_event {
                 EventPopover { row: e, on_close: move |_| sel.set(None) }
@@ -337,21 +327,24 @@ fn MonthGrid(on_select: EventHandler<(String, String)>) -> Element {
     let s = use_context::<AppState>();
     let mut view = s.cal_view;
     let day = *s.cal_day.read();
+    let first = *s.first_weekday.read();
     let events = s.calendar.read().events.clone();
     let today = Local::now().date_naive();
     rsx! {
         div { class: "week",
             div { class: "day-heads", style: "padding-left:0",
-                for d in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] {
-                    div { class: "day-head", key: "{d}", span { class: "day-head__dow", "{d}" } }
+                for w in week::order(first) {
+                    div { class: "day-head", key: "{w}", "data-weekend": week::is_weekend(w).then_some("true"),
+                        span { class: "day-head__dow", "{w}" } }
                 }
             }
             div { class: "month",
-                for date in month_grid(day) {
+                for date in week::month_grid(day, first) {
                     {
                         let (chips, more) = month_cell(&events, date, MONTH_CHIPS);
                         rsx! {
                             div { class: "month__cell", key: "{date}",
+                                "data-weekend": week::is_weekend(date.weekday()).then_some("true"),
                                 "data-outside": (date.month() != day.month()).then_some("true"),
                                 "aria-current": (date == today).then_some("date"),
                                 onclick: move |_| { go_to(s, date); view.set(CalView::Day); },
@@ -409,7 +402,7 @@ fn TimeGrid(days: Vec<NaiveDate>, selected: Signal<Option<(String, String)>>) ->
                 for (i, d) in days.iter().enumerate() {
                     div { class: "day-head", key: "{i}",
                         "aria-current": (*d == today).then_some("date"),
-                        "data-weekend": (d.weekday().num_days_from_monday() >= 5).then_some("true"),
+                        "data-weekend": week::is_weekend(d.weekday()).then_some("true"),
                         span { class: "day-head__dow", "{d.format(\"%a\")}" }
                         span { class: "day-head__num", "{d.day()}" }
                     }
@@ -449,7 +442,7 @@ fn TimeGrid(days: Vec<NaiveDate>, selected: Signal<Option<(String, String)>>) ->
                                 let cols = layout_day(&spans);
                                 rsx! {
                                     div { class: "day-col", key: "d{i}",
-                                        "data-weekend": (day.weekday().num_days_from_monday() >= 5).then_some("true"),
+                                        "data-weekend": week::is_weekend(day.weekday()).then_some("true"),
                                         "data-day-start": "{day_start}",
                                         onclick: move |ev| {
                                             let y = ev.element_coordinates().y;
@@ -617,6 +610,7 @@ pub fn CalendarSidebar() -> Element {
     let s = use_context::<AppState>();
     let focus = *s.cal_day.read();
     let view = *s.cal_view.read();
+    let first = *s.first_weekday.read();
     let mut month = use_signal(|| first_of_month(focus));
     // Follow the main view when it moves to another month.
     use_effect(move || {
@@ -626,8 +620,8 @@ pub fn CalendarSidebar() -> Element {
         }
     });
     let m = *month.read();
-    let grid = month_grid(m);
-    let shown = view_days(view, focus);
+    let grid = week::month_grid(m, first);
+    let shown = view_days(view, focus, first);
     let (range_start, range_end) = if view == CalView::Month {
         (first_of_month(focus), first_of_month(step(CalView::Month, focus, true)) - Duration::days(1))
     } else {
@@ -649,7 +643,7 @@ pub fn CalendarSidebar() -> Element {
                     Icon { name: "chev-right", class: "icon--sm" } }
             }
             div { class: "mini-month__grid",
-                for d in ["M", "T", "W", "T", "F", "S", "S"] { span { class: "mini-month__dow", "{d}" } }
+                for w in week::order(first) { span { class: "mini-month__dow", key: "{w}", "{w.to_string().chars().next().unwrap_or(' ')}" } }
                 for (i, date) in grid.into_iter().enumerate() {
                     span { class: "mini-month__day", key: "{i}",
                         "data-outside": (date.month() != m.month()).then_some("true"),
@@ -702,16 +696,21 @@ mod tests {
 
     #[test]
     fn views_and_ranges() {
-        // October 2026 starts on a Thursday: the grid opens Mon Sep 28.
-        let g = month_grid(d(2026, 10, 23));
-        assert_eq!((g[0], g[41], g.len()), (d(2026, 9, 28), d(2026, 11, 8), 42));
-        assert_eq!(view_days(CalView::Week, d(2026, 10, 23))[0], d(2026, 10, 19));
-        assert_eq!(view_days(CalView::Day, d(2026, 10, 23)), vec![d(2026, 10, 23)]);
-        let (from, to) = view_range(CalView::Day, d(2026, 10, 25)); // DST ends in Israel/EU that night
+        let mon = Weekday::Mon;
+        assert_eq!(view_days(CalView::Week, d(2026, 10, 23), mon)[0], d(2026, 10, 19));
+        assert_eq!(view_days(CalView::Week, d(2026, 10, 23), Weekday::Sun)[0], d(2026, 10, 18));
+        assert_eq!(view_days(CalView::Month, d(2026, 10, 23), Weekday::Sun)[0], d(2026, 9, 27));
+        assert_eq!(view_days(CalView::Day, d(2026, 10, 23), mon), vec![d(2026, 10, 23)]);
+        let (from, to) = view_range(CalView::Day, d(2026, 10, 25), mon); // DST ends in Israel/EU that night
         assert_eq!((from, to), (midnight(d(2026, 10, 25)), midnight(d(2026, 10, 26))));
+        // A Sunday-start week across the DST change spans 7 calendar days.
+        let (from, to) = view_range(CalView::Week, d(2026, 10, 27), Weekday::Sun);
+        assert_eq!((from, to), (midnight(d(2026, 10, 25)), midnight(d(2026, 11, 1))));
         assert_eq!(step(CalView::Month, d(2026, 1, 31), true), d(2026, 2, 1));
         assert_eq!(step(CalView::Month, d(2026, 3, 15), false), d(2026, 2, 1));
         assert_eq!(step(CalView::Week, d(2026, 10, 23), false), d(2026, 10, 16));
+        assert_eq!(title_for(CalView::Week, d(2026, 10, 23), mon).1, "Week 43");
+        assert_eq!(title_for(CalView::Week, d(2026, 10, 23), Weekday::Sun).1, "");
     }
 
     #[test]

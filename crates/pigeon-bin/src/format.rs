@@ -1,6 +1,6 @@
 //! Display formatting: times, list grouping, initials, sizes.
 
-use chrono::{DateTime, Datelike, Duration, Local, NaiveTime, TimeZone};
+use chrono::{DateTime, Datelike, Local, NaiveTime, TimeZone};
 
 pub fn local(ms: i64) -> Option<DateTime<Local>> {
     Local.timestamp_millis_opt(ms).single()
@@ -64,11 +64,11 @@ pub fn size(bytes: u64) -> String {
     }
 }
 
-/// Monday 00:00 (local) of the week containing `t`, epoch ms.
-pub fn week_start(t: DateTime<Local>) -> i64 {
-    let monday = t.date_naive() - Duration::days(i64::from(t.weekday().num_days_from_monday()));
+/// 00:00 (local) of the first day (`first`) of the week containing `t`, epoch ms.
+pub fn week_start(t: DateTime<Local>, first: chrono::Weekday) -> i64 {
+    let start = crate::week::start_of_week(t.date_naive(), first);
     Local
-        .from_local_datetime(&monday.and_time(NaiveTime::MIN))
+        .from_local_datetime(&start.and_time(NaiveTime::MIN))
         .earliest()
         .map(|d| d.timestamp_millis())
         .unwrap_or_default()
@@ -113,7 +113,13 @@ mod tests {
         assert_eq!(size(2_516_582), "2.4 MB");
         let fri = Local.with_ymd_and_hms(2026, 10, 23, 15, 0, 0).unwrap();
         let mon = Local.with_ymd_and_hms(2026, 10, 19, 0, 0, 0).unwrap();
-        assert_eq!(week_start(fri), mon.timestamp_millis());
+        assert_eq!(week_start(fri, chrono::Weekday::Mon), mon.timestamp_millis());
+        let sun = Local.with_ymd_and_hms(2026, 10, 18, 0, 0, 0).unwrap();
+        assert_eq!(week_start(fri, chrono::Weekday::Sun), sun.timestamp_millis());
+        // Week spanning the DST change (Sun Oct 25): starts at that Sunday's local midnight.
+        let tue = Local.with_ymd_and_hms(2026, 10, 27, 9, 0, 0).unwrap();
+        let sun25 = Local.with_ymd_and_hms(2026, 10, 25, 0, 0, 0).unwrap();
+        assert_eq!(week_start(tue, chrono::Weekday::Sun), sun25.timestamp_millis());
         assert_eq!(soon(8 * 60_000 + 5, 0), "in 8 min");
     }
 }

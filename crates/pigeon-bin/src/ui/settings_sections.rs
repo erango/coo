@@ -10,6 +10,53 @@ use crate::state::AppState;
 
 const UNDO_CHOICES: [(u32, &str); 5] = [(0, "Off"), (5, "5 s"), (10, "10 s"), (20, "20 s"), (30, "30 s")];
 
+fn day_name(w: chrono::Weekday) -> &'static str {
+    use chrono::Weekday::*;
+    match w {
+        Sun => "Sunday",
+        Mon => "Monday",
+        Tue => "Tuesday",
+        Wed => "Wednesday",
+        Thu => "Thursday",
+        Fri => "Friday",
+        Sat => "Saturday",
+    }
+}
+
+#[component]
+pub fn CalendarSettings() -> Element {
+    let s = use_context::<AppState>();
+    let mut choice = use_signal(|| prefs::get().week_start);
+    let auto_label = format!("Automatic ({})", day_name(crate::week::system().first));
+    let options: [(Option<u8>, String); 4] =
+        [(None, auto_label), (Some(0), "Sunday".into()), (Some(1), "Monday".into()), (Some(6), "Saturday".into())];
+    let current = *choice.read();
+    rsx! {
+        div { class: "settings__title", style: "margin-top:12px", "Calendar" }
+        div { class: "settings-group",
+            div { class: "settings-field",
+                span { class: "settings-field__label", "Week starts on" }
+                div { class: "segmented", role: "radiogroup", "aria-label": "First day of the week",
+                    for (value, label) in options {
+                        button { role: "radio", key: "{label}", "aria-checked": "{current == value}", "aria-selected": "{current == value}",
+                            onclick: move |_| {
+                                prefs::update(|p| p.week_start = value);
+                                choice.set(value);
+                                let mut fw = s.first_weekday;
+                                fw.set(crate::week::first_day());
+                                let day = *s.cal_day.peek();
+                                super::calendar::go_to(s, day);
+                            },
+                            "{label}"
+                        }
+                    }
+                }
+                span { class: "settings-field__hint", "Week view, the month grids and navigation use this." }
+            }
+        }
+    }
+}
+
 #[component]
 pub fn Composing() -> Element {
     let s = use_context::<AppState>();
