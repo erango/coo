@@ -247,6 +247,19 @@ pub const JS: &str = r#"
     document.addEventListener('click', (e) => { if (swallowClick) { e.stopPropagation(); e.preventDefault(); swallowClick = false; } }, true);
   })();
 
+  // ---- Context menu: WebKit's own menu only where it's useful ----
+  // Its default offers Reload / Open Frame in New Window / Inspect, which
+  // make no sense in an app. Keep it for editable fields (paste, spelling)
+  // and selected text (Copy, Look Up); suppress it everywhere else,
+  // including inside mail frames (wired in `wire` below).
+  function contextGuard(e, doc) {
+    const sel = doc.getSelection && doc.getSelection();
+    const hasText = sel && !sel.isCollapsed && sel.toString().trim() !== '';
+    if (editable(e.target) || hasText) return;
+    e.preventDefault();
+  }
+  document.addEventListener('contextmenu', (e) => contextGuard(e, document));
+
   // ---- Window: drag by the title strips, double-click to zoom ----
   // The titlebar is transparent with content under it, and WKWebView ignores
   // -webkit-app-region, so empty parts of the top bars move the window
@@ -312,6 +325,7 @@ pub const JS: &str = r#"
             const a = e.target.closest && e.target.closest('a[href]');
             if (a) { e.preventDefault(); send('link', a.href); }
           });
+          d.addEventListener('contextmenu', (e) => contextGuard(e, d));
           new ResizeObserver(fit).observe(d.documentElement);
           for (const img of d.images) img.addEventListener('load', fit);
         } catch (_) {}
