@@ -572,3 +572,26 @@ fn flag_and_retain_changes() {
     let a = s.message(&ms.id, "a").unwrap().unwrap();
     assert!(a.is_read && a.is_flagged);
 }
+
+#[test]
+fn threads_found_past_a_long_thread_and_paged_with_before() {
+    let (mut s, ms, g) = setup();
+    // One 200-message thread newer than everything else fills the first chunk.
+    let mut changes: Vec<MailChange> =
+        (0..200).map(|i| MailChange::Upsert(msg(&format!("long{i}"), "long", 10_000 + i, &["in-ms"]))).collect();
+    changes.push(MailChange::Upsert(msg("x", "short", 500, &["in-ms"])));
+    s.apply_mail(&ms.id, "f", &changes, "1").unwrap();
+    s.apply_mail(&g.id, "mail", &[MailChange::Upsert(msg("y", "gm", 700, &["INBOX"]))], "1").unwrap();
+
+    let t = s.list_threads(&ListQuery::unified(FolderRole::Inbox, 3)).unwrap();
+    assert_eq!(t.iter().map(|t| t.thread_id.as_str()).collect::<Vec<_>>(), ["long", "gm", "short"]);
+    assert_eq!(t[0].message_count, 200);
+    assert_eq!(t[0].latest.id, "long199");
+
+    let page = ListQuery { before: Some(700), ..ListQuery::unified(FolderRole::Inbox, 5) };
+    let t = s.list_threads(&page).unwrap();
+    assert_eq!(t.iter().map(|t| t.thread_id.as_str()).collect::<Vec<_>>(), ["short"]);
+
+    let m = s.list_messages(&ListQuery::unified(FolderRole::Inbox, 3)).unwrap();
+    assert_eq!(m.iter().map(|m| m.header.id.as_str()).collect::<Vec<_>>(), ["long199", "long198", "long197"]);
+}
