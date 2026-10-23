@@ -377,7 +377,7 @@ pub fn EventEditor() -> Element {
                     div { class: "ee-row ee-row--top",
                         Icon { name: "text", class: "ee-row__icon" }
                         div { class: "ee-row__content",
-                            textarea { class: "input", style: "flex:1;min-height:88px", dir: "auto", placeholder: "Description",
+                            textarea { class: "input", style: "flex:1;min-height:88px", dir: "auto", placeholder: if editing.is_some() { "Description (leave empty to keep the current one)" } else { "Description" },
                                 value: "{form.description}", oninput: move |e| set(|f, v| f.description = v, e.value()) }
                         }
                     }

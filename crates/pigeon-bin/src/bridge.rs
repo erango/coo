@@ -42,6 +42,8 @@ pub const JS: &str = r#"
     if (e.shiftKey && e.metaKey && key.length === 1) key = 'shift+' + key.toLowerCase();
     if (e.metaKey) key = 'meta+' + key;
     if (editable(e.target)) {
+      // An open autocomplete owns Escape (the input closes it itself).
+      if (key === 'Escape' && e.target.dataset && e.target.dataset.suggestOpen === 'true') return;
       if (key === 'meta+Enter' || key === 'Escape') { e.preventDefault(); send('key', key); }
       return;
     }

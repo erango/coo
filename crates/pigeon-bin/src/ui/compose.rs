@@ -8,9 +8,10 @@ use dioxus::prelude::*;
 use pigeon_core::compose::{Draft, Sender};
 use pigeon_core::model::Address;
 use pigeon_core::text::parse_address_list;
-use pigeon_engine::service::Cmd;
+use pigeon_engine::service::{Cmd, Toast};
 
 use super::Icon;
+use super::recipients::{RecipientInput, is_valid};
 use crate::bridge;
 use crate::send_cmd;
 use crate::state::AppState;
@@ -19,20 +20,20 @@ fn editor_id(d: &Draft) -> String {
     format!("editor-{}", d.id)
 }
 
-fn join(list: &[Address]) -> String {
-    list.iter()
-        .map(|a| match &a.name {
-            Some(n) => format!("{n} <{}>", a.email),
-            None => a.email.clone(),
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
 /// Send the open draft (⌘↵): read the editor, attach the quote, go.
 pub fn send_current(s: AppState) {
     let Some(draft) = s.draft.read().clone() else { return };
     if *s.sending.read() {
+        return;
+    }
+    let all = || draft.to.iter().chain(&draft.cc).chain(&draft.bcc);
+    let problem = if all().next().is_none() {
+        Some("Add at least one recipient".to_string())
+    } else {
+        all().find(|a| !is_valid(&a.email)).map(|a| format!("“{}” isn't a valid address", a.email))
+    };
+    if let Some(message) = problem {
+        s.push_toast(Toast { id: crate::state::next_token(), message, error: true, undo: None });
         return;
     }
     let mut sending = s.sending;
@@ -43,6 +44,25 @@ pub fn send_current(s: AppState) {
         d.html = format!("{typed}{}", d.html);
         send_cmd(Cmd::Send(d));
     });
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Field {
+    To,
+    Cc,
+    Bcc,
+}
+
+/// Write one recipient list into the open draft.
+fn set_field(s: AppState, field: Field, list: Vec<Address>) {
+    let mut draft = s.draft;
+    if let Some(d) = draft.write().as_mut() {
+        match field {
+            Field::To => d.to = list,
+            Field::Cc => d.cc = list,
+            Field::Bcc => d.bcc = list,
+        }
+    }
 }
 
 fn use_senders(s: AppState) {
@@ -122,9 +142,8 @@ fn cross_hint(s: &AppState, d: &Draft) -> Option<String> {
 pub fn InlineReply(draft: Draft) -> Element {
     let s = use_context::<AppState>();
     use_senders(s);
-    let mut to = use_signal(|| join(&draft.to));
-    let mut cc = use_signal(|| join(&draft.cc));
     let mut state = s.draft;
+    let mut show_cc = use_signal(|| !draft.cc.is_empty());
     let id = editor_id(&draft);
     use_hook({
         let id = id.clone();
@@ -134,31 +153,26 @@ pub fn InlineReply(draft: Draft) -> Element {
     let hint = cross_hint(&s, &current);
     let sending = *s.sending.read();
 
-    // Keep recipients in the draft as they're edited.
-    let mut sync_fields = move || {
-        if let Some(d) = state.write().as_mut() {
-            d.to = parse_address_list(&to.read());
-            d.cc = parse_address_list(&cc.read());
-        }
-    };
-
     rsx! {
         div { class: "inline-reply",
-            div { class: "inline-reply__head",
+            div { class: "inline-reply__head", style: "height:auto;min-height:44px",
                 FromPicker {}
                 span { class: "t-3", style: "font-size:12.5px", "to" }
-                input { class: "input--bare inline-reply__to", dir: "auto", value: "{to}",
-                    oninput: move |e| { to.set(e.value()); sync_fields(); }
-                }
-                if !cc.read().is_empty() {
-                    span { class: "t-3", style: "font-size:12.5px", "cc" }
-                    input { class: "input--bare inline-reply__to", dir: "auto", value: "{cc}",
-                        oninput: move |e| { cc.set(e.value()); sync_fields(); }
-                    }
+                RecipientInput { id: "reply-to-{current.id}", value: current.to.clone(),
+                    on_change: move |l| set_field(s, Field::To, l) }
+                if !*show_cc.read() {
+                    button { class: "btn btn--ghost btn--sm", r#type: "button", onclick: move |_| show_cc.set(true), "Cc" }
                 }
                 button { class: "icon-btn icon-btn--sm", "aria-label": "Discard draft",
                     onclick: move |_| state.set(None),
                     Icon { name: "x" }
+                }
+            }
+            if *show_cc.read() {
+                div { class: "inline-reply__head", style: "height:auto;min-height:40px",
+                    span { class: "t-3", style: "font-size:12.5px;padding-left:4px", "cc" }
+                    RecipientInput { id: "reply-cc-{current.id}", value: current.cc.clone(),
+                        on_change: move |l| set_field(s, Field::Cc, l) }
                 }
             }
             if let Some(h) = hint { div { class: "cross-account-hint", dir: "auto", "{h}" } }
@@ -199,32 +213,44 @@ pub fn ComposerOverlay() -> Element {
     rsx! { Composer { key: "{d.id}", draft: d } }
 }
 
+/// Debug builds: `PIGEON_DEBUG_OPEN=compose:<to list>[|<partial>]` fills
+/// the first new draft for screenshots.
+fn debug_compose() -> Option<(Vec<Address>, String)> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+    let v = std::env::var("PIGEON_DEBUG_OPEN").ok()?;
+    let rest = v.strip_prefix("compose:")?;
+    let (list, partial) = rest.split_once('|').unwrap_or((rest, ""));
+    Some((parse_address_list(list), partial.to_string()))
+}
+
 #[component]
 fn Composer(draft: Draft) -> Element {
     let s = use_context::<AppState>();
     use_senders(s);
     let mut state = s.draft;
-    let mut to = use_signal(|| join(&draft.to));
-    let mut cc = use_signal(|| join(&draft.cc));
     let mut subject = use_signal(|| draft.subject.clone());
+    let debug = use_hook(|| {
+        static USED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        let d = debug_compose().filter(|_| !USED.swap(true, std::sync::atomic::Ordering::Relaxed));
+        if let Some((to, _)) = &d {
+            set_field(s, Field::To, to.clone());
+        }
+        d.map(|(_, partial)| partial).unwrap_or_default()
+    });
+    let mut show_cc_bcc = use_signal(|| !draft.cc.is_empty() || !draft.bcc.is_empty());
     let id = editor_id(&draft);
     use_hook({
         let id = id.clone();
         let focus_to = draft.to.is_empty();
-        move || bridge::focus(if focus_to { "composer-to" } else { &id })
+        let to_id = format!("composer-to-{}", draft.id);
+        move || bridge::focus(if focus_to { &to_id } else { &id })
     });
     let sending = *s.sending.read();
     let current = state.read().clone().unwrap_or(draft.clone());
     let hint = cross_hint(&s, &current);
     let title = if current.subject.is_empty() { "New message".to_string() } else { current.subject.clone() };
-
-    let mut sync_fields = move || {
-        if let Some(d) = state.write().as_mut() {
-            d.to = parse_address_list(&to.read());
-            d.cc = parse_address_list(&cc.read());
-            d.subject = subject.read().clone();
-        }
-    };
 
     rsx! {
         div { class: "composer-overlay",
@@ -248,20 +274,32 @@ fn Composer(draft: Draft) -> Element {
                     if let Some(h) = hint { div { class: "cross-account-hint", style: "padding:6px 0", "{h}" } }
                     div { class: "composer-field",
                         span { class: "composer-field__label", "To" }
-                        input { class: "input--bare", id: "composer-to", style: "flex:1", dir: "auto", value: "{to}",
-                            placeholder: "name@example.com, …",
-                            oninput: move |e| { to.set(e.value()); sync_fields(); }
+                        RecipientInput { id: "composer-to-{current.id}", value: current.to.clone(),
+                            placeholder: "Name or address", initial_text: debug.clone(),
+                            on_change: move |l| set_field(s, Field::To, l) }
+                        if !*show_cc_bcc.read() {
+                            button { class: "btn btn--ghost btn--sm composer-field__aside", r#type: "button",
+                                onclick: move |_| show_cc_bcc.set(true), "Cc Bcc" }
                         }
                     }
-                    div { class: "composer-field",
-                        span { class: "composer-field__label", "Cc" }
-                        input { class: "input--bare", style: "flex:1", dir: "auto", value: "{cc}",
-                            oninput: move |e| { cc.set(e.value()); sync_fields(); }
+                    if *show_cc_bcc.read() {
+                        div { class: "composer-field",
+                            span { class: "composer-field__label", "Cc" }
+                            RecipientInput { id: "composer-cc-{current.id}", value: current.cc.clone(),
+                                on_change: move |l| set_field(s, Field::Cc, l) }
+                        }
+                        div { class: "composer-field",
+                            span { class: "composer-field__label", "Bcc" }
+                            RecipientInput { id: "composer-bcc-{current.id}", value: current.bcc.clone(),
+                                on_change: move |l| set_field(s, Field::Bcc, l) }
                         }
                     }
                     div { class: "composer-field composer-field--subject",
                         input { class: "input--bare", dir: "auto", value: "{subject}", placeholder: "Subject",
-                            oninput: move |e| { subject.set(e.value()); sync_fields(); }
+                            oninput: move |e| {
+                                subject.set(e.value());
+                                if let Some(d) = state.write().as_mut() { d.subject = e.value(); }
+                            }
                         }
                     }
                 }

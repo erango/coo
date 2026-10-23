@@ -55,6 +55,12 @@ impl Mailbox {
 
 #[derive(Debug, Clone)]
 pub enum Cmd {
+    /// Recipient autocomplete; `token` lets the UI drop stale results.
+    SuggestContacts {
+        query: String,
+        token: u64,
+        limit: u32,
+    },
     /// Local search; `token` lets the UI drop stale results.
     Search {
         query: String,
@@ -245,6 +251,10 @@ pub enum Delta {
     },
 }
 
+    Contacts {
+        token: u64,
+        items: Vec<Address>,
+    },
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ServerSearch {
     Idle,
@@ -319,6 +329,7 @@ impl Service {
     }
 
     async fn publish_inner(&self) -> Result<()> {
+    my_addresses: Mutex<Option<Vec<String>>>,
         let (mailbox, threaded, calendar) = {
             let v = self.view.lock().await;
             (v.mailbox.clone(), v.threaded, v.calendar)
@@ -384,6 +395,21 @@ impl Service {
                         }
                     }
                 }
+    /// Every address the user sends from (accounts + aliases), cached after
+    /// the first lookup; falls back to account addresses if aliases fail.
+    async fn my_addresses(&self) -> Vec<String> {
+        let mut cache = self.my_addresses.lock().await;
+        if let Some(m) = cache.as_ref() {
+            return m.clone();
+        }
+        let mut mine: Vec<String> = self.app.accounts().unwrap_or_default().into_iter().map(|a| a.email).collect();
+        if let Ok(senders) = self.app.senders().await {
+            mine.extend(senders.into_iter().map(|s| s.address.email));
+            *cache = Some(mine.clone());
+        }
+        mine
+    }
+
             }
             Err(e) => errors.push(e.to_string()),
         }
@@ -565,6 +591,11 @@ impl Service {
                 }
                 let event = self.app.create_event(&account, &draft).await?;
                 self.toast(format!("Created “{}”", event.title), false, None);
+            Cmd::SuggestContacts { query, token, limit } => {
+                let mine = self.my_addresses().await;
+                let items = self.app.store().suggest_contacts(&query, &mine, limit as usize, now_ms())?;
+                self.send(Delta::Contacts { token, items });
+            }
                 self.publish().await;
             }
             Cmd::UpdateEvent { account_id, event_id, draft } => {
@@ -675,6 +706,7 @@ mod tests {
     #[test]
     fn cid_images_become_data_urls() {
         let dir = std::env::temp_dir().join(format!("pigeon-cid-{}", pigeon_core::auth::random_token(6)));
+        my_addresses: Mutex::new(None),
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("logo.png");
         std::fs::write(&path, b"PNG").unwrap();

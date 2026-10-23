@@ -7,6 +7,7 @@ mod onboarding;
 mod palette;
 mod reader;
 mod search;
+mod recipients;
 mod sidebar;
 mod toasts;
 
@@ -53,6 +54,8 @@ pub fn App() -> Element {
                         "setTimeout(()=>{{const i=document.getElementById('palette-input'); if(i){{i.value={arg:?}; i.dispatchEvent(new Event('input',{{bubbles:true}}));}}}},800)"
                     ));
                 }
+                // compose:<to list>[|<partial>] — new draft, chips + autocomplete
+                "compose" => send_cmd(Cmd::NewDraft),
                 "search" => search::open(s, arg),
                 "calendar" => {
                     let mut m = s.mode;

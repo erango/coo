@@ -438,3 +438,97 @@ fn found_messages_are_stored_without_touching_cursors() {
     assert_eq!(s.search("Subject old", 5).unwrap().len(), 1);
     assert_eq!(s.cursor(&ms.id, "f").unwrap(), None);
 }
+
+#[test]
+fn contact_suggestions_rank_sent_recent_and_skip_me() {
+    let (mut s, ms, g) = setup();
+    let day = 86_400_000;
+    let now = 100 * day;
+    let incoming = |id: &str, name: &str, email: &str, at: i64| MessageHeader {
+        id: id.into(),
+        thread_id: id.into(),
+        from: Some(Address::new(Some(name), email)),
+        to: vec![Address::new(None, "me@work.com")],
+        received_at: at,
+        folder_ids: vec!["in-ms".into()],
+        ..Default::default()
+    };
+    let sent = |id: &str, to: Vec<Address>, cc: Vec<Address>, at: i64| MessageHeader {
+        id: id.into(),
+        thread_id: id.into(),
+        from: Some(Address::new(Some("Me"), "Me@Work.com")),
+        to,
+        cc,
+        received_at: at,
+        folder_ids: vec!["proj".into()],
+        ..Default::default()
+    };
+    s.apply_mail(
+        &ms.id,
+        "f",
+        &[
+            // Dana wrote twice, long ago; old name first, newer name later.
+            MailChange::Upsert(incoming("1", "D. Cohen", "dana@x.co.il", day)),
+            MailChange::Upsert(incoming("2", "Dana Cohen", "DANA@x.co.il", 2 * day)),
+            // David: I wrote to him once, recently. Sent mail outranks received.
+            MailChange::Upsert(sent("3", vec![Address::new(Some("David Levi"), "david@y.com")], vec![], 99 * day)),
+            // Hebrew name, matched by its second word.
+            MailChange::Upsert(sent("4", vec![], vec![Address::new(Some("דנה כהן"), "dana.k@z.io")], 50 * day)),
+        ],
+        "1",
+    )
+    .unwrap();
+    s.apply_mail(&g.id, "mail", &[MailChange::Upsert(incoming("5", "Daniel", "daniel@q.org", 98 * day))], "1").unwrap();
+
+    let mine = vec!["me@work.com".to_string(), "me@gmail.com".to_string()];
+    let emails =
+        |q: &str| s.suggest_contacts(q, &mine, 10, now).unwrap().into_iter().map(|a| a.email).collect::<Vec<_>>();
+    assert_eq!(emails("da")[0], "david@y.com", "sent + recent ranks first");
+    assert!(emails("da").contains(&"daniel@q.org".to_string()), "across accounts");
+    let dana = s.suggest_contacts("cohen", &mine, 10, now).unwrap();
+    assert_eq!(dana.iter().filter(|a| a.email == "dana@x.co.il").count(), 1, "deduped case-insensitively");
+    assert_eq!(dana.iter().find(|a| a.email == "dana@x.co.il").unwrap().name.as_deref(), Some("Dana Cohen"));
+    assert_eq!(emails("כהן"), ["dana.k@z.io"]);
+    assert!(emails("me").is_empty(), "own addresses never suggested");
+    assert!(emails("").is_empty());
+    assert_eq!(emails("levi"), ["david@y.com"]);
+    assert!(emails("avid").is_empty(), "prefix match only");
+    assert_eq!(s.suggest_contacts("d", &mine, 2, now).unwrap().len(), 2);
+}
+
+#[test]
+fn invites_resolve_to_local_events() {
+    let (mut s, ms, g) = setup();
+    let cal = Calendar { id: "cal".into(), name: "C".into(), color: None, is_primary: true, can_edit: true };
+    s.replace_calendars(&ms.id, std::slice::from_ref(&cal)).unwrap();
+    s.replace_calendars(&g.id, std::slice::from_ref(&cal)).unwrap();
+    let mut weekly1 = event("w1", 1_000, 2_000);
+    weekly1.series_id = Some("S".into());
+    weekly1.ical_uid = Some("uid-weekly".into());
+    let mut weekly2 = event("w2", 9_000, 10_000);
+    weekly2.series_id = Some("S".into());
+    weekly2.ical_uid = Some("uid-weekly".into());
+    s.replace_events(&ms.id, "cal", 0, 100_000, &[weekly1, weekly2]).unwrap();
+    let mut other = event("x", 5_000, 6_000);
+    other.ical_uid = Some("uid-other".into());
+    s.replace_events(&g.id, "cal", 0, 100_000, &[other]).unwrap();
+
+    let inv = |uid: Option<&str>, event_id: Option<&str>, start| Invite {
+        uid: uid.map(String::from),
+        event_id: event_id.map(String::from),
+        start_at: start,
+        ..Default::default()
+    };
+    let id = |r: Option<EventRow>| r.map(|e| e.event.id);
+    // Graph: provider id of the series master -> nearest instance.
+    assert_eq!(id(s.invite_event(&ms.id, &inv(None, Some("S"), 8_500)).unwrap()).as_deref(), Some("w2"));
+    // Gmail: UID within the account, nearest instance.
+    assert_eq!(id(s.invite_event(&ms.id, &inv(Some("uid-weekly"), None, 0)).unwrap()).as_deref(), Some("w1"));
+    // UID only known in another account.
+    assert_eq!(id(s.invite_event(&ms.id, &inv(Some("uid-other"), None, 0)).unwrap()).as_deref(), Some("x"));
+    assert!(s.invite_event(&ms.id, &inv(Some("nope"), None, 0)).unwrap().is_none());
+    assert_eq!(
+        s.events_between(0, 100_000).unwrap().iter().find(|e| e.event.id == "x").unwrap().event.ical_uid.as_deref(),
+        Some("uid-other")
+    );
+}

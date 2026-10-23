@@ -11,6 +11,7 @@ use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use crate::model::*;
 use crate::{Error, Result, now_ms, text};
 
+mod contacts;
 mod outbox;
 pub use outbox::undo_ops;
 

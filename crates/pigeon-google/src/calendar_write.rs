@@ -50,14 +50,19 @@ fn event_body(d: &EventDraft) -> Result<Value> {
             v
         })
         .collect();
-    Ok(json!({
+    let mut body = json!({
         "summary": d.title,
         "start": when(d.start_at)?,
         "end": when(d.end_at)?,
         "location": d.location.clone().unwrap_or_default(),
-        "description": d.description.clone().unwrap_or_default(),
         "attendees": attendees,
-    }))
+    });
+    // No description means "leave it as is": we don't store descriptions
+    // locally, so a patch must never blank the server's copy.
+    if let Some(text) = &d.description {
+        body["description"] = json!(text);
+    }
+    Ok(body)
 }
 
 fn rsvp_status(r: Response) -> Result<&'static str> {
@@ -217,6 +222,15 @@ mod tests {
             (b["start"].clone(), b["end"].clone()),
             (json!({"date": "1970-01-01"}), json!({"date": "1970-01-02"}))
         );
+    }
+
+    #[test]
+    fn description_only_sent_when_given() {
+        let mut d = draft();
+        d.description = None;
+        assert!(event_body(&d).unwrap().get("description").is_none(), "unchanged description must not be sent");
+        d.description = Some("Agenda".into());
+        assert_eq!(event_body(&d).unwrap()["description"], "Agenda");
     }
 
     #[test]

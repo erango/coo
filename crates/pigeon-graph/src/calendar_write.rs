@@ -35,15 +35,20 @@ fn event_body(d: &EventDraft) -> Result<Value> {
             })
         })
         .collect();
-    Ok(json!({
+    let mut body = json!({
         "subject": d.title,
-        "body": { "contentType": "text", "content": d.description.clone().unwrap_or_default() },
         "start": { "dateTime": wall_clock(d.start_at)?, "timeZone": tz },
         "end": { "dateTime": wall_clock(d.end_at)?, "timeZone": tz },
         "isAllDay": d.all_day,
         "location": { "displayName": d.location.clone().unwrap_or_default() },
         "attendees": attendees,
-    }))
+    });
+    // No description means "leave it as is": we don't store descriptions
+    // locally, so a PATCH must never blank the server's copy.
+    if let Some(text) = &d.description {
+        body["body"] = json!({ "contentType": "text", "content": text });
+    }
+    Ok(body)
 }
 
 fn rsvp_action(r: Response) -> Result<&'static str> {
@@ -195,6 +200,14 @@ mod tests {
         let b = event_body(&d).unwrap();
         assert_eq!(b["end"], json!({"dateTime": "1970-01-02T00:00:00", "timeZone": "Israel Standard Time"}));
         assert_eq!(b["isAllDay"], true);
+    }
+
+    #[test]
+    fn description_only_sent_when_given() {
+        let mut d = EventDraft { title: "x".into(), end_at: 1, ..Default::default() };
+        assert!(event_body(&d).unwrap().get("body").is_none(), "unchanged description must not be sent");
+        d.description = Some("Agenda".into());
+        assert_eq!(event_body(&d).unwrap()["body"], json!({"contentType": "text", "content": "Agenda"}));
     }
 
     #[test]

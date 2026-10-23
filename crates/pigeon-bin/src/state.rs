@@ -58,6 +58,8 @@ pub struct AppState {
     pub palette_hits: Signal<Vec<MessageRow>>,
     /// Accounts delta received at least once (distinguishes "none" from "loading").
     pub loaded: Signal<bool>,
+    /// Latest recipient suggestions: (request token, people).
+    pub contacts: Signal<(u64, Vec<pigeon_core::model::Address>)>,
     pub accounts: Signal<Vec<AccountNav>>,
     pub mailbox: Signal<Mailbox>,
     pub threaded: Signal<bool>,
@@ -101,6 +103,7 @@ impl AppState {
             threaded: Signal::new(true),
             list: Signal::new(Vec::new()),
             selected: Signal::new(None),
+            contacts: Signal::new((0, Vec::new())),
             reader: Signal::new(None),
             bodies: Signal::new(HashMap::new()),
             remote_ok: Signal::new(HashSet::new()),
@@ -213,6 +216,7 @@ pub async fn pump(mut s: AppState) {
             }
             Delta::FreeBusy { token, result } => s.free_busy.set((token, result)),
             Delta::AttachmentReady(path) => {
+            Delta::Contacts { token, items } => s.contacts.set((token, items)),
                 if let Err(e) = open::that_detached(&path) {
                     tracing::warn!(error = %e, ?path, "could not open attachment");
                 }
