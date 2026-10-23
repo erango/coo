@@ -154,6 +154,10 @@ pub fn MailList() -> Element {
                     button { role: "tab", "aria-selected": "{*threaded.read()}", onclick: move |_| threaded.set(true), "Threads" }
                     button { role: "tab", "aria-selected": "{!*threaded.read()}", onclick: move |_| threaded.set(false), "Messages" }
                 }
+                button { class: "icon-btn", r#type: "button", "aria-label": "New message", title: "New message (⌘N)",
+                    onclick: move |_| send_cmd(Cmd::NewDraft),
+                    Icon { name: "edit" }
+                }
             }
             if s.search.read().is_some() {
                 super::search::SearchPane {}
