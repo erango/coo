@@ -81,3 +81,8 @@ input.input--bare { border: 0; outline: none; }
 .theme-card__dots > span { width: 9px; height: 9px; border-radius: 50%; }
 .theme-card__name { font-size: var(--fs-ui); font-weight: var(--fw-semibold); }
 .theme-card__variants { margin-top: -4px; font-size: var(--fs-caption); color: var(--text-3); }
+
+/* Short labels next to LTR details (account name above its address): keep
+   RTL text right-to-left internally but anchor it to the left edge, so a
+   Hebrew name doesn't float away from the rest of the row. */
+.account-row__name { text-align: left; }

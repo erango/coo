@@ -337,7 +337,7 @@ pub static FAMILIES: &[Family] = &[
         id: "monokai",
         name: "Monokai",
         source: "https://github.com/sickill/vim-monokai",
-        variants: ("Monokai", "Monokai Light (derived)"),
+        variants: ("Dark", "Light"),
         dark: ModeSpec {
             bg: [Hex("#272822"), Mix("#272822", "#000000", 0.22), Hex("#3C3D37"), Hex("#49483E")],
             text: [Hex("#F8F8F2"), Hex("#90908A"), Hex("#75715E")],
