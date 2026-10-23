@@ -144,9 +144,10 @@ input.input--bare { border: 0; outline: none; }
 
 
 /* --- Pane polish (user feedback) --- */
-/* 1. The message list sits a shade off the reader so the panes read apart;
-   mixed from the theme's own surfaces so it works in every palette. */
-.pane--list { background: color-mix(in oklab, var(--bg-0) 45%, var(--bg-1)); }
+/* 1. The message list sits a shade off the reader so the panes read apart.
+   Tinted toward the text color: darker in light themes, lighter (raised) in
+   dark ones, whichever way a palette orders its own surfaces. */
+.pane--list { background: color-mix(in oklab, var(--bg-0) 96.5%, var(--text-1)); }
 .app[data-reader="off"] .pane--list { background: var(--bg-0); }
 .splitter { align-self: stretch; }
 .splitter:active::after { content: ""; position: absolute; left: 2px; top: 0; bottom: 0; width: 2px; background: var(--accent); opacity: 0.5; }
