@@ -172,3 +172,6 @@ body[data-resizing] iframe { pointer-events: none; }
 
 /* Settings range input (sound volume). */
 .settings-range { width: 200px; accent-color: var(--accent); }
+
+/* Settings open: its footer button reads as the current place. */
+.sidebar__footer .icon-btn[aria-pressed="true"] { background: var(--selection); color: var(--accent); }

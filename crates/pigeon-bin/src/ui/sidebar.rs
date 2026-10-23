@@ -88,6 +88,8 @@ fn MailNav(many: bool) -> Element {
     let mut mailbox = s.mailbox;
     let accounts = s.accounts.read().clone();
     let current = mailbox.read().clone();
+    // Settings replaces the mail view: no mailbox reads as current then.
+    let settings_open = *s.settings_open.read();
 
     // Account reordering: index being dragged, and the section hovered.
     let drag = use_signal(|| None::<usize>);
@@ -115,7 +117,7 @@ fn MailNav(many: bool) -> Element {
             for (role, label, icon) in UNIFIED {
                 {
                     let count = if role == FolderRole::Inbox { unified_unread(role) } else { 0 };
-                    let active = current == Mailbox::Unified(role);
+                    let active = !settings_open && current == Mailbox::Unified(role);
                     rsx! {
                         a { class: "nav-item", href: "#",
                             "aria-current": if active { "page" } else { "false" },
@@ -185,6 +187,8 @@ fn AccountSection(
     };
     let letter = format::initials(&nav.account.email).chars().next().unwrap_or('?');
     let current = mailbox.read().clone();
+    // Settings replaces the mail view: no mailbox reads as current then.
+    let settings_open = *s.settings_open.read();
     let toggle_id = id.clone();
 
     rsx! {
@@ -213,7 +217,7 @@ fn AccountSection(
             for f in visible_folders(&nav) {
                 {
                     let target = Mailbox::Folder { account_id: id.clone(), folder_id: f.folder.id.clone() };
-                    let active = current == target;
+                    let active = !settings_open && current == target;
                     let icon = role_icon(f.folder.role, f.folder.kind);
                     let unread = f.unread;
                     let label = f.folder.name.clone();
@@ -311,6 +315,17 @@ fn SyncFooter() -> Element {
                     theme.set(next);
                 },
                 Icon { name: "sun", class: "icon--sm" }
+            }
+            {
+                let mut open = s.settings_open;
+                let on = *open.read();
+                rsx! {
+                    button { class: "icon-btn icon-btn--sm", "aria-label": "Settings", title: "Settings (⌘,)",
+                        "aria-pressed": if on { "true" } else { "false" },
+                        onclick: move |_| { let v = !*open.read(); open.set(v); },
+                        Icon { name: "settings", class: "icon--sm" }
+                    }
+                }
             }
             div { class: "sync-status", "data-state": "{state}", title: "{text}",
                 onclick: move |_| send_cmd(Cmd::SyncNow),

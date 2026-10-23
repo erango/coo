@@ -27,26 +27,53 @@ def bell(freq, dur, decay, partials=((1, 1.0), (2.76, 0.18), (5.4, 0.06)), attac
     return f
 
 
-def droplet(t):
-    # Sine whose pitch falls quickly, like a drop into water.
-    if t > 0.32:
+def drip(u, f0=700.0, f1=1700.0, decay=0.045):
+    """One water drip: a bubble resonance whose pitch rises fast (the "plink"
+    of a drop hitting water), with a very short tail."""
+    if u < 0 or u > 0.2:
         return 0.0
-    f0, f1 = 1250.0, 620.0
-    k = 18.0
-    phase = 2 * math.pi * (f1 * t + (f0 - f1) * (1 - math.exp(-k * t)) / k)
-    return env(t, 0.003, 0.07) * math.sin(phase)
+    k = 55.0  # how fast the pitch sweeps up
+    phase = 2 * math.pi * (f1 * u - (f1 - f0) * (1 - math.exp(-k * u)) / k)
+    return env(u, 0.0015, decay) * math.sin(phase)
+
+
+def droplet(t):
+    # A drip, then a fainter, higher one: a single drop and its ripple.
+    return drip(t) + 0.28 * drip(t - 0.11, 900.0, 2100.0, 0.03)
+
+
+def _breath(n=RATE * 3):
+    """Soft low-passed noise for the airy part of a dove's coo."""
+    rnd = random.Random(7)
+    out, y = [], 0.0
+    for _ in range(n):
+        y += 0.06 * (rnd.uniform(-1, 1) - y)
+        out.append(y)
+    m = max(abs(v) for v in out) or 1.0
+    return [v / m for v in out]
+
+
+BREATH = _breath()
+
+
+def hoo(u, dur, f, rise=1.07, fall=0.9):
+    """One dove 'hoo': hollow, nearly pure tone that swoops up then sinks,
+    soft attack, rounded end, a little breath. No harmonics swell, so it
+    doesn't turn into a 'wah'."""
+    if u < 0 or u > dur:
+        return 0.0
+    x = u / dur
+    # pitch: up quickly to `rise`, then drift down to `fall`
+    curve = rise - (rise - fall) * x ** 1.5 if x > 0.18 else 1 + (rise - 1) * (x / 0.18)
+    phase = 2 * math.pi * f * u * curve
+    a = min(1.0, u / 0.035) * (1 - x) ** 0.8
+    tone = math.sin(phase) + 0.05 * math.sin(2 * phase)
+    return a * (tone + 0.07 * BREATH[int(u * RATE) % len(BREATH)])
 
 
 def coo(t):
-    # Two soft, breathy hoots, falling slightly: a nod to the name.
-    out = 0.0
-    for start, f, dur in ((0.0, 520.0, 0.22), (0.26, 470.0, 0.34)):
-        u = t - start
-        if 0 <= u <= dur:
-            shape = math.sin(math.pi * u / dur) ** 1.6
-            vib = 1 + 0.012 * math.sin(2 * math.pi * 6 * u)
-            out += shape * (math.sin(2 * math.pi * f * vib * u) + 0.22 * math.sin(2 * math.pi * 2 * f * u))
-    return out
+    # Mourning-dove style "hoo-HOOOO": a short low note, then a longer swoop.
+    return 0.6 * hoo(t, 0.16, 330.0) + hoo(t - 0.22, 0.46, 380.0, rise=1.1, fall=0.86)
 
 
 def chime(t):
@@ -64,27 +91,14 @@ def wood(t):
 
 
 def droplet_meeting(t):
-    # Three drops, each a little higher: same timbre, reads as "time to go".
-    out = 0.0
-    for i, start in enumerate((0.0, 0.16, 0.32)):
-        u = t - start
-        if 0 <= u <= 0.32:
-            f0, f1, k = 900.0 * 1.19 ** i, 560.0 * 1.19 ** i, 18.0
-            phase = 2 * math.pi * (f1 * u + (f0 - f1) * (1 - math.exp(-k * u)) / k)
-            out += env(u, 0.003, 0.07) * math.sin(phase)
-    return out
+    # Three drips, each a little higher: same sound, reads as "time to go".
+    return sum(drip(t - st, 700.0 * r, 1700.0 * r) for st, r in ((0.0, 1.0), (0.17, 1.19), (0.34, 1.41)))
 
 
 def coo_meeting(t):
-    # Three hoots, the last one rising.
-    out = 0.0
-    for start, f0, f1, dur in ((0.0, 470.0, 470.0, 0.2), (0.24, 470.0, 470.0, 0.2), (0.48, 470.0, 560.0, 0.34)):
-        u = t - start
-        if 0 <= u <= dur:
-            shape = math.sin(math.pi * u / dur) ** 1.6
-            f = f0 + (f1 - f0) * (u / dur)
-            out += shape * (math.sin(2 * math.pi * f * u) + 0.22 * math.sin(2 * math.pi * 2 * f * u))
-    return out
+    # The full dove phrase "hoo-HOOOO hoo hoo", the long note a touch higher.
+    return (0.6 * hoo(t, 0.16, 330.0) + hoo(t - 0.22, 0.5, 400.0, rise=1.1, fall=0.86)
+            + 0.7 * hoo(t - 0.86, 0.2, 340.0) + 0.6 * hoo(t - 1.14, 0.2, 330.0))
 
 
 def chime_meeting(t):
@@ -105,8 +119,8 @@ def wood_meeting(t):
 
 # theme -> (mail recipe, length), (meeting recipe, length)
 SOUNDS = {
-    "droplet": ((droplet, 0.35), (droplet_meeting, 0.7)),
-    "coo": ((coo, 0.65), (coo_meeting, 0.85)),
+    "droplet": ((droplet, 0.3), (droplet_meeting, 0.6)),
+    "coo": ((coo, 0.72), (coo_meeting, 1.4)),
     "chime": ((chime, 0.95), (chime_meeting, 1.3)),
     "knock": ((wood, 0.5), (wood_meeting, 0.75)),
     "bowl": ((bowl, 1.25), (bowl_meeting, 1.9)),
