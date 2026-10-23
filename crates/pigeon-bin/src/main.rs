@@ -10,6 +10,7 @@ mod menu;
 mod notify;
 mod perf;
 mod prefs;
+mod shortcuts;
 mod state;
 mod themes;
 mod ui;
@@ -52,6 +53,11 @@ pub fn send_cmd(cmd: Cmd) {
 
 fn main() {
     perf::mark_start();
+    // Crash reporting off in Settings > Privacy: telemetry::init honors this.
+    if !prefs::get().crash_reports {
+        // SAFETY: first thing in main, before any other thread exists.
+        unsafe { std::env::set_var("PIGEON_TELEMETRY", "off") };
+    }
     // Keep the guard for the whole process so queued reports flush on exit.
     let _telemetry = pigeon_engine::telemetry::init(
         concat!("coo-app@", env!("CARGO_PKG_VERSION")),

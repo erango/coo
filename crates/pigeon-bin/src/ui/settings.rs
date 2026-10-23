@@ -29,6 +29,9 @@ pub fn Settings() -> Element {
                 Accounts {}
                 super::settings_sections::Composing {}
                 super::settings_sections::CalendarSettings {}
+                super::settings_sections::Notifications {}
+                super::settings_sections::Privacy {}
+                super::settings_sections::Shortcuts {}
                 div { class: "settings__title", style: "margin-top:12px", "AI agents" }
                 div { class: "settings__hint", "Let Claude or another agent search and read your mail and calendar through Coo." }
                 div {

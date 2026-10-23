@@ -31,6 +31,12 @@ pub struct Prefs {
     pub event_reminder_minutes: u32,
     /// Account ids that never notify.
     pub notify_accounts_muted: Vec<String>,
+    /// Load remote images in every message without asking.
+    pub remote_images_always: bool,
+    /// Senders (lowercased addresses) whose remote images always load.
+    pub remote_images_senders: Vec<String>,
+    /// Send crash reports (takes effect next launch).
+    pub crash_reports: bool,
     /// First day of the week, 0 = Sunday … 6 = Saturday; None = follow macOS.
     pub week_start: Option<u8>,
     /// Undo-send window in seconds (0 = send immediately).
@@ -51,6 +57,9 @@ impl Default for Prefs {
             notify_events: true,
             event_reminder_minutes: 10,
             notify_accounts_muted: Vec::new(),
+            remote_images_always: false,
+            remote_images_senders: Vec::new(),
+            crash_reports: true,
             week_start: None,
             undo_send_seconds: 10,
             signatures: Default::default(),

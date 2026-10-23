@@ -1,9 +1,10 @@
 //! Settings sections beyond Appearance/Accounts: Composing (undo send,
-//! signatures), Notifications, Keyboard shortcuts, Privacy.
+//! signatures), Calendar, Notifications, Keyboard shortcuts, Privacy.
 
 use dioxus::prelude::*;
 use pigeon_engine::service::Cmd;
 
+use super::Icon;
 use crate::prefs;
 use crate::send_cmd;
 use crate::state::AppState;
@@ -119,6 +120,152 @@ fn SignatureField(email: String) -> Element {
                         if v.trim().is_empty() { p.signatures.remove(&k); } else { p.signatures.insert(k, v); }
                     });
                 }
+            }
+        }
+    }
+}
+
+const REMINDER_CHOICES: [u32; 5] = [0, 5, 10, 15, 30];
+
+#[component]
+pub fn Notifications() -> Element {
+    let s = use_context::<AppState>();
+    let mut p = use_signal(prefs::get);
+    let cur = p.read().clone();
+    let accounts = s.accounts.read().clone();
+    let mut set = move |f: fn(&mut prefs::Prefs)| {
+        prefs::update(f);
+        p.set(prefs::get());
+    };
+    rsx! {
+        div { class: "settings__title", style: "margin-top:12px", "Notifications" }
+        div { class: "settings-group",
+            label { class: "settings-field",
+                span { class: "settings-field__label", "New mail" }
+                input { class: "switch", r#type: "checkbox", checked: cur.notify_new_mail,
+                    onchange: move |_| set(|p| p.notify_new_mail = !p.notify_new_mail) }
+                span { class: "settings-field__hint", "A banner for new inbox mail while Coo isn't in front." }
+            }
+            label { class: "settings-field",
+                span { class: "settings-field__label", "Events" }
+                input { class: "switch", r#type: "checkbox", checked: cur.notify_events,
+                    onchange: move |_| set(|p| p.notify_events = !p.notify_events) }
+                span { class: "settings-field__hint", "A reminder before meetings start, with Join." }
+            }
+            div { class: "settings-field",
+                span { class: "settings-field__label", "Remind me" }
+                div { class: "segmented", role: "radiogroup", "aria-label": "Event reminder",
+                    for m in REMINDER_CHOICES {
+                        button { role: "radio", key: "{m}", disabled: !cur.notify_events,
+                            "aria-checked": "{cur.event_reminder_minutes == m}", "aria-selected": "{cur.event_reminder_minutes == m}",
+                            onclick: move |_| { prefs::update(move |x| x.event_reminder_minutes = m); p.set(prefs::get()); },
+                            if m == 0 { "At start" } else { "{m} min" }
+                        }
+                    }
+                }
+            }
+            div { class: "settings-field settings-field--top",
+                span { class: "settings-field__label", "Accounts" }
+                div { style: "display:flex;flex-direction:column;gap:8px",
+                    for a in accounts {
+                        {
+                            let id = a.account.id.clone();
+                            let on = !cur.notify_accounts_muted.contains(&id);
+                            rsx! {
+                                label { key: "{id}", "data-hue": "{a.hue}", style: "display:flex;align-items:center;gap:10px",
+                                    input { class: "check check--hue", r#type: "checkbox", checked: on,
+                                        onchange: move |_| {
+                                            let id = id.clone();
+                                            prefs::update(move |x| {
+                                                if let Some(i) = x.notify_accounts_muted.iter().position(|m| *m == id) {
+                                                    x.notify_accounts_muted.remove(i);
+                                                } else {
+                                                    x.notify_accounts_muted.push(id);
+                                                }
+                                            });
+                                            p.set(prefs::get());
+                                        }
+                                    }
+                                    span { dir: "auto", "{a.account.email}" }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+pub fn Shortcuts() -> Element {
+    let groups = ["Anywhere", "Mail", "Composer"];
+    rsx! {
+        div { class: "settings__title", style: "margin-top:12px", "Keyboard shortcuts" }
+        div { class: "settings-group",
+            for g in groups {
+                div { class: "settings-field settings-field--top", key: "{g}",
+                    span { class: "settings-field__label", "{g}" }
+                    div { class: "shortcut-list",
+                        for (_, _, keys, what) in crate::shortcuts::SHORTCUTS.iter().filter(|x| x.0 == g) {
+                            div { class: "shortcut", key: "{keys}",
+                                span { class: "shortcut__what", "{what}" }
+                                kbd { class: "kbd", "{keys}" }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+pub fn Privacy() -> Element {
+    let mut p = use_signal(prefs::get);
+    let cur = p.read().clone();
+    let always = cur.remote_images_always;
+    rsx! {
+        div { class: "settings__title", style: "margin-top:12px", "Privacy" }
+        div { class: "settings-group",
+            div { class: "settings-field",
+                span { class: "settings-field__label", "Remote images" }
+                div { class: "segmented", role: "radiogroup", "aria-label": "Remote images",
+                    button { role: "radio", "aria-checked": "{!always}", "aria-selected": "{!always}",
+                        onclick: move |_| { prefs::update(|x| x.remote_images_always = false); p.set(prefs::get()); }, "Ask" }
+                    button { role: "radio", "aria-checked": "{always}", "aria-selected": "{always}",
+                        onclick: move |_| { prefs::update(|x| x.remote_images_always = true); p.set(prefs::get()); }, "Always load" }
+                }
+                span { class: "settings-field__hint", "Remote images let senders see when you open a message." }
+            }
+            if !always {
+                div { class: "settings-field settings-field--top",
+                    span { class: "settings-field__label", "Trusted senders" }
+                    div { style: "display:flex;flex-direction:column;gap:6px",
+                        if cur.remote_images_senders.is_empty() {
+                            span { class: "settings-field__hint", style: "margin:0", "None yet. Use “Always from…” on a message's image banner." }
+                        }
+                        for who in cur.remote_images_senders.clone() {
+                            div { key: "{who}", style: "display:flex;align-items:center;gap:8px",
+                                span { style: "flex:1", "{who}" }
+                                button { class: "icon-btn icon-btn--sm", "aria-label": "Remove {who}",
+                                    onclick: move |_| {
+                                        let w = who.clone();
+                                        prefs::update(move |x| x.remote_images_senders.retain(|s| *s != w));
+                                        p.set(prefs::get());
+                                    },
+                                    Icon { name: "x", class: "icon--sm" }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            label { class: "settings-field",
+                span { class: "settings-field__label", "Crash reports" }
+                input { class: "switch", r#type: "checkbox", checked: cur.crash_reports,
+                    onchange: move |_| { prefs::update(|x| x.crash_reports = !x.crash_reports); p.set(prefs::get()); } }
+                span { class: "settings-field__hint", "Send anonymous crash reports (addresses and message text are removed). Applies next launch." }
             }
         }
     }

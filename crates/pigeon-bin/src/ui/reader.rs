@@ -200,7 +200,8 @@ fn Message(account_id: String, header: MessageHeader) -> Element {
             }
             match body {
                 None => rsx! { div { class: "plain-body t-3", "Loading…" } },
-                Some(b) => rsx! { Body { account_id: account_id.clone(), message_id: header.id.clone(), body: b } },
+                Some(b) => rsx! { Body { account_id: account_id.clone(), message_id: header.id.clone(),
+                    sender: header.from.as_ref().map(|a| a.email.to_lowercase()).unwrap_or_default(), body: b } },
             }
         }
     }
@@ -267,11 +268,14 @@ fn MatchNav(total: usize) -> Element {
 }
 
 #[component]
-fn Body(account_id: String, message_id: String, body: StoredBody) -> Element {
+fn Body(account_id: String, message_id: String, sender: String, body: StoredBody) -> Element {
     let s = use_context::<AppState>();
     let mut remote_ok = s.remote_ok;
     let mut flip = s.render_flip;
-    let allowed = remote_ok.read().contains(&message_id);
+    let prefs = crate::prefs::get();
+    let trusted = prefs.remote_images_always || (!sender.is_empty() && prefs.remote_images_senders.contains(&sender));
+    let allowed = trusted || remote_ok.read().contains(&message_id);
+    let (always_id, always_sender) = (message_id.clone(), sender.clone());
     let flipped = flip.read().contains(&message_id);
     let dark = s.dark();
     let attachments: Vec<_> = body.attachments.iter().filter(|a| !a.meta.is_inline).cloned().collect();
@@ -321,6 +325,16 @@ fn Body(account_id: String, message_id: String, body: StoredBody) -> Element {
                 button { class: "btn btn--secondary btn--sm", r#type: "button",
                     onclick: move |_| { remote_ok.write().insert(id2.clone()); },
                     "Load images"
+                }
+                if !sender.is_empty() {
+                    button { class: "btn btn--ghost btn--sm", r#type: "button", title: "Settings › Privacy lists trusted senders",
+                        onclick: move |_| {
+                            let who = always_sender.clone();
+                            crate::prefs::update(move |p| if !p.remote_images_senders.contains(&who) { p.remote_images_senders.push(who) });
+                            remote_ok.write().insert(always_id.clone());
+                        },
+                        "Always from {sender}"
+                    }
                 }
             }
         }
