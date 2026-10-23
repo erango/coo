@@ -204,12 +204,17 @@ fn home() -> Result<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from).ok_or_else(|| Error::Other("HOME is not set".into()))
 }
 
-/// The `pigeon` CLI to point agents at: next to `exe` (inside the app bundle
-/// or the same cargo target dir), then a release build beside it, then PATH
-/// and the usual install locations (GUI apps get a minimal PATH).
+/// The `pigeon` CLI to point agents at: the app bundle's
+/// `Contents/Helpers/pigeon`, then next to `exe` (same cargo target dir),
+/// then a release build beside it, then PATH and the usual install
+/// locations (GUI apps get a minimal PATH). Never `exe` itself: on a
+/// case-insensitive disk `MacOS/pigeon` *is* the app's `MacOS/Pigeon`.
 pub fn find_cli_binary(exe: &Path) -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Some(dir) = exe.parent() {
+        if let Some(contents) = dir.parent() {
+            candidates.push(contents.join("Helpers").join("pigeon"));
+        }
         candidates.push(dir.join("pigeon"));
         if let Some(target) = dir.parent() {
             candidates.push(target.join("release").join("pigeon"));
@@ -225,7 +230,22 @@ pub fn find_cli_binary(exe: &Path) -> Option<PathBuf> {
     if let Ok(h) = home() {
         candidates.push(h.join(".cargo/bin/pigeon"));
     }
-    candidates.into_iter().find(|p| is_executable(p)).map(|p| absolute(&p))
+    candidates.into_iter().find(|p| is_executable(p) && !same_file(p, exe)).map(|p| absolute(&p))
+}
+
+fn same_file(a: &Path, b: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        match (std::fs::metadata(a), std::fs::metadata(b)) {
+            (Ok(x), Ok(y)) => x.dev() == y.dev() && x.ino() == y.ino(),
+            _ => false,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        absolute(a) == absolute(b)
+    }
 }
 
 fn is_executable(p: &Path) -> bool {
@@ -355,7 +375,7 @@ mod tests {
 
     fn setup(allow_write: bool) -> Setup {
         Setup {
-            binary: PathBuf::from("/Applications/Pigeon.app/Contents/MacOS/pigeon"),
+            binary: PathBuf::from("/Applications/Pigeon.app/Contents/Helpers/pigeon"),
             env: vec![("PIGEON_TOKEN_STORE".into(), "file".into()), ("PIGEON_MS_CLIENT_ID".into(), "abc".into())],
             allow_write,
             token_store: "file",
@@ -363,12 +383,35 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn finds_bundled_cli_and_never_the_app_itself() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("pigeon-bundle-{}", pigeon_core::auth::random_token(6)));
+        let macos = root.join("Pigeon.app/Contents/MacOS");
+        let helpers = root.join("Pigeon.app/Contents/Helpers");
+        std::fs::create_dir_all(&macos).unwrap();
+        let exe = macos.join("Pigeon");
+        std::fs::write(&exe, b"app").unwrap();
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        // On a case-insensitive disk MacOS/pigeon resolves to the app; it must not be chosen.
+        let found = find_cli_binary(&exe);
+        assert!(found.as_deref().is_none_or(|p| !same_file(p, &exe)), "picked the app itself: {found:?}");
+
+        std::fs::create_dir_all(&helpers).unwrap();
+        let cli = helpers.join("pigeon");
+        std::fs::write(&cli, b"cli").unwrap();
+        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(find_cli_binary(&exe).unwrap(), absolute(&cli));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn claude_code_command_is_absolute_and_carries_env() {
         assert_eq!(
             setup(false).claude_code_command(),
             "claude mcp add --scope user pigeon -e PIGEON_TOKEN_STORE=file -e PIGEON_MS_CLIENT_ID=abc -- \
-             /Applications/Pigeon.app/Contents/MacOS/pigeon mcp"
+             /Applications/Pigeon.app/Contents/Helpers/pigeon mcp"
         );
         assert!(setup(true).claude_code_command().ends_with("pigeon mcp --allow-write"));
         assert_eq!(shell_quote("/My Apps/pigeon"), "'/My Apps/pigeon'");

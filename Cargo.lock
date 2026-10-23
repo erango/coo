@@ -4138,6 +4138,9 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "dioxus",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
  "open",
  "pigeon-core",
  "pigeon-engine",

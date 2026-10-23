@@ -2,6 +2,7 @@
 //! service; every action goes out as a `Cmd`.
 
 mod bridge;
+mod dock;
 mod format;
 mod menu;
 mod prefs;
@@ -103,6 +104,8 @@ fn main() {
         CSS.join("\n"),
         themes::css()
     );
+
+    dock::set_app_icon();
 
     dioxus::LaunchBuilder::desktop()
         .with_cfg(
