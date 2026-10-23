@@ -7,7 +7,7 @@ pub const SHORTCUTS: &[(&str, &str, &str, &str)] = &[
     ("Anywhere", "meta+1", "⌘1", "Mail"),
     ("Anywhere", "meta+2", "⌘2", "Calendar"),
     ("Anywhere", "meta+n", "⌘N", "New message"),
-    ("Anywhere", "meta+r", "⌘R", "Sync now"),
+    ("Anywhere", "meta+shift+n", "⇧⌘N", "Get new mail (sync now)"),
     ("Anywhere", "meta+,", "⌘,", "Settings"),
     ("Anywhere", "J", "⇧J", "Join the meeting that's on now"),
     ("Anywhere", "zoom-in", "⌘+", "Bigger text"),
@@ -17,24 +17,26 @@ pub const SHORTCUTS: &[(&str, &str, &str, &str)] = &[
     ("Anywhere", "z", "Z", "Undo the last action"),
     ("Mail", "j", "J / ↓", "Next conversation"),
     ("Mail", "k", "K / ↑", "Previous conversation"),
-    ("Mail", "e", "E", "Archive"),
-    ("Mail", "#", "# / X", "Delete"),
-    ("Mail", "s", "S", "Flag / unflag"),
-    ("Mail", "u", "U", "Mark read / unread"),
-    ("Mail", "r", "R", "Reply"),
-    ("Mail", "a", "A", "Reply all"),
-    ("Mail", "f", "F", "Forward"),
+    ("Mail", "meta+Backspace", "⌘⌫ · # · X", "Delete"),
+    ("Mail", "ctrl+meta+a", "⌃⌘A · E", "Archive"),
+    ("Mail", "meta+r", "⌘R · R", "Reply"),
+    ("Mail", "meta+shift+r", "⇧⌘R · A", "Reply all"),
+    ("Mail", "meta+shift+f", "⇧⌘F · F", "Forward"),
+    ("Mail", "meta+shift+l", "⇧⌘L · S", "Flag / unflag"),
+    ("Mail", "meta+shift+u", "⇧⌘U · U", "Mark read / unread"),
     ("Mail", "v", "V", "Move to folder"),
     ("Mail", "l", "L", "Label (Gmail)"),
-    ("Mail", "/", "/", "Search"),
+    ("Mail", "meta+f", "⌘F · /", "Search"),
     ("Mail", "c", "C", "New message (new event in Calendar)"),
     ("Composer", "meta+Enter", "⌘↵", "Send"),
 ];
 
-/// Keys the bridge forwards that are aliases of a documented one, or that
-/// nothing handles yet.
+/// Keys the bridge forwards that are aliases of a documented one (shown in
+/// its label, like the single-key extras next to the Mail-standard ⌘ keys),
+/// or that nothing handles yet.
 #[cfg(test)]
-const NOT_LISTED: &[&str] = &["x", "ArrowDown", "ArrowUp", "meta+z", "Enter", "meta+shift+z"];
+const NOT_LISTED: &[&str] =
+    &["x", "#", "e", "r", "a", "f", "s", "u", "/", "ArrowDown", "ArrowUp", "meta+z", "Enter", "meta+shift+z"];
 
 #[cfg(test)]
 mod tests {

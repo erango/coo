@@ -75,7 +75,7 @@ fn build(s: &AppState, query: &str) -> Vec<Item> {
     }
     actions.extend([
         item("Actions", "edit", "New message", "C", Action::Compose),
-        item("Actions", "sync", "Sync now", "⌘R", Action::Sync),
+        item("Actions", "sync", "Sync now", "⇧⌘N", Action::Sync),
         item("Actions", "settings", "Settings", "⌘,", Action::Settings),
         Item {
             meta: "Claude Code, Claude Desktop, MCP".into(),

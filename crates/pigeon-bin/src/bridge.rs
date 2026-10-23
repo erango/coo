@@ -26,7 +26,10 @@ pub const JS: &str = r#"
 
   // ---- Keyboard shortcuts (outside editors) ----
   const KEYS = new Set(['J','j','k','e','#','s','u','r','a','f','c','z','/','x','v','l','Escape','Enter','ArrowUp','ArrowDown',
-                        'meta+1','meta+2','meta+k','meta+n','meta+r','meta+Enter','meta+shift+z','meta+,']);
+                        'meta+1','meta+2','meta+k','meta+n','meta+Enter','meta+shift+z','meta+,',
+                        // Apple Mail shortcuts (the single keys above stay as extras).
+                        'meta+r','meta+shift+r','meta+shift+f','meta+Backspace','ctrl+meta+a','meta+shift+l',
+                        'meta+shift+u','meta+shift+n','meta+f']);
   const editable = (el) => el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
   let lastShift = 0; // 1 = left, 2 = right
   document.addEventListener('keydown', (e) => {
@@ -52,13 +55,14 @@ pub const JS: &str = r#"
     if (e.shiftKey && key.length > 1 && e.metaKey) key = 'shift+' + key;
     if (e.shiftKey && e.metaKey && key.length === 1) key = 'shift+' + key.toLowerCase();
     if (e.metaKey) key = 'meta+' + key;
+    if (e.metaKey && e.ctrlKey) key = 'ctrl+' + key.toLowerCase(); // ⌃⌘A archive
     if (editable(e.target)) {
       // An open autocomplete owns Escape (the input closes it itself).
       if (key === 'Escape' && e.target.dataset && e.target.dataset.suggestOpen === 'true') return;
       if (key === 'meta+Enter' || key === 'Escape') { e.preventDefault(); send('key', key); }
       return;
     }
-    if (e.ctrlKey || e.altKey) return;
+    if (e.altKey || (e.ctrlKey && !e.metaKey)) return;
     if (KEYS.has(key)) { e.preventDefault(); send('key', key); }
   }, true);
 

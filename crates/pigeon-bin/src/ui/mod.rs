@@ -211,7 +211,12 @@ pub fn App() -> Element {
         crate::menu::ZOOM_IN => zoom::change(s, zoom::Step::Bigger),
         crate::menu::ZOOM_OUT => zoom::change(s, zoom::Step::Smaller),
         crate::menu::ZOOM_RESET => zoom::change(s, zoom::Step::Reset),
-        _ => {}
+        // Message menu items run the same handler as their keyboard shortcut.
+        id => {
+            if let Some(key) = crate::menu::key_for(id) {
+                on_key(s, key);
+            }
+        }
     });
 
     // Apply and remember light/dark/system and the color theme.
@@ -571,7 +576,8 @@ fn on_key(s: AppState, key: &str) {
     match key {
         "meta+1" => return mode.set(Mode::Mail),
         "meta+2" => return mode.set(Mode::Calendar),
-        "meta+r" => return send_cmd(Cmd::SyncNow),
+        // ⇧⌘N, as in Mail ("Get All New Mail"); ⌘R is Reply.
+        "meta+shift+n" => return send_cmd(Cmd::SyncNow),
         // ⇧J: join the meeting that's on now (or starting soon), from anywhere.
         "J" => return join_now(s),
         "zoom-in" => return zoom::change(s, zoom::Step::Bigger),
@@ -641,7 +647,7 @@ fn on_key(s: AppState, key: &str) {
         return;
     }
     match key {
-        "/" => search::open(s, ""),
+        "/" | "meta+f" => search::open(s, ""),
         "v" => move_picker::open(s, false),
         "l" => move_picker::open(s, true),
         "j" | "ArrowDown" => step(s, 1),
@@ -654,13 +660,15 @@ fn on_key(s: AppState, key: &str) {
                 ListItem::Message(m) => !m.header.is_read,
             };
             match key {
-                "e" => act(s, &item, MailAction::Archive),
-                "#" | "x" => act(s, &item, MailAction::Trash),
-                "s" => act(s, &item, if h.is_flagged { MailAction::Unflag } else { MailAction::Flag }),
-                "u" => act(s, &item, if unread { MailAction::MarkRead } else { MailAction::MarkUnread }),
-                "r" => reply(&item, ReplyKind::Reply),
-                "a" => reply(&item, ReplyKind::ReplyAll),
-                "f" => reply(&item, ReplyKind::Forward),
+                "e" | "ctrl+meta+a" => act(s, &item, MailAction::Archive),
+                "meta+Backspace" | "#" | "x" => act(s, &item, MailAction::Trash),
+                "s" | "meta+shift+l" => act(s, &item, if h.is_flagged { MailAction::Unflag } else { MailAction::Flag }),
+                "u" | "meta+shift+u" => {
+                    act(s, &item, if unread { MailAction::MarkRead } else { MailAction::MarkUnread })
+                }
+                "r" | "meta+r" => reply(&item, ReplyKind::Reply),
+                "a" | "meta+shift+r" => reply(&item, ReplyKind::ReplyAll),
+                "f" | "meta+shift+f" => reply(&item, ReplyKind::Forward),
                 _ => {}
             }
         }
