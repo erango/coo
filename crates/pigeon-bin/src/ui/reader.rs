@@ -42,6 +42,7 @@ pub fn Reader() -> Element {
                     onclick: move |_| if let Some(i) = &i3 { act(s, i, if flagged { MailAction::Unflag } else { MailAction::Flag }) },
                     Icon { name: "flag", class: "icon--lg" }
                 }
+                button { class: "icon-btn", "aria-label": "Move (V)", onclick: move |_| super::move_picker::open(s, false), Icon { name: "folder", class: "icon--lg" } }
                 span { class: "spacer" }
                 if total > 0 { span { class: "reader-toolbar__pos", "{pos} of {total}" } }
                 span { class: "reader-toolbar__sep" }

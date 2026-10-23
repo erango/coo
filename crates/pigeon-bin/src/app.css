@@ -118,3 +118,9 @@ input.input--bare { border: 0; outline: none; }
 /* Settings scrolls as a whole: its sections must never shrink to fit
    (overflow-hidden lists like .account-list would collapse to 0). */
 .settings > * { flex-shrink: 0; }
+
+/* Move / Label picker: a menu anchored under the reader toolbar. */
+.move-scrim { position: fixed; inset: 0; z-index: 45; }
+.move-picker { position: absolute; top: 56px; right: 24px; width: 300px; max-height: min(460px, calc(100vh / var(--ui-zoom, 1) - 96px)); }
+.move-picker__input { margin: 0 4px 6px; }
+.move-picker__list { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; }

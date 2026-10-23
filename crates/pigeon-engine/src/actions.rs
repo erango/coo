@@ -13,6 +13,8 @@ pub enum MailAction {
     Trash,
     /// Move to a folder (Exchange) or label (Gmail).
     MoveTo(String),
+    /// Add a label without leaving the current one (Gmail only).
+    AddLabel(String),
 }
 
 /// Translate `action` for this provider. `from_folder` is the folder being
@@ -55,6 +57,10 @@ pub fn resolve(
                 .unwrap_or_default();
             MailOp::Relabel { ids, add: vec![folder_id.clone()], remove }
         }
+        (MailAction::AddLabel(label), ProviderKind::Google) => {
+            MailOp::Relabel { ids, add: vec![label.clone()], remove: vec![] }
+        }
+        (MailAction::AddLabel(_), _) => return Err(Error::Other("labels are a Gmail feature; use Move".into())),
     })
 }
 
@@ -74,6 +80,15 @@ mod tests {
 
     fn ids() -> Vec<String> {
         vec!["m".into()]
+    }
+
+    #[test]
+    fn add_label_is_gmail_only_and_keeps_current() {
+        assert_eq!(
+            resolve(ProviderKind::Google, &MailAction::AddLabel("L1".into()), ids(), Some("INBOX"), roles).unwrap(),
+            MailOp::Relabel { ids: ids(), add: vec!["L1".into()], remove: vec![] }
+        );
+        assert!(resolve(ProviderKind::Microsoft, &MailAction::AddLabel("x".into()), ids(), None, roles).is_err());
     }
 
     #[test]

@@ -21,6 +21,8 @@ pub struct Prefs {
     pub theme_mode: String,
     /// Color theme family id (`themes::FAMILIES`, or "pigeon").
     pub palette: String,
+    /// Recent Move/Label targets, newest first, as `account|folder_id`.
+    pub recent_move_targets: Vec<String>,
 }
 
 impl Default for Prefs {
@@ -30,6 +32,7 @@ impl Default for Prefs {
             font_scale: 1.0,
             theme_mode: "system".into(),
             palette: crate::themes::DEFAULT.into(),
+            recent_move_targets: Vec::new(),
         }
     }
 }

@@ -6,6 +6,7 @@ mod icloud;
 mod invite;
 mod list;
 pub mod mailframe;
+mod move_picker;
 mod onboarding;
 mod palette;
 mod reader;
@@ -73,6 +74,20 @@ pub fn App() -> Element {
                 "calendar" => {
                     let mut m = s.mode;
                     m.set(Mode::Calendar);
+                }
+                // move:<account_id>|<thread_id>[|label] — open the thread, then the picker
+                "move" => {
+                    let parts: Vec<String> = arg.split('|').map(String::from).collect();
+                    if parts.len() >= 2 {
+                        let label = parts.get(2).is_some_and(|p| p == "label");
+                        let mut sel = s.selected;
+                        sel.set(Some(format!("{}|{}", parts[0], parts[1])));
+                        send_cmd(Cmd::OpenThread { account_id: parts[0].clone(), thread_id: parts[1].clone() });
+                        spawn(async move {
+                            tokio::time::sleep(std::time::Duration::from_millis(900)).await;
+                            move_picker::open(s, label);
+                        });
+                    }
                 }
                 "settings" => {
                     let mut o = s.settings_open;
@@ -181,6 +196,7 @@ pub fn App() -> Element {
             compose::ComposerOverlay {}
             if s.editor.read().is_some() { event_editor::EventEditor {} }
             if *s.palette_open.read() { palette::Palette {} }
+            if s.move_picker.read().is_some() { move_picker::MovePickerView {} }
         }
     };
 
@@ -270,6 +286,7 @@ pub fn act(s: AppState, item: &ListItem, action: MailAction) {
         MailAction::Flag => format!("Flagged “{subject}”"),
         MailAction::Unflag => format!("Unflagged “{subject}”"),
         MailAction::MoveTo(_) => format!("Moved “{subject}”"),
+        MailAction::AddLabel(_) => format!("Labeled “{subject}”"),
         _ => String::new(),
     };
     let thread_id = match item {
@@ -311,6 +328,10 @@ fn on_key(s: AppState, key: &str) {
             return o.set(true);
         }
         "Escape" => {
+            if s.move_picker.read().is_some() {
+                let mut p = s.move_picker;
+                return p.set(None);
+            }
             if *s.agent_setup_open.read() {
                 let mut o = s.agent_setup_open;
                 return o.set(false);
@@ -358,6 +379,8 @@ fn on_key(s: AppState, key: &str) {
     }
     match key {
         "/" => search::open(s, ""),
+        "v" => move_picker::open(s, false),
+        "l" => move_picker::open(s, true),
         "j" | "ArrowDown" => step(s, 1),
         "k" | "ArrowUp" => step(s, -1),
         _ => {

@@ -65,8 +65,17 @@ pub struct SearchState {
     pub server: ServerSearch,
 }
 
+/// The Move/Label picker while open.
+#[derive(Clone, PartialEq)]
+pub struct MovePicker {
+    pub item: ListItem,
+    /// Gmail: add a label instead of moving.
+    pub label: bool,
+}
+
 #[derive(Clone, Copy)]
 pub struct AppState {
+    pub move_picker: Signal<Option<MovePicker>>,
     /// Event editor form while open.
     pub editor: Signal<Option<crate::ui::event_editor::EventForm>>,
     /// Latest free/busy answer: (request token, result).
@@ -120,6 +129,7 @@ pub struct AppState {
 impl AppState {
     pub fn new() -> Self {
         AppState {
+            move_picker: Signal::new(None),
             editor: Signal::new(None),
             free_busy: Signal::new((0, Vec::new())),
             search: Signal::new(None),

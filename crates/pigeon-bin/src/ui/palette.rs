@@ -16,6 +16,8 @@ use crate::state::{AppState, Mode, Theme, next_token};
 #[derive(Clone, PartialEq)]
 enum Action {
     Compose,
+    MoveTo,
+    LabelAs,
     Go(Mailbox),
     Mode(Mode),
     Sync,
@@ -94,6 +96,8 @@ fn build(s: &AppState, query: &str) -> Vec<Item> {
                 item("Actions", "forward", "Forward", "F", Action::Reply(ReplyKind::Forward)),
                 item("Actions", "archive", "Archive", "E", Action::Mail(MailAction::Archive)),
                 item("Actions", "trash", "Delete", "#", Action::Mail(MailAction::Trash)),
+                item("Actions", "folder", "Move to…", "V", Action::MoveTo),
+                item("Actions", "tag", "Label… (Gmail)", "L", Action::LabelAs),
                 item("Actions", "flag", "Flag", "S", Action::Mail(MailAction::Flag)),
                 item("Actions", "mailopen", "Mark unread", "U", Action::Mail(MailAction::MarkUnread)),
             ],
@@ -149,6 +153,8 @@ fn run(mut s: AppState, action: Action) {
     s.palette_open.set(false);
     match action {
         Action::Compose => send_cmd(Cmd::NewDraft),
+        Action::MoveTo => super::move_picker::open(s, false),
+        Action::LabelAs => super::move_picker::open(s, true),
         Action::Go(mb) => {
             s.mode.set(Mode::Mail);
             s.search.set(None);
