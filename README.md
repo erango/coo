@@ -1,8 +1,28 @@
 # Coo
 
-A fast, keyboard-first mail + calendar desktop app for Microsoft 365, Google
-Workspace / Gmail and iCloud. Rust + Dioxus. Early development: the
-engine and a CLI harness exist; the desktop UI is being designed.
+A fast, keyboard-first mail + calendar desktop app for macOS: Microsoft 365 /
+Outlook, Gmail / Google Workspace and iCloud in one inbox and one calendar.
+Rust + Dioxus. Download: **[erango.github.io/coo](https://erango.github.io/coo/)**.
+
+## Agent friendly
+
+Coo lets AI agents (Claude Code, Claude Desktop, or anything that speaks MCP
+or runs a CLI) work with your mail and calendars, locally, on your Mac:
+
+- **`coo mcp`**: a Model Context Protocol server. Read-only by default (search,
+  read threads, list events, free/busy); write tools (archive, reply, send,
+  RSVP, create events) only with `--allow-write`, and replies/sends are drafts
+  unless the agent explicitly asks to send.
+- **`coo --json …`**: every CLI command has stable JSON output and exit codes;
+  writes from scripts need `--yes`, and `PIGEON_AGENT_READONLY=1` blocks them.
+- **Self-describing**: `coo agent-help` prints the full guide for agents, and
+  `coo install-skill` adds a Claude Code skill so Claude reaches for Coo on its
+  own.
+- **One click in the app**: Help › Connect an AI Agent… shows (and can add) the
+  exact setup for Claude Code, Claude Desktop and other agents.
+
+Nothing goes through a third-party server: the agent talks to Coo on your Mac,
+and Coo talks to your providers. Details: [docs/agents.md](docs/agents.md).
 
 ## Setup (dev)
 
