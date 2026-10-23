@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use pigeon_core::model::{FolderKind, FolderRole, ProviderKind};
+use pigeon_core::model::{FolderInfo, FolderKind, FolderRole, ProviderKind};
 use pigeon_engine::service::{AccountNav, Cmd, Mailbox};
 
 use super::Icon;
@@ -29,22 +29,59 @@ fn role_icon(role: Option<FolderRole>, kind: FolderKind) -> &'static str {
     }
 }
 
-/// Folders worth showing under an account: inbox, archive, then user
-/// folders/labels (Gmail's CATEGORY_* stay hidden).
-fn visible_folders(a: &AccountNav) -> Vec<&pigeon_core::model::FolderInfo> {
-    let mut out: Vec<_> = a
-        .folders
+/// Standard folders in the order every account lists them.
+const ROLE_ORDER: [FolderRole; 7] = [
+    FolderRole::Inbox,
+    FolderRole::Drafts,
+    FolderRole::Sent,
+    FolderRole::Archive,
+    FolderRole::Starred,
+    FolderRole::Spam,
+    FolderRole::Trash,
+];
+
+/// Folders shown under an account: the standard ones in a fixed order, then
+/// the user's own folders/labels by name. Hidden: Gmail's built-in labels
+/// that aren't mailboxes (categories, chat, Important, the star/circle
+/// "superstars"; user labels have `Label_…` ids), Exchange's chat history,
+/// and an empty Outbox.
+fn visible_folders(provider: ProviderKind, folders: &[FolderInfo]) -> Vec<&FolderInfo> {
+    let custom_ok = |f: &FolderInfo| {
+        if f.folder.parent_id.is_some() {
+            return false;
+        }
+        match provider {
+            ProviderKind::Google => f.folder.id.starts_with("Label_"),
+            ProviderKind::Microsoft => match f.folder.name.to_lowercase().as_str() {
+                "conversation history" => false,
+                "outbox" => f.total > 0,
+                _ => true,
+            },
+            ProviderKind::ICloud => true,
+        }
+    };
+    let mut out: Vec<&FolderInfo> = folders
         .iter()
         .filter(|f| match f.folder.role {
-            Some(r) => matches!(r, FolderRole::Inbox | FolderRole::Archive | FolderRole::Starred),
-            None => !f.folder.id.starts_with("CATEGORY_") && f.folder.parent_id.is_none(),
+            Some(r) => ROLE_ORDER.contains(&r),
+            None => custom_ok(f),
         })
         .collect();
     out.sort_by_key(|f| match f.folder.role {
-        Some(FolderRole::Inbox) => 0,
-        Some(FolderRole::Starred) => 1,
-        Some(FolderRole::Archive) => 2,
-        _ => 3,
+        Some(r) => (ROLE_ORDER.iter().position(|x| *x == r).unwrap_or(0), String::new()),
+        None => (ROLE_ORDER.len(), f.folder.name.to_lowercase()),
+    });
+    // One entry per role (some servers expose duplicates, e.g. two Trash).
+    let mut seen = Vec::new();
+    out.retain(|f| {
+        f.folder.role.is_none_or(|r| {
+            if seen.contains(&r) {
+                false
+            } else {
+                seen.push(r);
+                true
+            }
+        })
     });
     out
 }
@@ -214,7 +251,7 @@ fn AccountSection(
             if draggable { Icon { name: "grip", class: "icon--xs nav-section__grip" } }
         }
         if !collapsed {
-            for f in visible_folders(&nav) {
+            for f in visible_folders(nav.account.provider, &nav.folders) {
                 {
                     let target = Mailbox::Folder { account_id: id.clone(), folder_id: f.folder.id.clone() };
                     let active = !settings_open && current == target;
@@ -350,4 +387,79 @@ fn provider_mark(kind: ProviderKind, label: &str) -> String {
         }
     };
     format!("<span class=\"provider-mark\" aria-label=\"{label}\">{svg}</span>")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pigeon_core::model::Folder;
+
+    fn f(id: &str, name: &str, role: Option<FolderRole>, kind: FolderKind, total: u32) -> FolderInfo {
+        FolderInfo {
+            folder: Folder { id: id.into(), name: name.into(), parent_id: None, role, kind },
+            total,
+            unread: 0,
+        }
+    }
+
+    fn names(v: Vec<&FolderInfo>) -> Vec<String> {
+        v.iter().map(|f| f.folder.name.clone()).collect()
+    }
+
+    #[test]
+    fn gmail_lists_standard_labels_in_order_then_user_labels() {
+        let l = FolderKind::Label;
+        let folders = vec![
+            f("TRASH", "Trash", Some(FolderRole::Trash), l, 3),
+            f("Label_2", "zeta", None, l, 1),
+            f("SENT", "Sent", Some(FolderRole::Sent), l, 9),
+            f("CATEGORY_SOCIAL", "Social", None, l, 4),
+            f("IMPORTANT", "Important", Some(FolderRole::Important), l, 4),
+            f("SPAM", "Spam", Some(FolderRole::Spam), l, 1),
+            f("BLUE_STAR", "BLUE_STAR", None, l, 0),
+            f("CHAT", "Chat", None, l, 2),
+            f("INBOX", "Inbox", Some(FolderRole::Inbox), l, 5),
+            f("Label_1", "Alpha", None, l, 1),
+            f("DRAFT", "Drafts", Some(FolderRole::Drafts), l, 0),
+            f("STARRED", "Starred", Some(FolderRole::Starred), l, 0),
+        ];
+        assert_eq!(
+            names(visible_folders(ProviderKind::Google, &folders)),
+            ["Inbox", "Drafts", "Sent", "Starred", "Spam", "Trash", "Alpha", "zeta"]
+        );
+    }
+
+    #[test]
+    fn exchange_hides_chat_history_and_empty_outbox() {
+        let k = FolderKind::Folder;
+        let mut folders = vec![
+            f("d", "Deleted Items", Some(FolderRole::Trash), k, 0),
+            f("j", "Junk Email", Some(FolderRole::Spam), k, 0),
+            f("c", "Conversation History", None, k, 12),
+            f("o", "Outbox", None, k, 0),
+            f("a", "Archive", Some(FolderRole::Archive), k, 3),
+            f("q", "Q4 Planning", None, k, 2),
+            f("s", "Sent Items", Some(FolderRole::Sent), k, 3),
+            f("i", "Inbox", Some(FolderRole::Inbox), k, 3),
+        ];
+        assert_eq!(
+            names(visible_folders(ProviderKind::Microsoft, &folders)),
+            ["Inbox", "Sent Items", "Archive", "Junk Email", "Deleted Items", "Q4 Planning"]
+        );
+        folders[3].total = 1; // a stuck outgoing message: show the Outbox
+        assert!(names(visible_folders(ProviderKind::Microsoft, &folders)).contains(&"Outbox".to_string()));
+    }
+
+    #[test]
+    fn duplicate_roles_show_once_and_subfolders_stay_nested() {
+        let k = FolderKind::Folder;
+        let mut child = f("n", "Nested", None, k, 1);
+        child.folder.parent_id = Some("q".into());
+        let folders = vec![
+            f("t1", "Trash", Some(FolderRole::Trash), k, 0),
+            f("t2", "Deleted Messages", Some(FolderRole::Trash), k, 0),
+            child,
+        ];
+        assert_eq!(names(visible_folders(ProviderKind::ICloud, &folders)), ["Trash"]);
+    }
 }
