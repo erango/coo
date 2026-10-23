@@ -3,6 +3,7 @@
 
 mod bridge;
 mod format;
+mod prefs;
 mod state;
 mod ui;
 
@@ -47,6 +48,10 @@ fn main() {
         concat!("pigeon-app@", env!("CARGO_PKG_VERSION")),
         "warn,pigeon=info,pigeon_engine=info",
     );
+
+    // Load settings now so the first paint already uses them.
+    let prefs = prefs::get();
+    tracing::debug!(font_scale = prefs.font_scale, "prefs loaded");
 
     let app = match Pigeon::open() {
         Ok(app) => Arc::new(app),
