@@ -37,6 +37,14 @@ pub const JS: &str = r#"
       if (dir) { setBlockDir(ed, dir); e.preventDefault(); }
       return;
     }
+    // Text size: always handled, even in editors and inputs. `code` covers
+    // layouts where + / - / 0 sit elsewhere.
+    if (e.metaKey && !e.ctrlKey && !e.altKey) {
+      const z = (e.key === '=' || e.key === '+' || e.code === 'Equal' || e.code === 'NumpadAdd') ? 'zoom-in'
+              : (e.key === '-' || e.key === '_' || e.code === 'Minus' || e.code === 'NumpadSubtract') ? 'zoom-out'
+              : (e.key === '0' || e.code === 'Digit0' || e.code === 'Numpad0') ? 'zoom-reset' : null;
+      if (z) { e.preventDefault(); send('key', z); return; }
+    }
     let key = e.key;
     if (e.shiftKey && key.length > 1 && e.metaKey) key = 'shift+' + key;
     if (e.shiftKey && e.metaKey && key.length === 1) key = 'shift+' + key.toLowerCase();
@@ -81,6 +89,7 @@ pub const JS: &str = r#"
         f.style.height = (d.documentElement.scrollHeight + 2) + 'px';
       } catch (_) {}
     };
+    f._pgFit = fit;
     if (!f.dataset.wired) {
       f.dataset.wired = '1';
       f.addEventListener('load', () => {
@@ -99,6 +108,8 @@ pub const JS: &str = r#"
     fit();
   }
   const scan = () => document.querySelectorAll('iframe.mail-frame').forEach(wire);
+  // Re-fit every frame (after a text-size change).
+  window.pigeonFitFrames = () => document.querySelectorAll('iframe.mail-frame').forEach((f) => f._pgFit && f._pgFit());
   new MutationObserver(scan).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['srcdoc'] });
   scan();
 })();

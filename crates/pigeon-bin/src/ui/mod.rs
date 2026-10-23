@@ -11,6 +11,7 @@ mod search;
 mod recipients;
 mod sidebar;
 mod toasts;
+pub mod zoom;
 
 use dioxus::prelude::*;
 use pigeon_core::compose::ReplyKind;
@@ -246,6 +247,9 @@ fn on_key(s: AppState, key: &str) {
         "meta+1" => return mode.set(Mode::Mail),
         "meta+2" => return mode.set(Mode::Calendar),
         "meta+r" => return send_cmd(Cmd::SyncNow),
+        "zoom-in" => return zoom::change(s, zoom::Step::Bigger),
+        "zoom-out" => return zoom::change(s, zoom::Step::Smaller),
+        "zoom-reset" => return zoom::change(s, zoom::Step::Reset),
         "c" if *s.mode.read() == Mode::Calendar => return event_editor::open_new_now(s),
         "meta+n" | "c" => return send_cmd(Cmd::NewDraft),
         "meta+k" => {

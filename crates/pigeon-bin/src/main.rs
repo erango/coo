@@ -87,7 +87,8 @@ fn main() {
 
     // Styles in <head> so the first paint is already styled.
     let platform_css = if cfg!(target_os = "macos") { ":root{--titlebar-traffic:62px}" } else { "" };
-    let head = format!("<style>{}\n{platform_css}</style>", CSS.join("\n"));
+    let zoom_css = ui::zoom::head_css(prefs.font_scale);
+    let head = format!("<style>{}\n{platform_css}\n{zoom_css}</style>", CSS.join("\n"));
 
     dioxus::LaunchBuilder::desktop()
         .with_cfg(

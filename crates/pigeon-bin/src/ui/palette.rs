@@ -25,6 +25,7 @@ enum Action {
     Open(Box<MessageRow>),
     Mail(MailAction),
     Reply(ReplyKind),
+    Zoom(super::zoom::Step),
 }
 
 #[derive(Clone, PartialEq)]
@@ -73,6 +74,9 @@ fn build(s: &AppState, query: &str) -> Vec<Item> {
         item("Actions", "sun", "Theme: light", "", Action::Theme(Theme::Light)),
         item("Actions", "cal", "Go to Calendar", "⌘2", Action::Mode(Mode::Calendar)),
         item("Actions", "mail", "Go to Mail", "⌘1", Action::Mode(Mode::Mail)),
+        item("Actions", "text", "Bigger text", "⌘+", Action::Zoom(super::zoom::Step::Bigger)),
+        item("Actions", "text", "Smaller text", "⌘-", Action::Zoom(super::zoom::Step::Smaller)),
+        item("Actions", "text", "Actual text size", "⌘0", Action::Zoom(super::zoom::Step::Reset)),
     ];
     if selected_item(s).is_some() {
         actions.splice(
@@ -161,6 +165,7 @@ fn run(mut s: AppState, action: Action) {
                 act(s, &it, a);
             }
         }
+        Action::Zoom(step) => super::zoom::change(s, step),
         Action::Reply(k) => {
             if let Some(it) = selected_item(&s) {
                 reply(&it, k);

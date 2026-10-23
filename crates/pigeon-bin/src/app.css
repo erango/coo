@@ -37,3 +37,11 @@ input.input--bare { border: 0; outline: none; }
 .nav-section[draggable="true"] { cursor: grab; }
 .nav-section__grip { margin-left: 2px; opacity: 0; color: var(--text-3); transition: opacity var(--dur-fast, 120ms) var(--ease-standard, ease); }
 .nav-section:hover .nav-section__grip { opacity: 1; }
+
+/* Text size (⌘+/⌘-): the root gets `zoom` and `--ui-zoom`. CSS zoom doesn't
+   rescale viewport units, so divide them back out wherever the layout uses
+   them, or a zoomed window overflows (or underfills) vertically. */
+.app, .onboard, .composer { height: calc(100vh / var(--ui-zoom, 1)); }
+.palette { max-height: calc(100vh / var(--ui-zoom, 1) - 144px); }
+.composer-overlay > .composer { width: min(760px, calc(92vw / var(--ui-zoom, 1))); height: min(640px, calc(88vh / var(--ui-zoom, 1))); }
+.editor-overlay > .event-editor { width: min(760px, calc(94vw / var(--ui-zoom, 1))); max-height: calc(92vh / var(--ui-zoom, 1)); }
