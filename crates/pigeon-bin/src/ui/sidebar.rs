@@ -181,6 +181,7 @@ fn AccountSection(
                 "Workspace"
             }
         }
+        ProviderKind::ICloud => "iCloud",
     };
     let letter = format::initials(&nav.account.email).chars().next().unwrap_or('?');
     let current = mailbox.read().clone();

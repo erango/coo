@@ -105,3 +105,16 @@ input.input--bare { border: 0; outline: none; }
 .agent-snippet__code { margin: 0; padding: 12px 84px 12px 12px; border-radius: 10px; background: var(--bg-1); box-shadow: inset 0 0 0 1px var(--line); color: var(--text-1); font-size: 12px; line-height: 18px; white-space: pre-wrap; word-break: break-all; max-height: 220px; overflow: auto; user-select: text; }
 .agent-snippet__copy { position: absolute; top: 8px; right: 8px; }
 .agent-snippet__code--prose { font-family: inherit; font-size: var(--fs-ui); line-height: 19px; word-break: normal; overflow-wrap: anywhere; }
+
+/* iCloud sign-in (app-specific password) */
+.icloud-form { display: flex; flex-direction: column; gap: 18px; }
+.icloud-form__steps { display: flex; flex-direction: column; gap: 18px; padding: 18px; border-radius: var(--radius-lg); background: var(--bg-1); box-shadow: inset 0 0 0 1px var(--line); }
+.icloud-form__step { display: flex; gap: 14px; align-items: flex-start; }
+.icloud-form__num { width: 24px; height: 24px; flex: none; border-radius: 12px; display: flex; align-items: center; justify-content: center; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: var(--fw-semibold); }
+.icloud-form__step-title { font-size: 14px; font-weight: var(--fw-semibold); color: var(--text-1); }
+.icloud-form__step-body { margin-top: 4px; font-size: 13px; line-height: 19px; color: var(--text-2); }
+.icloud-form .banner--error { background: var(--error-soft); color: var(--error); }
+
+/* Settings scrolls as a whole: its sections must never shrink to fit
+   (overflow-hidden lists like .account-list would collapse to 0). */
+.settings > * { flex-shrink: 0; }

@@ -10,6 +10,9 @@ use serde::{Deserialize, Serialize};
 pub enum ProviderKind {
     Microsoft,
     Google,
+    /// iCloud: IMAP/SMTP mail + CalDAV calendars, app-specific password.
+    #[serde(rename = "icloud")]
+    ICloud,
 }
 
 impl ProviderKind {
@@ -17,6 +20,7 @@ impl ProviderKind {
         match self {
             ProviderKind::Microsoft => "microsoft",
             ProviderKind::Google => "google",
+            ProviderKind::ICloud => "icloud",
         }
     }
 
@@ -24,6 +28,7 @@ impl ProviderKind {
         match s.to_ascii_lowercase().as_str() {
             "microsoft" | "ms" | "m365" | "outlook" | "exchange" => Some(ProviderKind::Microsoft),
             "google" | "gmail" | "gsuite" | "workspace" => Some(ProviderKind::Google),
+            "icloud" | "apple" | "me" | "mac" => Some(ProviderKind::ICloud),
             _ => None,
         }
     }
@@ -177,6 +182,13 @@ pub enum MailChange {
     Unlink { id: String, folder_id: String },
     /// The message is gone.
     Delete { id: String },
+    /// Only the read/flag state changed (IMAP flag sync); ignored if the
+    /// message isn't stored.
+    Flags { id: String, is_read: bool, is_flagged: bool },
+    /// The server's complete list of ids in `folder_id` received at or after
+    /// `since` (IMAP has no delete feed): anything else stored there is
+    /// unlinked, and deleted if it's in no other folder.
+    Retain { folder_id: String, ids: Vec<String>, since: i64 },
 }
 
 /// A message as listed in the UI, tagged with its account.

@@ -45,7 +45,14 @@ struct Cli {
 #[derive(Subcommand)]
 enum Cmd {
     /// Sign in to an account (microsoft | google) in the browser.
-    Login { provider: String },
+    /// Sign in: microsoft | google (browser) or icloud (app-specific
+    /// password, prompted without echo or read from PIGEON_ICLOUD_PASSWORD).
+    Login {
+        provider: String,
+        /// iCloud address (prompted if omitted).
+        #[arg(long)]
+        email: Option<String>,
+    },
     /// Remove an account and its local data.
     Logout { account: String },
     /// List signed-in accounts.
@@ -411,12 +418,16 @@ async fn run(cli: Cli) -> pigeon_core::Result<()> {
             }
         }
         Cmd::Mcp { allow_write } => mcp::serve(app, allow_write).await?,
-        Cmd::Login { provider } => {
+        Cmd::Login { provider, email } => {
             let kind = ProviderKind::parse(&provider)
                 .ok_or_else(|| pigeon_core::Error::Other(format!("unknown provider {provider:?}")))?;
-            let account = app
-                .login(kind, |url| eprintln!("Opening the browser to sign in. If it does not open, visit:\n{url}\n"))
-                .await?;
+            let account = if kind == ProviderKind::ICloud {
+                let (email, password) = icloud_credentials(email)?;
+                app.login_password(kind, &email, &password).await?
+            } else {
+                app.login(kind, |url| eprintln!("Opening the browser to sign in. If it does not open, visit:\n{url}\n"))
+                    .await?
+            };
             emit(json, &AccountOut::from(&account), |a| println!("Signed in as {} ({})", a.email, a.id));
         }
         Cmd::Logout { account } => {
@@ -605,6 +616,28 @@ async fn run(cli: Cli) -> pigeon_core::Result<()> {
         }
     }
     Ok(())
+}
+
+/// Address from `--email` or a prompt; password from PIGEON_ICLOUD_PASSWORD
+/// or a no-echo prompt (never a CLI argument: it would land in shell history).
+fn icloud_credentials(email: Option<String>) -> pigeon_core::Result<(String, String)> {
+    let email = match email {
+        Some(e) => e,
+        None => {
+            eprint!("iCloud address: ");
+            let mut line = String::new();
+            std::io::stdin().read_line(&mut line)?;
+            line.trim().to_string()
+        }
+    };
+    let password = match std::env::var("PIGEON_ICLOUD_PASSWORD") {
+        Ok(p) if !p.is_empty() => p,
+        _ => {
+            eprintln!("Create an app-specific password at https://account.apple.com (Sign-In and Security).");
+            rpassword::prompt_password("App-specific password: ")?
+        }
+    };
+    Ok((email, password))
 }
 
 fn print_act(r: &ActOut) {

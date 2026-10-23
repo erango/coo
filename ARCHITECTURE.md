@@ -204,8 +204,13 @@ and visually checked on seeded data; not yet run against live accounts.
 - Notifications (new mail, event reminders), menu bar badge.
 - UI built from the Claude Design bundle.
 
-**Phase 1.5 — iCloud**
-- `pigeon-imap` + SMTP send + `pigeon-caldav`; app-specific-password onboarding.
+**Phase 1.5 — iCloud** (built; untested against a live account)
+- `pigeon-imap` (IMAP sync + hand-rolled SMTP submission) and `pigeon-caldav`
+  (discovery, calendar-query with server-side `expand`, sync-collection,
+  PUT/DELETE, PARTSTAT RSVP); app-specific-password onboarding.
+- Known gaps: no IDLE push (polled like the rest), no CONDSTORE (flags pass
+  over the window instead), no free/busy, recurring-series edits/deletes and
+  single-occurrence changes not supported, send-as aliases not listed.
 
 **Phase 2**
 - Zoom + Google Meet + Teams link creation in the event composer.

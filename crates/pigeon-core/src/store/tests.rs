@@ -539,3 +539,36 @@ fn invites_resolve_to_local_events() {
         Some("uid-other")
     );
 }
+
+#[test]
+fn flag_and_retain_changes() {
+    let (mut s, ms, _) = setup();
+    s.apply_mail(
+        &ms.id,
+        "f",
+        &[
+            MailChange::Upsert(msg("a", "t", 100, &["in-ms"])),
+            MailChange::Upsert(msg("b", "t", 200, &["in-ms"])),
+            MailChange::Upsert(msg("old", "t", 5, &["in-ms"])),
+        ],
+        "1",
+    )
+    .unwrap();
+    s.apply_mail(
+        &ms.id,
+        "f",
+        &[
+            MailChange::Flags { id: "a".into(), is_read: true, is_flagged: true },
+            MailChange::Flags { id: "missing".into(), is_read: true, is_flagged: false },
+            // Server now has only "a" in the window since 50: "b" is gone, "old" is outside the window.
+            MailChange::Retain { folder_id: "in-ms".into(), ids: vec!["a".into()], since: 50 },
+        ],
+        "2",
+    )
+    .unwrap();
+    let ids: Vec<String> =
+        s.list_messages(&ListQuery::unified(FolderRole::Inbox, 10)).unwrap().into_iter().map(|r| r.header.id).collect();
+    assert_eq!(ids, ["a", "old"]);
+    let a = s.message(&ms.id, "a").unwrap().unwrap();
+    assert!(a.is_read && a.is_flagged);
+}

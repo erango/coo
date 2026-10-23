@@ -1,0 +1,18 @@
+[package]
+name = "pigeon-imap"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+async-imap.workspace = true
+base64.workspace = true
+chrono.workspace = true
+futures.workspace = true
+mail-parser.workspace = true
+pigeon-core.workspace = true
+rustls.workspace = true
+rustls-platform-verifier.workspace = true
+tokio.workspace = true
+tokio-rustls.workspace = true
+tracing.workspace = true

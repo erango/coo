@@ -122,19 +122,69 @@ fn ThemeCard(id: &'static str, name: &'static str, checked: bool, on_pick: Event
 #[component]
 fn Accounts() -> Element {
     let s = use_context::<AppState>();
-    let accounts = s.accounts.read().clone();
-    let mut confirm = use_signal(|| None::<String>);
     let mut signing_in = s.signing_in;
-    let needs_sign_in = s.sync.read().needs_sign_in.clone();
     let login = move |p: ProviderKind| {
         signing_in.set(true);
         send_cmd(Cmd::Login(p));
     };
     let (mut l1, mut l2) = (login, login);
+    let mut icloud = use_signal(|| false);
+    // Close the iCloud panel once its account shows up (sign-in succeeded);
+    // debug builds can open it once accounts have loaded, like a real click.
+    let mut seen = use_signal(|| None::<usize>);
+    use_effect(move || {
+        let n = s.accounts.read().len();
+        let prev = *seen.peek();
+        if prev.is_some_and(|p| n > p) && *icloud.peek() {
+            icloud.set(false);
+        }
+        if prev.is_none() && n > 0 && super::icloud::debug_open("settings:icloud") {
+            icloud.set(true);
+        }
+        if n > 0 || prev.is_some() {
+            seen.set(Some(n));
+        }
+    });
 
     rsx! {
         div { class: "settings__title", style: "margin-top:12px", "Accounts" }
         div { class: "settings__hint", "Drag accounts in the sidebar to reorder them; this list follows the same order." }
+        AccountList {}
+        div { class: "account-detail__actions", style: "margin-top:4px",
+            button { class: "btn btn--secondary", r#type: "button", disabled: *signing_in.read(),
+                onclick: move |_| l1(ProviderKind::Microsoft), Icon { name: "building", class: "icon--sm" } "Add Microsoft 365" }
+            button { class: "btn btn--secondary", r#type: "button", disabled: *signing_in.read(),
+                onclick: move |_| l2(ProviderKind::Google), Icon { name: "at", class: "icon--sm" } "Add Google" }
+            button { class: "btn btn--secondary", r#type: "button", disabled: *signing_in.read(),
+                onclick: move |_| icloud.set(true), Icon { name: "cloud", class: "icon--sm" } "Add iCloud" }
+            if *signing_in.read() && !*icloud.read() { span { class: "settings__hint", style: "margin:0;align-self:center", "Finish signing in in your browser…" } }
+        }
+        ICloudPanel { open: icloud }
+    }
+}
+
+/// The inline iCloud sign-in under the account list.
+#[component]
+fn ICloudPanel(open: Signal<bool>) -> Element {
+    let mut open = open;
+    if !*open.read() {
+        return rsx! {};
+    }
+    rsx! {
+        div { style: "margin:12px 0", super::icloud::ICloudForm { on_cancel: move |_| open.set(false) } }
+    }
+}
+
+/// Its own component so the rows diff independently of the add-account
+/// controls below (a list that fills in after mount next to a conditional
+/// sibling otherwise lost its rows).
+#[component]
+fn AccountList() -> Element {
+    let s = use_context::<AppState>();
+    let accounts = s.accounts.read().clone();
+    let mut confirm = use_signal(|| None::<String>);
+    let needs_sign_in = s.sync.read().needs_sign_in.clone();
+    rsx! {
         div { class: "account-list",
             for a in accounts.iter() {
                 AccountRow {
@@ -146,13 +196,6 @@ fn Accounts() -> Element {
                     on_cancel: move |_| confirm.set(None),
                 }
             }
-        }
-        div { class: "account-detail__actions", style: "margin-top:4px",
-            button { class: "btn btn--secondary", r#type: "button", disabled: *signing_in.read(),
-                onclick: move |_| l1(ProviderKind::Microsoft), Icon { name: "building", class: "icon--sm" } "Add Microsoft 365" }
-            button { class: "btn btn--secondary", r#type: "button", disabled: *signing_in.read(),
-                onclick: move |_| l2(ProviderKind::Google), Icon { name: "at", class: "icon--sm" } "Add Google" }
-            if *signing_in.read() { span { class: "settings__hint", style: "margin:0;align-self:center", "Finish signing in in your browser…" } }
         }
     }
 }
@@ -170,6 +213,7 @@ fn AccountRow(
         ProviderKind::Microsoft => "Microsoft 365",
         ProviderKind::Google if a.email.to_lowercase().ends_with("@gmail.com") => "Gmail",
         ProviderKind::Google => "Google Workspace",
+        ProviderKind::ICloud => "iCloud",
     };
     let name = if a.display_name.is_empty() { a.email.clone() } else { a.display_name.clone() };
     let (id1, id2) = (a.id.clone(), a.id.clone());

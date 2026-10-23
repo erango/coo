@@ -1,7 +1,7 @@
 # Pigeon
 
 A fast, keyboard-first mail + calendar desktop app for Microsoft 365, Google
-Workspace / Gmail (and iCloud, soon). Rust + Dioxus. Early development: the
+Workspace / Gmail and iCloud. Rust + Dioxus. Early development: the
 engine and a CLI harness exist; the desktop UI is being designed.
 
 ## Setup (dev)

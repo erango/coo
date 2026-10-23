@@ -30,13 +30,17 @@ pub fn resolve(
         (MailAction::MarkUnread, _) => MailOp::SetRead { ids, read: false },
         (MailAction::Flag, _) => MailOp::SetFlagged { ids, flagged: true },
         (MailAction::Unflag, _) => MailOp::SetFlagged { ids, flagged: false },
-        (MailAction::Archive, ProviderKind::Microsoft) => MailOp::MoveTo { ids, folder_id: need(FolderRole::Archive)? },
+        (MailAction::Archive, ProviderKind::Microsoft | ProviderKind::ICloud) => {
+            MailOp::MoveTo { ids, folder_id: need(FolderRole::Archive)? }
+        }
         (MailAction::Archive, ProviderKind::Google) => {
             MailOp::Relabel { ids, add: vec![], remove: vec![need(FolderRole::Inbox)?] }
         }
-        (MailAction::Trash, ProviderKind::Microsoft) => MailOp::MoveTo { ids, folder_id: need(FolderRole::Trash)? },
+        (MailAction::Trash, ProviderKind::Microsoft | ProviderKind::ICloud) => {
+            MailOp::MoveTo { ids, folder_id: need(FolderRole::Trash)? }
+        }
         (MailAction::Trash, ProviderKind::Google) => MailOp::Trash { ids },
-        (MailAction::MoveTo(folder_id), ProviderKind::Microsoft) => {
+        (MailAction::MoveTo(folder_id), ProviderKind::Microsoft | ProviderKind::ICloud) => {
             MailOp::MoveTo { ids, folder_id: folder_id.clone() }
         }
         (MailAction::MoveTo(folder_id), ProviderKind::Google) => {

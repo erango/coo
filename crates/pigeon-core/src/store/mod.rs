@@ -760,21 +760,43 @@ fn message_pk(conn: &Connection, account_id: &str, message_id: &str) -> Result<O
         .optional()?)
 }
 
+fn unlink(tx: &Transaction, account_id: &str, id: &str, folder_id: &str) -> Result<()> {
+    tx.prepare_cached(
+        "DELETE FROM message_folders WHERE folder_id = ?2
+         AND message_pk = (SELECT pk FROM messages WHERE account_id = ?1 AND id = ?3)",
+    )?
+    .execute(params![account_id, folder_id, id])?;
+    tx.prepare_cached(
+        "DELETE FROM messages WHERE account_id = ?1 AND id = ?2
+         AND NOT EXISTS (SELECT 1 FROM message_folders WHERE message_pk = messages.pk)",
+    )?
+    .execute(params![account_id, id])?;
+    Ok(())
+}
+
 fn apply_changes(tx: &Transaction, account_id: &str, changes: &[MailChange]) -> Result<()> {
     for change in changes {
         match change {
             MailChange::Upsert(h) => upsert_message(tx, account_id, h)?,
-            MailChange::Unlink { id, folder_id } => {
+            MailChange::Unlink { id, folder_id } => unlink(tx, account_id, id, folder_id)?,
+            MailChange::Flags { id, is_read, is_flagged } => {
                 tx.prepare_cached(
-                    "DELETE FROM message_folders WHERE folder_id = ?2
-                     AND message_pk = (SELECT pk FROM messages WHERE account_id = ?1 AND id = ?3)",
+                    "UPDATE messages SET is_read = ?3, is_flagged = ?4 WHERE account_id = ?1 AND id = ?2",
                 )?
-                .execute(params![account_id, folder_id, id])?;
-                tx.prepare_cached(
-                    "DELETE FROM messages WHERE account_id = ?1 AND id = ?2
-                     AND NOT EXISTS (SELECT 1 FROM message_folders WHERE message_pk = messages.pk)",
-                )?
-                .execute(params![account_id, id])?;
+                .execute(params![account_id, id, is_read, is_flagged])?;
+            }
+            MailChange::Retain { folder_id, ids, since } => {
+                let keep: std::collections::HashSet<&str> = ids.iter().map(String::as_str).collect();
+                let stored: Vec<String> = tx
+                    .prepare_cached(
+                        "SELECT m.id FROM message_folders mf JOIN messages m ON m.pk = mf.message_pk
+                         WHERE mf.account_id = ?1 AND mf.folder_id = ?2 AND mf.received_at >= ?3",
+                    )?
+                    .query_map(params![account_id, folder_id, since], |r| r.get(0))?
+                    .collect::<rusqlite::Result<_>>()?;
+                for id in stored.iter().filter(|id| !keep.contains(id.as_str())) {
+                    unlink(tx, account_id, id, folder_id)?;
+                }
             }
             MailChange::Delete { id } => {
                 tx.prepare_cached("DELETE FROM messages WHERE account_id = ?1 AND id = ?2")?

@@ -98,6 +98,9 @@ impl OAuthApp {
                 var("PIGEON_GOOGLE_CLIENT_ID", option_env!("PIGEON_GOOGLE_CLIENT_ID"))?,
                 var("PIGEON_GOOGLE_CLIENT_SECRET", option_env!("PIGEON_GOOGLE_CLIENT_SECRET"))?,
             ),
+            ProviderKind::ICloud => {
+                return Err(Error::Auth("iCloud uses an app-specific password, not OAuth".into()));
+            }
         })
     }
 

@@ -12,6 +12,7 @@ impl Pigeon {
         let event = match &*self.backend(account)? {
             Backend::Microsoft(p) => p.create_event(draft).await?,
             Backend::Google(p) => p.create_event(draft).await?,
+            Backend::ICloud(p) => p.cal.create_event(draft).await?,
         };
         self.store().upsert_event(&account.id, &event)?;
         Ok(event)
@@ -21,6 +22,7 @@ impl Pigeon {
         let event = match &*self.backend(account)? {
             Backend::Microsoft(p) => p.update_event(event_id, draft).await?,
             Backend::Google(p) => p.update_event(event_id, draft).await?,
+            Backend::ICloud(p) => p.cal.update_event(event_id, draft).await?,
         };
         self.store().upsert_event(&account.id, &event)?;
         Ok(event)
@@ -30,6 +32,7 @@ impl Pigeon {
         match &*self.backend(account)? {
             Backend::Microsoft(p) => p.delete_event(calendar_id, event_id).await?,
             Backend::Google(p) => p.delete_event(calendar_id, event_id).await?,
+            Backend::ICloud(p) => p.cal.delete_event(calendar_id, event_id).await?,
         }
         self.store().delete_event(&account.id, calendar_id, event_id)
     }
@@ -49,6 +52,7 @@ impl Pigeon {
         match &*self.backend(account)? {
             Backend::Microsoft(p) => p.respond(calendar_id, event_id, response, comment).await?,
             Backend::Google(p) => p.respond(calendar_id, event_id, response, comment).await?,
+            Backend::ICloud(p) => p.cal.respond(calendar_id, event_id, response, comment).await?,
         }
         self.store().set_my_response(&account.id, calendar_id, event_id, response)
     }
@@ -59,6 +63,7 @@ impl Pigeon {
         match &*self.backend(account)? {
             Backend::Microsoft(p) => p.free_busy(emails, from, to).await,
             Backend::Google(p) => p.free_busy(emails, from, to).await,
+            Backend::ICloud(p) => p.cal.free_busy(emails, from, to).await,
         }
     }
 

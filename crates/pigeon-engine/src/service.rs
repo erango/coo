@@ -20,6 +20,16 @@ const LIST_LIMIT: u32 = 300;
 const NEXT_UP_HOURS: i64 = 12;
 const SEARCH_LIMIT: u32 = 200;
 
+/// A password that never shows up in `Debug` output (commands get logged).
+#[derive(Clone)]
+pub struct Secret(pub String);
+
+impl std::fmt::Debug for Secret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Secret(***)")
+    }
+}
+
 /// Which list the user is looking at.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Mailbox {
@@ -99,6 +109,12 @@ pub enum Cmd {
     },
     SyncNow,
     Login(ProviderKind),
+    /// iCloud-style sign-in with an app-specific password.
+    LoginPassword {
+        provider: ProviderKind,
+        email: String,
+        password: Secret,
+    },
     /// Sign out and delete the account's local data.
     Logout {
         account_id: String,
@@ -558,6 +574,12 @@ impl Service {
                 self.publish().await;
                 tokio::spawn(self.clone().sync());
             }
+            Cmd::LoginPassword { provider, email, password } => {
+                let account = self.app.login_password(provider, &email, &password.0).await?;
+                self.toast(format!("Signed in as {}", account.email), false, None);
+                self.publish().await;
+                tokio::spawn(self.clone().sync());
+            }
             Cmd::Logout { account_id } => {
                 let account = self.app.account(&account_id)?;
                 self.app.logout(&account_id)?;
@@ -735,6 +757,16 @@ pub async fn run(app: Arc<Pigeon>, mut rx: mpsc::UnboundedReceiver<Cmd>, tx: mps
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn secrets_are_redacted_in_debug() {
+        let c = Cmd::LoginPassword {
+            provider: ProviderKind::ICloud,
+            email: "a@icloud.com".into(),
+            password: Secret("hunter2".into()),
+        };
+        assert!(!format!("{c:?}").contains("hunter2"));
+    }
 
     #[test]
     fn hues_are_stable_and_in_range() {

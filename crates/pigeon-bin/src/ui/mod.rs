@@ -2,6 +2,7 @@ mod agent_setup;
 mod calendar;
 mod compose;
 pub mod event_editor;
+mod icloud;
 mod invite;
 mod list;
 pub mod mailframe;

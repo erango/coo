@@ -12,6 +12,7 @@ source .env.local                          # OAuth client ids (see README)
 export PIGEON_TOKEN_STORE=file             # optional: avoid Keychain prompts on rebuilds
 ./target/release/pigeon login google       # repeat per account; opens the browser
 ./target/release/pigeon login microsoft
+./target/release/pigeon login icloud --email name@icloud.com   # app-specific password; or PIGEON_ICLOUD_PASSWORD
 ./target/release/pigeon sync               # first sync can take a few minutes
 ```
 

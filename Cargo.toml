@@ -12,8 +12,11 @@ pigeon-core = { path = "crates/pigeon-core" }
 pigeon-graph = { path = "crates/pigeon-graph" }
 pigeon-google = { path = "crates/pigeon-google" }
 pigeon-engine = { path = "crates/pigeon-engine" }
+pigeon-imap = { path = "crates/pigeon-imap" }
+pigeon-caldav = { path = "crates/pigeon-caldav" }
 
 ammonia = "4.2"
+async-imap = { version = "0.12", default-features = false, features = ["runtime-tokio"] }
 base64 = "0.23"
 chrono-tz = "0.10"
 chrono = { version = "0.4.45", default-features = false, features = ["std", "clock", "serde"] }
@@ -23,6 +26,12 @@ encoding_rs = "0.8"
 futures = "0.3.34"
 getrandom = "0.4"
 mail-builder = "1.0"
+mail-parser = "0.11"
+quick-xml = "0.42"
+rpassword = "7.5"
+rustls = "0.23"
+rustls-platform-verifier = "0.7"
+tokio-rustls = "0.26"
 open = "5.4"
 reqwest = { version = "0.13.5", features = ["json", "form", "query", "gzip"] }
 rusqlite = { version = "0.40", features = ["bundled"] }

@@ -51,6 +51,13 @@ pub struct SyncReport {
 enum Backend {
     Microsoft(Graph),
     Google(Google),
+    ICloud(Box<ICloud>),
+}
+
+/// iCloud: mail over IMAP/SMTP, calendars over CalDAV.
+struct ICloud {
+    mail: pigeon_imap::Imap,
+    cal: pigeon_caldav::CalDav,
 }
 
 impl Pigeon {
@@ -82,6 +89,7 @@ impl Pigeon {
         let (email, display_name) = match provider {
             ProviderKind::Microsoft => pigeon_graph::whoami(&token.access_token).await?,
             ProviderKind::Google => pigeon_google::whoami(&token.access_token).await?,
+            ProviderKind::ICloud => return Err(Error::Auth("iCloud signs in with an app-specific password".into())),
         };
         let account = Account { id: Account::make_id(provider, &email), provider, email, display_name };
         self.tokens.set(&account.id, refresh)?;
@@ -100,6 +108,39 @@ impl Pigeon {
         Ok(self.tokens.get(&account.id)?.is_some())
     }
 
+    /// Add an iCloud (app-specific password) account. Verifies both IMAP and
+    /// CalDAV before saving anything.
+    pub async fn login_password(&self, provider: ProviderKind, email: &str, password: &str) -> Result<Account> {
+        if provider != ProviderKind::ICloud {
+            return Err(Error::Auth(format!("{} signs in through the browser", provider.as_str())));
+        }
+        let email = email.trim().to_lowercase();
+        if !email.contains('@') {
+            return Err(Error::Auth("enter your full iCloud address (name@icloud.com)".into()));
+        }
+        let password: String = password.chars().filter(|c| !c.is_whitespace()).collect();
+        let cfg = pigeon_imap::ServerConfig::ICLOUD;
+        let (mail, cal) = futures::join!(
+            pigeon_imap::verify(&cfg, &email, &password),
+            pigeon_caldav::verify(pigeon_caldav::ICLOUD_URL, &email, &password)
+        );
+        mail?;
+        if let Err(e) = cal {
+            // Mail works; calendars may be off for this Apple Account.
+            tracing::warn!(error = %e, "iCloud calendar check failed");
+        }
+        let account = Account {
+            id: Account::make_id(provider, &email),
+            provider,
+            display_name: email.split('@').next().unwrap_or_default().to_string(),
+            email,
+        };
+        self.tokens.set(&account.id, &password)?;
+        self.backends.lock().unwrap_or_else(|p| p.into_inner()).remove(&account.id);
+        self.store().upsert_account(&account)?;
+        Ok(account)
+    }
+
     pub fn logout(&self, account_id: &str) -> Result<()> {
         self.backends.lock().unwrap_or_else(|p| p.into_inner()).remove(account_id);
         self.tokens.delete(account_id)?;
@@ -111,11 +152,23 @@ impl Pigeon {
         if let Some(b) = backends.get(&account.id) {
             return Ok(b.clone());
         }
-        let app = OAuthApp::from_env(account.provider)?;
-        let tokens = Arc::new(TokenSource::new(app, &account.id, self.tokens.clone()));
         let backend = Arc::new(match account.provider {
-            ProviderKind::Microsoft => Backend::Microsoft(Graph::new(tokens)),
-            ProviderKind::Google => Backend::Google(Google::new(tokens)),
+            ProviderKind::ICloud => {
+                let password =
+                    self.tokens.get(&account.id)?.ok_or_else(|| Error::SignInRequired(account.id.clone()))?;
+                Backend::ICloud(Box::new(ICloud {
+                    mail: pigeon_imap::Imap::new(pigeon_imap::ServerConfig::ICLOUD, &account.email, &password),
+                    cal: pigeon_caldav::CalDav::new(pigeon_caldav::ICLOUD_URL, &account.email, &password)?,
+                }))
+            }
+            provider => {
+                let app = OAuthApp::from_env(provider)?;
+                let tokens = Arc::new(TokenSource::new(app, &account.id, self.tokens.clone()));
+                match provider {
+                    ProviderKind::Microsoft => Backend::Microsoft(Graph::new(tokens)),
+                    _ => Backend::Google(Google::new(tokens)),
+                }
+            }
         });
         backends.insert(account.id.clone(), backend.clone());
         Ok(backend)
@@ -131,6 +184,7 @@ impl Pigeon {
         match &*self.backend(account)? {
             Backend::Microsoft(p) => load_body(p, id, message_id, store, cache).await,
             Backend::Google(p) => load_body(p, id, message_id, store, cache).await,
+            Backend::ICloud(p) => load_body(&p.mail, id, message_id, store, cache).await,
         }
     }
 
@@ -140,6 +194,7 @@ impl Pigeon {
         match &*self.backend(account)? {
             Backend::Microsoft(p) => download_attachment(p, id, message_id, attachment_id, store, cache).await,
             Backend::Google(p) => download_attachment(p, id, message_id, attachment_id, store, cache).await,
+            Backend::ICloud(p) => download_attachment(&p.mail, id, message_id, attachment_id, store, cache).await,
         }
     }
 
@@ -170,6 +225,7 @@ impl Pigeon {
         let report = match backend {
             Backend::Microsoft(p) => flush_outbox(p, id, store).await?,
             Backend::Google(p) => flush_outbox(p, id, store).await?,
+            Backend::ICloud(p) => flush_outbox(&p.mail, id, store).await?,
         };
         self.store().prune_done_ops(pigeon_core::now_ms() - UNDO_WINDOW_MS)?;
         Ok(report)
@@ -214,6 +270,7 @@ impl Pigeon {
                 Ok(b) => match &*b {
                     Backend::Microsoft(p) => p.send_as().await,
                     Backend::Google(p) => p.send_as().await,
+                    Backend::ICloud(p) => p.mail.send_as().await,
                 },
                 Err(e) => Err(e),
             };
@@ -281,6 +338,7 @@ impl Pigeon {
         match &*self.backend(&account)? {
             Backend::Microsoft(p) => p.send_mime(&mime, draft.thread_hint()).await?,
             Backend::Google(p) => p.send_mime(&mime, draft.thread_hint()).await?,
+            Backend::ICloud(p) => p.mail.send_mime(&mime, draft.thread_hint()).await?,
         }
         self.store().delete_draft(&draft.id)?;
         Ok(message_id)
@@ -298,6 +356,7 @@ impl Pigeon {
             let found = match &*self.backend(a)? {
                 Backend::Microsoft(p) => p.search(q, per_account).await?,
                 Backend::Google(p) => p.search(q, per_account).await?,
+                Backend::ICloud(p) => p.mail.search(q, per_account).await?,
             };
             self.store().apply_found(&a.id, &found)?;
             Ok::<usize, Error>(found.len())
@@ -337,6 +396,9 @@ impl Pigeon {
                 futures::join!(sync_mail(p, id, store), sync_calendars(p, id, store, from, to))
             }
             Backend::Google(p) => futures::join!(sync_mail(p, id, store), sync_calendars(p, id, store, from, to)),
+            Backend::ICloud(p) => {
+                futures::join!(sync_mail(&p.mail, id, store), sync_calendars(&p.cal, id, store, from, to))
+            }
         };
         SyncReport { account: account.clone(), mail, calendar }
     }
