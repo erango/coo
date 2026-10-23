@@ -338,6 +338,52 @@ async fn click_loop(s: AppState) {
     }
 }
 
+/// What double-clicking a title bar does (System Settings › Desktop & Dock ›
+/// "Double-click a window's title bar to").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TitleDoubleClick {
+    Zoom,
+    Minimize,
+    Nothing,
+}
+
+/// Parse `defaults read -g AppleActionOnDoubleClick` (unset means Zoom).
+pub fn title_double_click(pref: Option<&str>) -> TitleDoubleClick {
+    match pref.map(str::trim) {
+        Some("Minimize") => TitleDoubleClick::Minimize,
+        Some("None") => TitleDoubleClick::Nothing,
+        _ => TitleDoubleClick::Zoom,
+    }
+}
+
+/// Native window actions from the title strips: drag, or the user's
+/// double-click preference.
+fn window_action(action: &str) {
+    let w = dioxus::desktop::window();
+    match action {
+        "drag" => w.drag(),
+        "zoom" => {
+            static PREF: std::sync::OnceLock<TitleDoubleClick> = std::sync::OnceLock::new();
+            let pref = *PREF.get_or_init(|| {
+                let out =
+                    std::process::Command::new("defaults").args(["read", "-g", "AppleActionOnDoubleClick"]).output();
+                title_double_click(
+                    out.ok()
+                        .filter(|o| o.status.success())
+                        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+                        .as_deref(),
+                )
+            });
+            match pref {
+                TitleDoubleClick::Zoom => w.set_maximized(!w.is_maximized()),
+                TitleDoubleClick::Minimize => w.set_minimized(true),
+                TitleDoubleClick::Nothing => {}
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Message list width bounds (px).
 pub const LIST_W_MIN: u32 = 300;
 pub const LIST_W_MAX: u32 = 760;
@@ -355,6 +401,7 @@ async fn bridge_loop(s: AppState) {
                 let mut os = s.os_dark;
                 os.set(msg.v == "dark");
             }
+            "win" => window_action(&msg.v),
             "list-w" => {
                 let px: u32 = msg.v.parse().unwrap_or(0);
                 crate::prefs::update(|p| p.list_width = if px == 0 { 0 } else { px.clamp(LIST_W_MIN, LIST_W_MAX) });
@@ -577,5 +624,18 @@ fn on_key(s: AppState, key: &str) {
                 _ => {}
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod shell_tests {
+    use super::*;
+
+    #[test]
+    fn title_double_click_follows_the_macos_setting() {
+        assert_eq!(title_double_click(None), TitleDoubleClick::Zoom);
+        assert_eq!(title_double_click(Some("Maximize\n")), TitleDoubleClick::Zoom);
+        assert_eq!(title_double_click(Some("Minimize\n")), TitleDoubleClick::Minimize);
+        assert_eq!(title_double_click(Some("None")), TitleDoubleClick::Nothing);
     }
 }

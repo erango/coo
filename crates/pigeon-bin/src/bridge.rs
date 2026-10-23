@@ -247,6 +247,21 @@ pub const JS: &str = r#"
     document.addEventListener('click', (e) => { if (swallowClick) { e.stopPropagation(); e.preventDefault(); swallowClick = false; } }, true);
   })();
 
+  // ---- Window: drag by the title strips, double-click to zoom ----
+  // The titlebar is transparent with content under it, and WKWebView ignores
+  // -webkit-app-region, so empty parts of the top bars move the window
+  // through the native drag (Rust side: window().drag()).
+  const DRAG_ZONES = '.sidebar__top, .pane-header, .reader-toolbar, .cal-header, .settings__crumbs, .onboard__chrome, .composer__titlebar';
+  const INTERACTIVE = 'button, a, input, textarea, select, label, [role="tab"], [role="button"], [contenteditable="true"], .segmented, .search-field, .chip, kbd';
+  const inDragZone = (t) => t.closest && t.closest(DRAG_ZONES) && !t.closest(INTERACTIVE);
+  document.addEventListener('mousedown', (e) => {
+    if (e.button !== 0 || e.detail > 1 || !inDragZone(e.target)) return;
+    send('win', 'drag');
+  });
+  document.addEventListener('dblclick', (e) => {
+    if (inDragZone(e.target)) send('win', 'zoom');
+  });
+
   // ---- Pane splitter: drag to resize the message list, double-click resets ----
   const LIST_MIN = 300, LIST_MAX = 760;
   document.addEventListener('mousedown', (e) => {
