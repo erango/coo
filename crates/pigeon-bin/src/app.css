@@ -464,3 +464,4 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .list:not(:hover)::-webkit-scrollbar-thumb, .reader:not(:hover)::-webkit-scrollbar-thumb,
 .settings:not(:hover)::-webkit-scrollbar-thumb, .settings-nav:not(:hover)::-webkit-scrollbar-thumb { background-color: transparent; }
 .list::-webkit-scrollbar-thumb:hover, .reader::-webkit-scrollbar-thumb:hover { background-color: var(--text-3); }
+.settings-field .segmented > button { white-space: nowrap; }

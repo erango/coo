@@ -741,7 +741,11 @@ pub fn act(s: AppState, item: &ListItem, action: MailAction) {
     if leaves && s.selected.read().as_deref() == Some(AppState::key(item).as_str()) {
         let list = s.visible_items();
         let pos = list.iter().position(|i| AppState::key(i) == AppState::key(item));
-        let next = pos.and_then(|p| list.get(p + 1).or_else(|| p.checked_sub(1).and_then(|q| list.get(q)))).cloned();
+        let go_next = crate::prefs::get().after_remove != "close";
+        let next = pos
+            .filter(|_| go_next)
+            .and_then(|p| list.get(p + 1).or_else(|| p.checked_sub(1).and_then(|q| list.get(q))))
+            .cloned();
         match next {
             Some(n) => select(s, &n),
             None => {

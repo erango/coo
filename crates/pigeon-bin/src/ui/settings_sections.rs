@@ -66,6 +66,8 @@ const CLOSE_CHOICES: [(bool, &str); 2] = [(true, "Keeps Coo in the menu bar"), (
 pub fn General() -> Element {
     let mut keep = use_signal(|| prefs::get().close_to_menu_bar);
     let current = *keep.read();
+    let mut after = use_signal(|| prefs::get().after_remove);
+    let after_now = after.read().clone();
     rsx! {
         div { class: "settings__title", style: "margin-top:12px", "General" }
         div { class: "settings-group",
@@ -89,6 +91,21 @@ pub fn General() -> Element {
                         "Closing the window quits Coo: no new-mail notifications or reminders until you open it again."
                     }
                 }
+            }
+            div { class: "settings-field",
+                span { class: "settings-field__label", "After archive or delete" }
+                div { class: "segmented", role: "radiogroup", "aria-label": "After archiving or deleting a message",
+                    for (value, label) in [("next", "Open the next message"), ("close", "Close the message")] {
+                        button { role: "radio", key: "{value}", "aria-checked": "{after_now == value}", "aria-selected": "{after_now == value}",
+                            onclick: move |_| {
+                                prefs::update(move |p| p.after_remove = value.to_string());
+                                after.set(value.to_string());
+                            },
+                            "{label}"
+                        }
+                    }
+                }
+                span { class: "settings-field__hint", "Also applies when you move a message to another folder." }
             }
         }
     }

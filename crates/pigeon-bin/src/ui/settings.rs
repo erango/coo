@@ -13,7 +13,7 @@ use crate::{prefs, themes};
 
 /// Settings subpages: (title, icon, search keywords).
 pub const PAGES: &[(&str, &str, &str)] = &[
-    ("General", "gear", "close window menu bar quit startup"),
+    ("General", "gear", "close window menu bar quit startup archive delete next message after"),
     ("Appearance", "sun", "theme dark light mode color colour text size font zoom"),
     ("Accounts", "at", "account sign in sign out add microsoft google gmail icloud zoom video calls order"),
     ("Composing", "edit", "undo send later reply new message window docked"),

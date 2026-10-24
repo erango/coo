@@ -39,6 +39,9 @@ pub struct Prefs {
     pub crash_reports: bool,
     /// First day of the week, 0 = Sunday … 6 = Saturday; None = follow macOS.
     pub week_start: Option<u8>,
+    /// After archiving, deleting or moving the open message: "next" opens
+    /// the next one in the list, "close" just closes it.
+    pub after_remove: String,
     /// Undo-send window in seconds (0 = send immediately).
     pub undo_send_seconds: u32,
     /// Signature HTML per sending address (lowercased email); the key
@@ -95,6 +98,7 @@ impl Default for Prefs {
             crash_reports: true,
             week_start: None,
             undo_send_seconds: 10,
+            after_remove: "next".into(),
             signatures: Default::default(),
             signature_modes: Default::default(),
             list_width: 0,
