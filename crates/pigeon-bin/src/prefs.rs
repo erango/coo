@@ -41,8 +41,12 @@ pub struct Prefs {
     pub week_start: Option<u8>,
     /// Undo-send window in seconds (0 = send immediately).
     pub undo_send_seconds: u32,
-    /// Plain-text signature per sending address (lowercased email).
+    /// Signature HTML per sending address (lowercased email); the key
+    /// `DEFAULT_SIGNATURE` holds the one shared by every other address.
     pub signatures: std::collections::BTreeMap<String, String>,
+    /// Per address: "default", "own" or "none". Missing: "own" when the
+    /// address has its own signature, else "default".
+    pub signature_modes: std::collections::BTreeMap<String, String>,
     /// New-mail alert: "banner" (always), "background" (only when Coo isn't
     /// the active app) or "sound" (no banner).
     pub mail_alert: String,
@@ -92,6 +96,7 @@ impl Default for Prefs {
             week_start: None,
             undo_send_seconds: 10,
             signatures: Default::default(),
+            signature_modes: Default::default(),
             list_width: 0,
             compose_mode: "window".into(),
             sidebar_width: 0,
@@ -166,5 +171,68 @@ mod tests {
         assert_eq!(p.account_order, ["a"]);
         let p: Prefs = serde_json::from_str("{}").unwrap();
         assert_eq!(p, Prefs::default());
+    }
+}
+
+/// `Prefs::signatures` key of the signature every address uses by default.
+pub const DEFAULT_SIGNATURE: &str = "*";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SigMode {
+    Default,
+    Own,
+    None,
+}
+
+impl SigMode {
+    pub fn key(self) -> &'static str {
+        match self {
+            SigMode::Default => "default",
+            SigMode::Own => "own",
+            SigMode::None => "none",
+        }
+    }
+}
+
+impl Prefs {
+    /// How `email` (lowercased) picks its signature.
+    pub fn signature_mode(&self, email: &str) -> SigMode {
+        match self.signature_modes.get(email).map(String::as_str) {
+            Some("none") => SigMode::None,
+            Some("own") => SigMode::Own,
+            Some("default") => SigMode::Default,
+            _ if self.signatures.contains_key(email) => SigMode::Own,
+            _ => SigMode::Default,
+        }
+    }
+
+    /// The signature HTML that goes under mail from `email` (lowercased).
+    pub fn signature(&self, email: &str) -> String {
+        let key = match self.signature_mode(email) {
+            SigMode::None => return String::new(),
+            SigMode::Own => email,
+            SigMode::Default => DEFAULT_SIGNATURE,
+        };
+        self.signatures.get(key).cloned().unwrap_or_default()
+    }
+}
+
+#[cfg(test)]
+mod signature_tests {
+    use super::*;
+
+    #[test]
+    fn addresses_use_own_default_or_none() {
+        let mut p = Prefs::default();
+        p.signatures.insert(DEFAULT_SIGNATURE.into(), "D".into());
+        p.signatures.insert("a@x.io".into(), "A".into());
+        assert_eq!(p.signature("a@x.io"), "A", "an existing own signature keeps working");
+        assert_eq!(p.signature("b@x.io"), "D", "everyone else gets the default");
+        p.signature_modes.insert("a@x.io".into(), "default".into());
+        assert_eq!(p.signature("a@x.io"), "D", "own text is kept but not used");
+        p.signature_modes.insert("b@x.io".into(), "none".into());
+        assert_eq!(p.signature("b@x.io"), "");
+        p.signature_modes.insert("c@x.io".into(), "own".into());
+        assert_eq!(p.signature("c@x.io"), "", "own but not written yet");
     }
 }

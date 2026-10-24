@@ -220,6 +220,10 @@ input, textarea, [contenteditable="true"], [contenteditable="true"] *,
   -webkit-user-select: text; user-select: text;
 }
 input, textarea, [contenteditable="true"] { cursor: text; }
+/* Toggles, checkboxes, radios, sliders and buttons aren't text fields. */
+input:is([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="button"], [type="submit"]),
+label:has(> input:is([type="checkbox"], [type="radio"])) { cursor: pointer; }
+input:disabled, label:has(> input:disabled) { cursor: default; }
 /* All-day row: one lane per stacked event (calendar.rs layout_allday). */
 .week .allday { height: calc(10px + var(--allday-rows, 1) * 24px); align-items: flex-start; padding-top: 8px; }
 .week .allday-chip, .week .allday-more { top: calc(var(--lane, 0) * 24px); bottom: auto; height: 22px; }
@@ -419,3 +423,26 @@ input, textarea, [contenteditable="true"] { cursor: text; }
 .thread-subject-row:hover .thread-subject__copy,
 .thread-subject__copy:focus-visible,
 .thread-subject__copy[data-copied] { opacity: 1; }
+
+/* Settings › Signatures: a default editor, then one compact row per address
+   (Default / Own / None); only the row being edited opens its editor. */
+.sig-default { display: flex; flex-direction: column; gap: 8px; padding: 4px 0 8px; }
+.sig-default__head { display: flex; align-items: baseline; gap: 10px; }
+.sig-default__head .settings-field__hint { margin: 0; }
+.sig-list__head { display: flex; align-items: center; gap: 12px; margin-top: 4px; }
+.sig-list__filter { margin-left: auto; display: flex; align-items: center; gap: 6px; height: 28px; width: 220px; padding: 0 8px; border-radius: var(--radius-sm); background: var(--bg-0); box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--text-3); }
+.sig-list__filter:focus-within { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.sig-list__filter input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text-1); font: inherit; font-size: var(--fs-ui); }
+.sig-list { padding: 0; gap: 0; }
+.sig-row { display: flex; flex-direction: column; gap: 8px; padding: 6px 12px; box-shadow: inset 0 -1px 0 var(--line); }
+.sig-row:last-child { box-shadow: none; }
+.sig-row[data-open] { background: var(--bg-0); padding-bottom: 12px; }
+.sig-row__line { display: flex; align-items: center; gap: 12px; min-height: 32px; }
+.sig-row__who { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 4px 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.sig-row__who:disabled { cursor: default; }
+.sig-row__who:not(:disabled):hover .sig-row__email { text-decoration: underline dotted var(--text-3); text-underline-offset: 3px; }
+.sig-row__email { flex: none; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-ui); color: var(--text-1); }
+.sig-row__preview { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-caption); color: var(--text-3); }
+.sig-row .segmented { flex: none; }
+.sig-default__head .settings-field__label, .sig-list__head .settings-field__label { width: auto; white-space: nowrap; }
+.sig-row__edit { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-caption); color: var(--accent); }

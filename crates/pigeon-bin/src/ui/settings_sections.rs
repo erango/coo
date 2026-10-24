@@ -1,5 +1,5 @@
 //! Settings sections beyond Appearance/Accounts: General (closing the
-//! window), Composing (undo send, signatures), Calendar, Notifications,
+//! window), Composing (undo send), Signatures, Calendar, Notifications,
 //! Keyboard shortcuts, Privacy.
 
 use dioxus::prelude::*;
@@ -101,17 +101,10 @@ const REPLY_MODES: [(&str, &str); 2] = [("inline", "Inline in the conversation")
 
 #[component]
 pub fn Composing() -> Element {
-    let s = use_context::<AppState>();
-    use_hook(move || {
-        if s.senders.read().is_empty() {
-            send_cmd(Cmd::LoadSenders);
-        }
-    });
     let mut undo = use_signal(|| prefs::get().undo_send_seconds);
     let mut mode = use_signal(|| prefs::get().compose_mode);
     let mut rmode = use_signal(|| prefs::get().reply_mode);
     let current_rmode = rmode.read().clone();
-    let senders = s.senders.read().clone();
     let current = *undo.read();
     let current_mode = mode.read().clone();
 
@@ -161,34 +154,144 @@ pub fn Composing() -> Element {
                 }
                 span { class: "settings-field__hint", "Messages wait this long before going out, so you can take them back." }
             }
-            div { class: "settings-field settings-field--top",
-                span { class: "settings-field__label", "Signatures" }
-                div { style: "flex:1;display:flex;flex-direction:column;gap:10px",
-                    if senders.is_empty() { span { class: "settings-field__hint", "Loading your addresses…" } }
-                    for sender in senders {
-                        SignatureField { key: "{sender.address.email}", email: sender.address.email.clone() }
+        }
+    }
+}
+
+/// Above this many addresses the Signatures page gets a filter box.
+const SIG_FILTER_FROM: usize = 7;
+
+/// Settings › Signatures: one default signature, then a compact row per
+/// sending address choosing Default / Own / None. Only the row being edited
+/// opens an editor, so twenty addresses stay a short list.
+#[component]
+pub fn Signatures() -> Element {
+    let s = use_context::<AppState>();
+    use_hook(move || {
+        if s.senders.read().is_empty() {
+            send_cmd(Cmd::LoadSenders);
+        }
+    });
+    let editing = use_signal(|| None::<String>);
+    let mut filter = use_signal(String::new);
+    let senders = s.senders.read().clone();
+    let q = filter.read().trim().to_lowercase();
+    let shown: Vec<_> =
+        senders.iter().filter(|x| q.is_empty() || x.address.email.to_lowercase().contains(&q)).cloned().collect();
+
+    rsx! {
+        div { class: "settings__title", style: "margin-top:12px", "Signatures" }
+        div { class: "settings-group",
+            div { class: "sig-default",
+                div { class: "sig-default__head",
+                    span { class: "settings-field__label", "Default signature" }
+                    span { class: "settings-field__hint", "Used by every address set to Default below." }
+                }
+                SignatureField { email: prefs::DEFAULT_SIGNATURE.to_string(), placeholder: "Your signature. Select text to format, or paste one from a web page." }
+            }
+        }
+        div { class: "sig-list__head",
+            span { class: "settings-field__label", "Addresses" }
+            if senders.len() >= SIG_FILTER_FROM {
+                label { class: "sig-list__filter",
+                    Icon { name: "search", class: "icon--sm" }
+                    input { r#type: "search", placeholder: "Filter addresses", value: "{filter}",
+                        oninput: move |e| filter.set(e.value()) }
+                }
+            }
+        }
+        div { class: "settings-group sig-list",
+            if senders.is_empty() { span { class: "settings-field__hint", "Loading your addresses…" } }
+            if !senders.is_empty() && shown.is_empty() { span { class: "settings-field__hint", "No address matches." } }
+            for sender in shown {
+                SignatureRow { key: "{sender.address.email}", email: sender.address.email.clone(), hue: s.hue(&sender.account_id), editing }
+            }
+        }
+    }
+}
+
+/// First line of a signature, as plain text, for the collapsed row.
+fn signature_preview(html: &str) -> String {
+    let text = pigeon_core::text::html_to_text(html);
+    text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default().chars().take(80).collect()
+}
+
+#[component]
+fn SignatureRow(email: String, hue: String, editing: Signal<Option<String>>) -> Element {
+    let key = email.to_lowercase();
+    let mut mode = use_signal(|| prefs::get().signature_mode(&key));
+    let open = editing.read().as_deref() == Some(key.as_str());
+    let current = *mode.read();
+    let p = prefs::get();
+    let summary = match current {
+        prefs::SigMode::None => "No signature".to_string(),
+        prefs::SigMode::Default => {
+            let d = signature_preview(&p.signature(&key));
+            if d.is_empty() { "Default (empty)".into() } else { format!("Default · {d}") }
+        }
+        prefs::SigMode::Own => {
+            let d = signature_preview(&p.signatures.get(&key).cloned().unwrap_or_default());
+            if d.is_empty() { "Not written yet".into() } else { d }
+        }
+    };
+    let (edit_icon, edit_label): (&'static str, &str) = if open { ("chev-up", "Done") } else { ("edit", "Edit") };
+    let (k1, k2) = (key.clone(), key.clone());
+    let mut set_mode = move |m: prefs::SigMode, k: String| {
+        let v = m.key().to_string();
+        let kk = k.clone();
+        prefs::update(move |p| {
+            p.signature_modes.insert(kk, v);
+        });
+        mode.set(m);
+        editing.set((m == prefs::SigMode::Own).then_some(k));
+    };
+    rsx! {
+        div { class: "sig-row", "data-open": open.then_some("true"),
+            div { class: "sig-row__line",
+                button { class: "sig-row__who", r#type: "button", title: if current == prefs::SigMode::Own { "Edit this signature" } else { "" },
+                    disabled: current != prefs::SigMode::Own,
+                    onclick: move |_| {
+                        let next = if open { None } else { Some(k1.clone()) };
+                        editing.set(next);
+                    },
+                    span { class: "dot dot--sm", "data-hue": "{hue}" }
+                    span { class: "sig-row__email", "{email}" }
+                    span { class: "sig-row__preview", dir: "auto", "{summary}" }
+                    if current == prefs::SigMode::Own {
+                        span { class: "sig-row__edit",
+                            Icon { name: edit_icon, class: "icon--sm" }
+                            "{edit_label}"
+                        }
                     }
                 }
+                div { class: "segmented segmented--sm", role: "radiogroup", "aria-label": "Signature for {email}",
+                    for (m, label) in [(prefs::SigMode::Default, "Default"), (prefs::SigMode::Own, "Own"), (prefs::SigMode::None, "None")] {
+                        button { key: "{label}", role: "radio", "aria-checked": "{current == m}", "aria-selected": "{current == m}",
+                            onclick: { let k = k2.clone(); move |_| set_mode(m, k.clone()) },
+                            "{label}"
+                        }
+                    }
+                }
+            }
+            if open && current == prefs::SigMode::Own {
+                SignatureField { email: key.clone(), placeholder: "Signature for {email}. Select text to format, or paste one from a web page." }
             }
         }
     }
 }
 
 #[component]
-fn SignatureField(email: String) -> Element {
+fn SignatureField(email: String, placeholder: String) -> Element {
     let key = email.to_lowercase();
     // Rendered once; the editor owns its content afterwards and reports edits
     // through the bridge ("sig-input"), sanitized before saving.
     let initial =
         use_hook(|| super::compose::signature_body(&prefs::get().signatures.get(&key).cloned().unwrap_or_default()));
     rsx! {
-        div { style: "display:flex;flex-direction:column;gap:4px",
-            span { class: "settings-field__hint", style: "margin:0", "{email}" }
-            div { class: "input sig-editor", contenteditable: "true", dir: "auto",
-                "data-editor": "", "data-sig-editor": "{key}",
-                "data-placeholder": "Signature for {email}. Select text to format, or paste one from a web page.",
-                dangerous_inner_html: "{initial}" }
-        }
+        div { class: "input sig-editor", contenteditable: "true", dir: "auto",
+            "data-editor": "", "data-sig-editor": "{key}",
+            "data-placeholder": "{placeholder}",
+            dangerous_inner_html: "{initial}" }
     }
 }
 

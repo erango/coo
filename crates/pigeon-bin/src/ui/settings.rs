@@ -16,7 +16,8 @@ pub const PAGES: &[(&str, &str, &str)] = &[
     ("General", "gear", "close window menu bar quit startup"),
     ("Appearance", "sun", "theme dark light mode color colour text size font zoom"),
     ("Accounts", "at", "account sign in sign out add microsoft google gmail icloud zoom video calls order"),
-    ("Composing", "edit", "signature undo send later reply new message window docked"),
+    ("Composing", "edit", "undo send later reply new message window docked"),
+    ("Signatures", "text", "signature signatures sign-off footer html"),
     ("Calendar", "cal", "week start sunday monday weekend"),
     ("Notifications", "bell", "sound sounds alert banner reminder meeting focus do not disturb mute volume"),
     ("Privacy", "lock", "remote images tracking crash reports sentry photos gravatar"),
@@ -96,6 +97,7 @@ pub fn Settings() -> Element {
                         "Appearance" => rsx! { Appearance {} },
                         "Accounts" => rsx! { Accounts {} },
                         "Composing" => rsx! { super::settings_sections::Composing {} },
+                        "Signatures" => rsx! { super::settings_sections::Signatures {} },
                         "Calendar" => rsx! { super::settings_sections::CalendarSettings {} },
                         "Notifications" => rsx! { super::settings_sections::Notifications {} },
                         "Privacy" => rsx! { super::settings_sections::Privacy {} },
@@ -127,7 +129,7 @@ mod page_tests {
     #[test]
     fn search_finds_the_right_page() {
         assert_eq!(matching_pages("sound").first(), Some(&"Notifications"));
-        assert_eq!(matching_pages("signature").first(), Some(&"Composing"));
+        assert_eq!(matching_pages("signature").first(), Some(&"Signatures"));
         assert_eq!(matching_pages("week").first(), Some(&"Calendar"));
         assert_eq!(matching_pages("dark").first(), Some(&"Appearance"));
         assert_eq!(matching_pages("").len(), PAGES.len());

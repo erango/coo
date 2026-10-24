@@ -167,7 +167,7 @@ pub fn compose_html(typed: &str, signature: &str, quote: &str) -> String {
 }
 
 pub fn signature_for(email: &str) -> String {
-    crate::prefs::get().signatures.get(&email.to_lowercase()).cloned().unwrap_or_default()
+    crate::prefs::get().signature(&email.to_lowercase())
 }
 
 fn at_local(t: DateTime<Local>, day_offset: i64, h: u32, m: u32) -> i64 {
