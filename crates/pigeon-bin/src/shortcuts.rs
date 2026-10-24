@@ -3,33 +3,36 @@
 
 /// (group, bridge key, label shown, what it does)
 pub const SHORTCUTS: &[(&str, &str, &str, &str)] = &[
-    ("Anywhere", "meta+k", "⌘K", "Command palette"),
-    ("Anywhere", "meta+1", "⌘1", "Mail"),
-    ("Anywhere", "meta+2", "⌘2", "Calendar"),
-    ("Anywhere", "meta+n", "⌘N", "New message"),
-    ("Anywhere", "meta+shift+n", "⇧⌘N", "Get new mail (sync now)"),
-    ("Anywhere", "meta+,", "⌘,", "Settings"),
-    ("Anywhere", "J", "⇧J", "Join the meeting that's on now"),
-    ("Anywhere", "zoom-in", "⌘+", "Bigger text"),
-    ("Anywhere", "zoom-out", "⌘−", "Smaller text"),
-    ("Anywhere", "zoom-reset", "⌘0", "Actual text size"),
-    ("Anywhere", "Escape", "Esc", "Close (composer, search, settings)"),
-    ("Anywhere", "z", "Z", "Undo the last action"),
-    ("Mail", "j", "J / ↓", "Next conversation"),
-    ("Mail", "k", "K / ↑", "Previous conversation"),
-    ("Mail", "meta+Backspace", "⌘⌫ · # · X", "Delete"),
-    ("Mail", "ctrl+meta+a", "⌃⌘A · E", "Archive"),
-    ("Mail", "meta+r", "⌘R · R", "Reply"),
-    ("Mail", "meta+shift+r", "⇧⌘R · A", "Reply all"),
-    ("Mail", "meta+shift+f", "⇧⌘F · F", "Forward"),
-    ("Mail", "meta+shift+l", "⇧⌘L · S", "Flag / unflag"),
-    ("Mail", "meta+shift+u", "⇧⌘U · U", "Mark read / unread"),
-    ("Mail", "v", "V", "Move to folder"),
-    ("Mail", "l", "L", "Label (Gmail)"),
-    ("Mail", "meta+f", "⌘F · /", "Search"),
-    ("Mail", "c", "C", "New message (new event in Calendar)"),
-    ("Composer", "meta+Enter", "⌘↵", "Send"),
+    ("Get around", "meta+1", "⌘1", "Mail"),
+    ("Get around", "meta+2", "⌘2", "Calendar"),
+    ("Get around", "meta+k", "⌘K", "Command palette"),
+    ("Get around", "meta+f", "⌘F · /", "Search"),
+    ("Get around", "j", "J / ↓", "Next conversation"),
+    ("Get around", "k", "K / ↑", "Previous conversation"),
+    ("Get around", "meta+,", "⌘,", "Settings"),
+    ("Get around", "Escape", "Esc", "Close (composer, search, settings)"),
+    ("Write", "meta+n", "⌘N", "New message"),
+    ("Write", "c", "C", "New message (new event in Calendar)"),
+    ("Write", "meta+r", "⌘R · R", "Reply"),
+    ("Write", "meta+shift+r", "⇧⌘R · A", "Reply all"),
+    ("Write", "meta+shift+f", "⇧⌘F · F", "Forward"),
+    ("Write", "meta+Enter", "⌘↵", "Send"),
+    ("Organize", "ctrl+meta+a", "⌃⌘A · E", "Archive"),
+    ("Organize", "meta+Backspace", "⌘⌫ · # · X", "Delete"),
+    ("Organize", "v", "V", "Move to folder"),
+    ("Organize", "l", "L", "Label (Gmail)"),
+    ("Organize", "meta+shift+l", "⇧⌘L · S", "Flag / unflag"),
+    ("Organize", "meta+shift+u", "⇧⌘U · U", "Mark read / unread"),
+    ("Organize", "z", "Z", "Undo the last action"),
+    ("App", "meta+shift+n", "⇧⌘N", "Get new mail (sync now)"),
+    ("App", "J", "⇧J", "Join the meeting that's on now"),
+    ("App", "zoom-in", "⌘+", "Bigger text"),
+    ("App", "zoom-out", "⌘−", "Smaller text"),
+    ("App", "zoom-reset", "⌘0", "Actual text size"),
 ];
+
+/// Settings › Keyboard shortcuts sections, in order.
+pub const GROUPS: [&str; 4] = ["Get around", "Write", "Organize", "App"];
 
 /// Keys the bridge forwards that are aliases of a documented one (shown in
 /// its label, like the single-key extras next to the Mail-standard ⌘ keys),
@@ -60,6 +63,7 @@ mod tests {
                 "bridge key {k:?} has no entry in SHORTCUTS"
             );
         }
+        assert!(SHORTCUTS.iter().all(|s| GROUPS.contains(&s.0)), "every shortcut is in a shown section");
         for (_, k, _, _) in SHORTCUTS {
             assert!(keys.iter().any(|b| b == k) || k.starts_with("zoom-"), "{k:?} isn't forwarded by the bridge");
         }

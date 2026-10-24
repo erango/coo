@@ -145,8 +145,13 @@ input.input--bare { border: 0; outline: none; }
 .day-col { touch-action: none; }
 
 /* Settings > Keyboard shortcuts */
-.shortcut-list { flex: 1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; row-gap: 6px; }
-.shortcut { display: flex; align-items: center; gap: 8px; font-size: var(--fs-ui); color: var(--text-2); }
+/* One card per task, two columns side by side (one when narrow); inside a
+   card each row reads label then keys, with a hairline between rows. */
+.shortcut-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }
+.shortcut-group { display: flex; flex-direction: column; gap: 0; padding: 12px 16px; }
+.shortcut-group__title { margin: 0 0 6px; font-size: var(--fs-caption); font-weight: var(--fw-semibold); letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); }
+.shortcut { display: flex; align-items: center; gap: 12px; min-height: 30px; font-size: var(--fs-ui); color: var(--text-2); box-shadow: inset 0 -1px 0 var(--line); }
+.shortcut:last-child { box-shadow: none; }
 .shortcut__what { flex: 1; min-width: 0; }
 
 

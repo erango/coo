@@ -438,19 +438,16 @@ pub fn Notifications() -> Element {
 
 #[component]
 pub fn Shortcuts() -> Element {
-    let groups = ["Anywhere", "Mail", "Composer"];
     rsx! {
         div { class: "settings__title", style: "margin-top:12px", "Keyboard shortcuts" }
-        div { class: "settings-group",
-            for g in groups {
-                div { class: "settings-field settings-field--top", key: "{g}",
-                    span { class: "settings-field__label", "{g}" }
-                    div { class: "shortcut-list",
-                        for (_, _, keys, what) in crate::shortcuts::SHORTCUTS.iter().filter(|x| x.0 == g) {
-                            div { class: "shortcut", key: "{keys}",
-                                span { class: "shortcut__what", "{what}" }
-                                kbd { class: "kbd", "{keys}" }
-                            }
+        div { class: "shortcut-groups",
+            for g in crate::shortcuts::GROUPS {
+                section { class: "settings-group shortcut-group", key: "{g}",
+                    h3 { class: "shortcut-group__title", "{g}" }
+                    for (_, _, keys, what) in crate::shortcuts::SHORTCUTS.iter().filter(|x| x.0 == g) {
+                        div { class: "shortcut", key: "{keys}",
+                            span { class: "shortcut__what", "{what}" }
+                            kbd { class: "kbd", "{keys}" }
                         }
                     }
                 }
