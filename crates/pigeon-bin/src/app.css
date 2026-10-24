@@ -481,3 +481,9 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 /* Hidden until the bridge first fits it to its content (no short box that
    then jumps to full height). */
 .mail-frame:not([data-fit]) { visibility: hidden; }
+
+/* Toasts grow with their text (the design's fixed 44px clipped long
+   subjects into the next toast); at most two lines, then an ellipsis. */
+.toast { height: auto; min-height: 44px; padding-top: 8px; padding-bottom: 8px; }
+.toast__msg { line-height: 1.35; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.toast > .btn, .toast > .icon { flex: none; }
