@@ -334,7 +334,7 @@ pub fn App() -> Element {
             .filter(|f| f.folder.role == Some(pigeon_core::model::FolderRole::Inbox))
             .map(|f| f.unread)
             .sum();
-        crate::dock::set_badge(unread);
+        crate::dock::set_badge(if crate::prefs::get().dock_badge { unread } else { 0 });
         crate::menubar::set_unread(unread);
     });
 

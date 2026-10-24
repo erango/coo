@@ -355,6 +355,23 @@ pub fn Notifications() -> Element {
                 }
             }
             label { class: "settings-field",
+                span { class: "settings-field__label", "Dock badge" }
+                input { class: "switch", r#type: "checkbox", checked: cur.dock_badge,
+                    onchange: move |_| {
+                        set(|p| p.dock_badge = !p.dock_badge);
+                        let unread: u32 = s
+                            .accounts
+                            .peek()
+                            .iter()
+                            .flat_map(|a| a.folders.iter())
+                            .filter(|f| f.folder.role == Some(pigeon_core::model::FolderRole::Inbox))
+                            .map(|f| f.unread)
+                            .sum();
+                        crate::dock::set_badge(if prefs::get().dock_badge { unread } else { 0 });
+                    } }
+                span { class: "settings-field__hint", "Show the unread inbox count on Coo's Dock icon." }
+            }
+            label { class: "settings-field",
                 span { class: "settings-field__label", "Events" }
                 input { class: "switch", r#type: "checkbox", checked: cur.notify_events,
                     onchange: move |_| set(|p| p.notify_events = !p.notify_events) }

@@ -241,6 +241,8 @@ mod imp {
     use super::{Action, post};
 
     pub const TITLE: &str = "Coo is still running";
+    /// Width of the hint's text column, in points.
+    const HINT_WIDTH: f64 = 250.0;
     pub const BODY: &str = "Closing the window keeps Coo in the menu bar. To quit instead, change this in Settings.";
 
     define_class!(
@@ -338,7 +340,7 @@ mod imp {
         let body = NSTextField::wrappingLabelWithString(&NSString::from_str(BODY), mtm);
         body.setFont(Some(&NSFont::systemFontOfSize(12.0)));
         body.setTextColor(Some(&NSColor::secondaryLabelColor()));
-        body.setPreferredMaxLayoutWidth(250.0);
+        body.setPreferredMaxLayoutWidth(HINT_WIDTH);
 
         // SAFETY: the target outlives the buttons (kept in HINT with the
         // popover) and implements both selectors.
@@ -378,12 +380,20 @@ mod imp {
         stack.setSpacing(6.0);
         stack.setCustomSpacing_afterView(12.0, &body_v);
         stack.setEdgeInsets(NSEdgeInsets { top: 14.0, left: 16.0, bottom: 14.0, right: 16.0 });
+        // Fixed width: left to itself the popover sized to the title, clipping
+        // the body text and pressing the buttons against its edges.
+        stack.setTranslatesAutoresizingMaskIntoConstraints(false);
+        stack.widthAnchor().constraintEqualToConstant(HINT_WIDTH + 32.0).setActive(true);
+        body_v.widthAnchor().constraintEqualToConstant(HINT_WIDTH).setActive(true);
+        stack.layoutSubtreeIfNeeded();
+        let size = stack.fittingSize();
 
         let vc = NSViewController::new(mtm);
         vc.setView(&stack);
         let popover = NSPopover::new(mtm);
         popover.setBehavior(NSPopoverBehavior::Transient);
         popover.setContentViewController(Some(&vc));
+        popover.setContentSize(size);
         popover.showRelativeToRect_ofView_preferredEdge(anchor.bounds(), &anchor, NSRectEdge::MinY);
         HINT.with(|h| *h.borrow_mut() = Some(Hint { popover, _target: target, stand_in }));
 

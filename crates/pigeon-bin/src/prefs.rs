@@ -27,6 +27,8 @@ pub struct Prefs {
     pub notify_new_mail: bool,
     /// Desktop reminder before events start.
     pub notify_events: bool,
+    /// Unread inbox count on the Dock icon.
+    pub dock_badge: bool,
     /// How long before an event the reminder fires.
     pub event_reminder_minutes: u32,
     /// Account ids that never notify.
@@ -91,6 +93,7 @@ impl Default for Prefs {
             recent_move_targets: Vec::new(),
             notify_new_mail: true,
             notify_events: true,
+            dock_badge: true,
             event_reminder_minutes: 10,
             notify_accounts_muted: Vec::new(),
             remote_images_always: false,

@@ -19,7 +19,11 @@ pub const PAGES: &[(&str, &str, &str)] = &[
     ("Composing", "edit", "undo send later reply new message window docked"),
     ("Signatures", "text", "signature signatures sign-off footer html"),
     ("Calendar", "cal", "week start sunday monday weekend"),
-    ("Notifications", "bell", "sound sounds alert banner reminder meeting focus do not disturb mute volume"),
+    (
+        "Notifications",
+        "bell",
+        "sound sounds alert banner reminder meeting focus do not disturb mute volume dock badge unread count icon",
+    ),
     ("Privacy", "lock", "remote images tracking crash reports sentry photos gravatar"),
     ("Keyboard shortcuts", "dash", "keys shortcut hotkey"),
     ("AI agents", "link", "agent claude mcp assistant"),
