@@ -337,10 +337,18 @@ pub fn App() -> Element {
         crate::menubar::set_unread(unread);
     });
 
-    // Tell the engine what to list whenever the view changes.
+    // Tell the engine what to list whenever the view changes. Moving to
+    // another mailbox closes the message that was open in the last one.
+    let mut last_mailbox = use_signal(|| None::<pigeon_engine::service::Mailbox>);
     use_effect(move || {
         let mailbox = s.mailbox.read().clone();
         let threaded = *s.threaded.read();
+        if last_mailbox.peek().as_ref().is_some_and(|m| *m != mailbox) {
+            let (mut sel, mut reader) = (s.selected, s.reader);
+            sel.set(None);
+            reader.set(None);
+        }
+        last_mailbox.set(Some(mailbox.clone()));
         crate::perf::mark_show_sent();
         send_cmd(Cmd::ShowMailbox { mailbox, threaded });
     });

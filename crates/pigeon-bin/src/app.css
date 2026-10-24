@@ -451,3 +451,16 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .sig-row .segmented { flex: none; }
 .sig-default__head .settings-field__label, .sig-list__head .settings-field__label { width: auto; white-space: nowrap; }
 .sig-row__edit { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-caption); color: var(--accent); }
+
+/* Scrollbars: WebKit's overlay scrollbar ends up under row hover
+   backgrounds (rows are composited for the list animations), so scroll
+   areas draw their own thin scrollbar in a reserved gutter. The thumb only
+   shows while the area is hovered, like the overlay one. */
+.list::-webkit-scrollbar, .reader::-webkit-scrollbar, .settings::-webkit-scrollbar, .settings-nav::-webkit-scrollbar { width: 10px; height: 10px; background: transparent; }
+.list::-webkit-scrollbar-thumb, .reader::-webkit-scrollbar-thumb, .settings::-webkit-scrollbar-thumb, .settings-nav::-webkit-scrollbar-thumb {
+  border: 3px solid transparent; border-radius: 10px; background-clip: padding-box;
+  background-color: color-mix(in oklab, var(--text-3) 55%, transparent);
+}
+.list:not(:hover)::-webkit-scrollbar-thumb, .reader:not(:hover)::-webkit-scrollbar-thumb,
+.settings:not(:hover)::-webkit-scrollbar-thumb, .settings-nav:not(:hover)::-webkit-scrollbar-thumb { background-color: transparent; }
+.list::-webkit-scrollbar-thumb:hover, .reader::-webkit-scrollbar-thumb:hover { background-color: var(--text-3); }
