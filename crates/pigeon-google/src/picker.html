@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Coo · Google Drive</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center;
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    background: #f6f6f7; color: #1d1d1f;
+  }
+  @media (prefers-color-scheme: dark) { body { background: #17181b; color: #ececee; } }
+  main { max-width: 420px; padding: 24px; text-align: center; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 6px; }
+  p { margin: 0; opacity: .72; }
+  button {
+    margin-top: 16px; padding: 7px 16px; border: 0; border-radius: 8px; font: inherit; font-weight: 600;
+    background: #2f6fed; color: #fff; cursor: pointer;
+  }
+  [hidden] { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="title">Opening Google Drive…</h1>
+  <p id="text">Pick the files to add to your message in Coo.</p>
+  <button id="again" type="button" hidden>Choose files</button>
+</main>
+<script>
+  // Filled in by Coo when it serves this page (never put in a URL).
+  const COO = /*COO_CONFIG*/null;
+  const base = location.pathname.endsWith('/') ? location.pathname : location.pathname + '/';
+  const $ = (id) => document.getElementById(id);
+  let finished = false;
+
+  function show(title, text, retry) {
+    $('title').textContent = title;
+    $('text').textContent = text;
+    $('again').hidden = !retry;
+  }
+
+  async function report(what, body) {
+    finished = true;
+    try {
+      await fetch(base + what, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {}),
+      });
+      show(what === 'picked' ? 'Done' : 'Cancelled', 'You can close this tab and go back to Coo.', false);
+    } catch (_) {
+      show('Coo stopped waiting', 'Go back to Coo and choose From Google Drive… again.', false);
+    }
+  }
+
+  function picked(data) {
+    const A = google.picker.Action;
+    if (data.action === A.PICKED) {
+      const D = google.picker.Document;
+      const docs = (data.docs || []).map((d) => ({
+        id: d[D.ID] || d.id,
+        name: d[D.NAME] || d.name || 'Untitled',
+        mimeType: d[D.MIME_TYPE] || d.mimeType || 'application/octet-stream',
+        sizeBytes: d.sizeBytes ?? null,
+        url: d[D.URL] || d.url || null,
+      }));
+      report('picked', { docs });
+    } else if (data.action === A.CANCEL) {
+      report('cancel');
+    }
+  }
+
+  function open() {
+    show('Google Drive', 'Pick the files to add to your message in Coo.', false);
+    const files = new google.picker.DocsView(google.picker.ViewId.DOCS)
+      .setIncludeFolders(true)
+      .setSelectFolderEnabled(false)
+      .setMode(google.picker.DocsViewMode.LIST);
+    const shared = new google.picker.DocsView(google.picker.ViewId.DOCS)
+      .setEnableDrives(true)
+      .setIncludeFolders(true)
+      .setSelectFolderEnabled(false);
+    new google.picker.PickerBuilder()
+      .addView(files)
+      .addView(shared)
+      .enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
+      .enableFeature(google.picker.Feature.SUPPORT_DRIVES)
+      .setOAuthToken(COO.token)
+      .setDeveloperKey(COO.key)
+      .setAppId(COO.appId)
+      .setOrigin(window.location.origin)
+      .setTitle('Add to your message in Coo')
+      .setCallback(picked)
+      .build()
+      .setVisible(true);
+  }
+
+  $('again').addEventListener('click', open);
+
+  window.cooLoaded = () => {
+    gapi.load('picker', {
+      callback: open,
+      onerror: () => show('Google Drive didn’t load', 'Check your connection and try again.', true),
+    });
+  };
+
+  // Closing the tab without picking counts as cancelling.
+  addEventListener('pagehide', () => {
+    if (!finished) navigator.sendBeacon(base + 'cancel', '{}');
+  });
+</script>
+<script src="https://apis.google.com/js/api.js" onload="cooLoaded()" onerror="show('Google Drive didn’t load', 'Check your connection, then go back to Coo and try again.', false)" async defer></script>
+</body>
+</html>

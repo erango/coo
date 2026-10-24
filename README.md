@@ -44,6 +44,13 @@ You need your own OAuth client registrations.
 3. Credentials → OAuth client ID → *Desktop app*.
 4. `export PIGEON_GOOGLE_CLIENT_ID=... PIGEON_GOOGLE_CLIENT_SECRET=...`
    (a desktop client's "secret" is not confidential; Google still requires it).
+5. Optional, attaching from Google Drive: enable the *Google Drive API* and
+   the *Google Picker API*, add the `.../auth/drive.file` scope on the OAuth
+   consent screen's Data Access page, create an API key restricted to the
+   Google Picker API, and `export PIGEON_GOOGLE_API_KEY=...`. Without the key
+   the composer's "From Google Drive…" is unavailable. The picker runs in
+   your browser; Coo only ever sees the files you pick. Accounts that signed
+   in before this are asked once to allow Drive access.
 
 Then:
 
@@ -87,7 +94,8 @@ Check for Updates…).
 Secrets (repo settings): `MACOS_CERT_P12` + `MACOS_CERT_PASSWORD` (Developer
 ID .p12), `MACOS_SIGN_IDENTITY`, `APPLE_API_KEY_ID` / `APPLE_API_ISSUER_ID` /
 `APPLE_API_KEY_P8` (notarization), `PIGEON_PROVISION_PROFILE_B64`,
-`SPARKLE_ED_PRIVATE_KEY`, plus the OAuth ids and `PIGEON_SENTRY_DSN` that get
+`SPARKLE_ED_PRIVATE_KEY`, plus the OAuth ids, `PIGEON_GOOGLE_API_KEY` (Drive
+picker) and `PIGEON_SENTRY_DSN` that get
 compiled in. Without the signing secrets the build is ad-hoc signed; without
 `SPARKLE_ED_PRIVATE_KEY` no appcast is published and installs won't see the
 release. The Sparkle key's original copy is in the release manager's login

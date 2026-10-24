@@ -37,6 +37,8 @@ const GOOGLE_SCOPES: &[&str] = &[
     "profile",
     "https://www.googleapis.com/auth/gmail.modify",
     "https://www.googleapis.com/auth/calendar",
+    // Only the files the user picks in the Google Drive picker.
+    crate::drive::DRIVE_FILE_SCOPE,
 ];
 
 /// Zoom's OAuth app: PKCE public client (no secret). Zoom only accepts a
@@ -77,6 +79,9 @@ pub struct OAuthApp {
     /// 0 = any free port (providers that match loopback on any port).
     redirect_port: u16,
     redirect_path: &'static str,
+    /// Pre-fills the account (`login_hint`), for adding scopes to an
+    /// account that's already signed in.
+    login_hint: Option<String>,
 }
 
 impl OAuthApp {
@@ -93,6 +98,7 @@ impl OAuthApp {
             redirect_host: "localhost",
             redirect_port: 0,
             redirect_path: "",
+            login_hint: None,
         }
     }
 
@@ -109,6 +115,18 @@ impl OAuthApp {
             redirect_host: "127.0.0.1",
             redirect_port: 0,
             redirect_path: "",
+            login_hint: None,
+        }
+    }
+
+    /// Google incremental consent for an account that's already signed in:
+    /// the same app and scopes (now including Drive), pinned to `email`,
+    /// keeping what was granted before.
+    pub fn google_add_scopes(self, email: &str) -> Self {
+        OAuthApp {
+            extra_auth_params: &[("access_type", "offline"), ("prompt", "consent"), ("include_granted_scopes", "true")],
+            login_hint: Some(email.to_string()),
+            ..self
         }
     }
 
@@ -125,6 +143,7 @@ impl OAuthApp {
             redirect_host: "127.0.0.1",
             redirect_port: ZOOM_REDIRECT_PORT,
             redirect_path: ZOOM_REDIRECT_PATH,
+            login_hint: None,
         }
     }
 
@@ -160,6 +179,9 @@ impl OAuthApp {
             params.push(("scope", &scope));
         }
         params.extend(self.extra_auth_params.iter().copied());
+        if let Some(hint) = &self.login_hint {
+            params.push(("login_hint", hint));
+        }
         Url::parse_with_params(self.auth_url, &params).map_err(|e| Error::Other(e.to_string()))
     }
 
@@ -197,6 +219,9 @@ pub struct TokenResponse {
     pub expires_in: Option<u64>,
     #[serde(default)]
     pub refresh_token: Option<String>,
+    /// The scopes granted (space-separated), when the provider says.
+    #[serde(default)]
+    pub scope: Option<String>,
 }
 
 impl TokenResponse {
@@ -483,6 +508,15 @@ pub async fn zoom_revoke(client_id: &str, token: &str) -> Result<()> {
     }
 }
 
+/// The Google API key for the Drive picker (runtime env, else baked in).
+/// Without it the "From Google Drive" option is unavailable.
+pub fn google_api_key() -> Option<String> {
+    std::env::var("PIGEON_GOOGLE_API_KEY")
+        .ok()
+        .or(option_env!("PIGEON_GOOGLE_API_KEY").map(String::from))
+        .filter(|v| !v.is_empty())
+}
+
 /// The Microsoft client id in effect (runtime env, else baked in).
 pub fn microsoft_client_id() -> Option<String> {
     std::env::var("PIGEON_MS_CLIENT_ID")
@@ -562,12 +596,33 @@ mod tests {
     }
 
     #[test]
+    fn google_scopes_include_drive_file_and_incremental_consent_pins_the_account() {
+        let app = OAuthApp::google("cid", "secret");
+        let url = app.authorize_url("http://127.0.0.1:5000", "st", "ch").unwrap();
+        let q: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
+        assert!(q["scope"].split(' ').any(|s| s == crate::drive::DRIVE_FILE_SCOPE), "{}", q["scope"]);
+        assert!(!q.contains_key("login_hint") && !q.contains_key("include_granted_scopes"));
+        assert_eq!(q["prompt"], "consent select_account");
+
+        let more = OAuthApp::google("cid", "secret").google_add_scopes("me@x.io");
+        let url = more.authorize_url("http://127.0.0.1:5000", "st", "ch").unwrap();
+        let q: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
+        assert_eq!(q["login_hint"], "me@x.io");
+        assert_eq!(q["include_granted_scopes"], "true");
+        assert_eq!(q["prompt"], "consent");
+        assert_eq!(q["access_type"], "offline");
+        assert!(q["scope"].contains("gmail.modify") && q["scope"].contains("drive.file"));
+        assert_eq!(more.client_secret.as_deref(), Some("secret"));
+    }
+
+    #[test]
     fn zoom_token_response_parses() {
         let t: TokenResponse = serde_json::from_str(
             r#"{"access_token":"at","token_type":"bearer","refresh_token":"rt","expires_in":3599,"scope":"meeting:write:meeting user:read:user"}"#,
         )
         .unwrap();
         assert_eq!((t.access_token.as_str(), t.refresh_token.as_deref(), t.expires_in), ("at", Some("rt"), Some(3599)));
+        assert_eq!(t.scope.as_deref(), Some("meeting:write:meeting user:read:user"));
     }
 
     #[test]

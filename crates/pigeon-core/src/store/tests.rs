@@ -1,6 +1,17 @@
 use super::*;
 use crate::now_ms;
 
+#[test]
+fn account_scopes_are_recorded_and_go_with_the_account() {
+    let (s, _ms, g) = setup();
+    assert_eq!(s.account_scopes(&g.id).unwrap(), None, "unknown until recorded");
+    s.set_account_scopes(&g.id, "openid email").unwrap();
+    s.set_account_scopes(&g.id, "openid https://www.googleapis.com/auth/drive.file").unwrap();
+    assert_eq!(s.account_scopes(&g.id).unwrap().as_deref(), Some("openid https://www.googleapis.com/auth/drive.file"));
+    s.delete_account(&g.id).unwrap();
+    assert_eq!(s.account_scopes(&g.id).unwrap(), None);
+}
+
 fn account(provider: ProviderKind, email: &str) -> Account {
     Account { id: Account::make_id(provider, email), provider, email: email.into(), display_name: email.into() }
 }

@@ -152,6 +152,23 @@ pub enum Cmd {
     /// Connect a Zoom account in the browser (for Zoom calls on events).
     ZoomConnect,
     ZoomDisconnect,
+    /// Give a Google account Drive access (browser consent for the
+    /// `drive.file` scope: only files the user picks).
+    ConnectDrive {
+        account_id: String,
+    },
+    /// Open the Google Drive picker in the browser for a draft, connecting
+    /// Drive first if the account needs it. Answered with
+    /// `Delta::DrivePicked`.
+    DrivePick {
+        draft_id: String,
+        account_id: String,
+    },
+    /// "Anyone with the link can view" for Drive files linked in a message.
+    DriveShare {
+        account_id: String,
+        file_ids: Vec<String>,
+    },
     /// iCloud-style sign-in with an app-specific password.
     LoginPassword {
         provider: ProviderKind,
@@ -357,6 +374,13 @@ pub enum Delta {
         error: String,
     },
     AttachmentReady(std::path::PathBuf),
+    /// Files picked from Google Drive for a draft; empty when the picker
+    /// was cancelled or failed (the UI stops waiting either way).
+    DrivePicked {
+        draft_id: String,
+        account_id: String,
+        files: Vec<pigeon_core::drive::DriveFile>,
+    },
     SearchResults {
         token: u64,
         items: Vec<MessageRow>,
@@ -861,6 +885,28 @@ impl Service {
                 self.toast("Zoom disconnected. Meetings you already created keep working.", false, None);
                 self.send(Delta::Zoom(None));
             }
+            Cmd::ConnectDrive { account_id } => match self.connect_drive(&account_id).await {
+                Ok(()) => self.toast("Google Drive connected", false, None),
+                Err(e) => self.toast(e.to_string(), true, None),
+            },
+            Cmd::DrivePick { draft_id, account_id } => {
+                let files = match self.drive_pick(&account_id).await {
+                    Ok(files) => files,
+                    Err(e) => {
+                        // Not `fail`: messages can name the account.
+                        tracing::warn!(error = %e, "Google Drive pick failed");
+                        self.toast(e.to_string(), true, None);
+                        Vec::new()
+                    }
+                };
+                self.send(Delta::DrivePicked { draft_id, account_id, files });
+            }
+            Cmd::DriveShare { account_id, file_ids } => {
+                if let Err(e) = self.app.drive_share(&account_id, &file_ids).await {
+                    tracing::warn!(error = %e, "could not share Drive files");
+                    self.toast(format!("Couldn't let anyone with the link view: {e}"), true, None);
+                }
+            }
             Cmd::LoginPassword { provider, email, password } => {
                 let account = self.app.login_password(provider, &email, &password.0).await?;
                 self.toast(format!("Signed in as {}", account.email), false, None);
@@ -1044,6 +1090,28 @@ impl Service {
             }
         }
         Ok(())
+    }
+
+    /// Browser consent for Drive on an existing Google account.
+    async fn connect_drive(&self, account_id: &str) -> Result<()> {
+        self.app.connect_drive(account_id, |url| tracing::debug!(url, "Drive consent URL")).await
+    }
+
+    /// Connect Drive if needed, then run the picker. Empty when cancelled.
+    async fn drive_pick(&self, account_id: &str) -> Result<Vec<pigeon_core::drive::DriveFile>> {
+        if !crate::drive::drive_available() {
+            return Err(Error::Other(crate::drive::NOT_IN_BUILD.into()));
+        }
+        if !self.app.drive_ready(account_id).await? {
+            self.toast("Coo needs permission to open the Drive files you pick. Continue in your browser.", false, None);
+            self.connect_drive(account_id).await?;
+        }
+        let picked = self.app.drive_pick(account_id, |url| tracing::debug!(url, "Drive picker URL")).await;
+        match picked {
+            Ok(pigeon_google::picker::PickOutcome::Picked(files)) => Ok(files),
+            Ok(pigeon_google::picker::PickOutcome::Cancelled) => Ok(Vec::new()),
+            Err(e) => Err(e),
+        }
     }
 
     /// Send a saved draft now; reports Sent / SendFailed.

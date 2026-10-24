@@ -1,12 +1,14 @@
 //! Google backend: Gmail API (labels + `history.list` incremental sync) and
-//! Calendar API v3.
+//! Calendar API v3, plus Drive (files the user picks to attach).
 
 mod actions;
 mod body;
 mod calendar;
 mod calendar_write;
 mod drafts;
+pub mod drive;
 mod gmail;
+pub mod picker;
 mod send;
 
 use std::sync::Arc;

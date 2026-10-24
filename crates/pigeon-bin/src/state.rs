@@ -97,6 +97,17 @@ pub struct Outgoing {
     pub state: OutState,
 }
 
+/// Files just picked from Google Drive for a draft, waiting for the user
+/// to choose attach or link per file.
+#[derive(Clone, PartialEq, Debug)]
+pub struct DrivePicked {
+    /// Fresh per pick, so a new pick resets the sheet's choices.
+    pub token: u64,
+    pub draft_id: String,
+    pub account_id: String,
+    pub files: Vec<pigeon_core::drive::DriveFile>,
+}
+
 #[derive(Clone, Copy)]
 pub struct AppState {
     pub move_picker: Signal<Option<MovePicker>>,
@@ -160,6 +171,10 @@ pub struct AppState {
     pub sender_card: Signal<Option<crate::ui::sender_card::CardState>>,
     pub draft: Signal<Option<Draft>>,
     pub sending: Signal<bool>,
+    /// Draft id whose Google Drive picker is open in the browser.
+    pub drive_waiting: Signal<Option<String>>,
+    /// Drive files picked for a draft, until added (or dismissed).
+    pub drive_picked: Signal<Option<DrivePicked>>,
     /// Problem shown in the main window's composer (e.g. no recipients).
     pub compose_notice: Signal<Option<String>>,
     /// The docked draft is set aside behind the reader's "Draft:" chip.
@@ -233,6 +248,8 @@ impl AppState {
             photos: Signal::new(HashMap::new()),
             draft: Signal::new(None),
             sending: Signal::new(false),
+            drive_waiting: Signal::new(None),
+            drive_picked: Signal::new(None),
             compose_notice: Signal::new(None),
             docked_hidden: Signal::new(false),
             mode: Signal::new(Mode::Mail),
@@ -579,6 +596,14 @@ fn apply(s: &mut AppState, delta: Delta) {
                 }
             }
             Delta::FreeBusy { token, result } => s.free_busy.set((token, result)),
+            Delta::DrivePicked { draft_id, account_id, files } => {
+                if s.drive_waiting.peek().as_deref() == Some(draft_id.as_str()) {
+                    s.drive_waiting.set(None);
+                }
+                if !files.is_empty() {
+                    s.drive_picked.set(Some(DrivePicked { token: next_token(), draft_id, account_id, files }));
+                }
+            }
             Delta::AttachmentReady(path) => {
                 if let Err(e) = open::that_detached(&path) {
                     tracing::warn!(error = %e, ?path, "could not open attachment");

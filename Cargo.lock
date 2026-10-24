@@ -4240,10 +4240,12 @@ dependencies = [
  "chrono",
  "encoding_rs",
  "futures",
+ "open",
  "pigeon-core",
  "reqwest",
  "serde",
  "serde_json",
+ "tokio",
  "tracing",
  "url",
 ]
