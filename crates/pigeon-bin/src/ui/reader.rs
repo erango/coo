@@ -76,7 +76,9 @@ fn ThreadReader() -> Element {
 #[component]
 fn Thread(view: ReaderView) -> Element {
     let s = use_context::<AppState>();
-    let mut expanded = use_signal(|| HashSet::from([view.focus.clone()]));
+    // The newest message is always open, plus the one the user picked.
+    let latest_id = latest_message_id(&view.messages).unwrap_or_default();
+    let mut expanded = use_signal(|| HashSet::from([view.focus.clone(), latest_id.clone()]));
     let hue = s.hue(&view.account_id);
     let account_email = s
         .accounts
@@ -118,9 +120,9 @@ fn Thread(view: ReaderView) -> Element {
             h2 { class: "thread-subject", dir: "auto", "{subject}" }
             div { class: "thread-meta",
                 span { class: "tag", "data-hue": "{hue}", span { class: "dot dot--sm" } "{account_email}" }
-                span { class: "thread-meta__people", dir: "auto",
-                    "{people.join(\", \")}"
-                    if count > 1 { " · {count} messages" }
+                // A single message is just a message: no conversation summary.
+                if count > 1 {
+                    span { class: "thread-meta__people", dir: "auto", "{people.join(\", \")} · {count} messages" }
                 }
                 span { class: "spacer" }
                 if matches > 0 {
@@ -147,7 +149,7 @@ fn Thread(view: ReaderView) -> Element {
             }
             div { class: "thread",
                 for m in ordered.iter() {
-                    if expanded.read().contains(&m.id) {
+                    if count == 1 || expanded.read().contains(&m.id) {
                         Message { key: "{m.id}", account_id: view.account_id.clone(), header: m.clone() }
                     } else {
                         {
@@ -295,6 +297,11 @@ fn Recipients(
 /// Highlight terms while the message was opened from search.
 fn search_terms(s: &AppState) -> Vec<String> {
     s.search.read().as_ref().map(|st| mailframe::match_terms(&st.query)).unwrap_or_default()
+}
+
+/// The most recently received message (ties: the later one in thread order).
+pub fn latest_message_id(messages: &[MessageHeader]) -> Option<String> {
+    messages.iter().enumerate().max_by_key(|(i, m)| (m.received_at, *i)).map(|(_, m)| m.id.clone())
 }
 
 /// Matches in the expanded messages' loaded bodies.
@@ -453,5 +460,21 @@ fn Body(account_id: String, message_id: String, sender: String, body: StoredBody
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod thread_tests {
+    use super::*;
+
+    fn h(id: &str, at: i64) -> MessageHeader {
+        MessageHeader { id: id.into(), received_at: at, ..Default::default() }
+    }
+
+    #[test]
+    fn latest_is_by_time_not_position() {
+        assert_eq!(latest_message_id(&[h("a", 3), h("b", 1), h("c", 2)]).as_deref(), Some("a"));
+        assert_eq!(latest_message_id(&[h("a", 1), h("b", 1)]).as_deref(), Some("b"));
+        assert_eq!(latest_message_id(&[]), None);
     }
 }
