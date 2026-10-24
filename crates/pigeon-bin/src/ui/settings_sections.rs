@@ -211,7 +211,28 @@ pub fn Notifications() -> Element {
                 span { class: "settings-field__label", "New mail" }
                 input { class: "switch", r#type: "checkbox", checked: cur.notify_new_mail,
                     onchange: move |_| set(|p| p.notify_new_mail = !p.notify_new_mail) }
-                span { class: "settings-field__hint", "A banner for new inbox mail while Coo isn't in front." }
+                span { class: "settings-field__hint", "Alerts for new inbox mail." }
+            }
+            div { class: "settings-field",
+                span { class: "settings-field__label", "Show" }
+                div { class: "segmented", role: "radiogroup", "aria-label": "New mail alert",
+                    for (v, label) in [("banner", "Banner and sound"), ("background", "Banner when Coo is in the background"), ("sound", "Sound only")] {
+                        button { role: "radio", key: "{v}", disabled: !cur.notify_new_mail,
+                            "aria-checked": "{cur.mail_alert == v}", "aria-selected": "{cur.mail_alert == v}",
+                            onclick: move |_| { prefs::update(move |x| x.mail_alert = v.to_string()); p.set(prefs::get()); },
+                            "{label}"
+                        }
+                    }
+                }
+            }
+            if crate::notify::permission() == crate::notify::Permission::Denied {
+                div { class: "banner banner--warning", style: "margin:4px 0 8px",
+                    Icon { name: "alert", class: "icon--sm" }
+                    span { "macOS is blocking Coo's notifications, so banners can't appear." }
+                    button { class: "btn btn--secondary btn--sm", r#type: "button",
+                        onclick: move |_| { let _ = open::that_detached(crate::notify::SETTINGS_URL); },
+                        "Open Notification Settings" }
+                }
             }
             label { class: "settings-field",
                 span { class: "settings-field__label", "Events" }

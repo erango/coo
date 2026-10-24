@@ -189,6 +189,48 @@ pub fn init() {
     mac::init();
 }
 
+/// Coo is the frontmost, active app (AppKit's view, not the web page's focus,
+/// which goes stale when the window hides into the menu bar).
+pub fn app_is_active() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        objc2::MainThreadMarker::new()
+            .is_some_and(|mtm| objc2_app_kit::NSApplication::sharedApplication(mtm).isActive())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
+/// Whether macOS lets Coo show notifications (refreshed in the background).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Permission {
+    Unknown,
+    Allowed,
+    Denied,
+}
+
+pub fn permission() -> Permission {
+    #[cfg(target_os = "macos")]
+    {
+        mac::refresh_permission();
+        match mac::PERMISSION.load(std::sync::atomic::Ordering::Relaxed) {
+            1 => Permission::Allowed,
+            2 => Permission::Denied,
+            _ => Permission::Unknown,
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Permission::Unknown
+    }
+}
+
+/// System Settings › Notifications › Coo.
+pub const SETTINGS_URL: &str =
+    "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=il.co.frost-media.pigeon";
+
 pub fn post(note: &Note) {
     use std::sync::atomic::{AtomicU64, Ordering};
     static NONCE: AtomicU64 = AtomicU64::new(1);
@@ -225,8 +267,8 @@ mod mac {
         unsafe impl NSObjectProtocol for Delegate {}
 
         unsafe impl UNUserNotificationCenterDelegate for Delegate {
-            // Show banners even while Coo is frontmost (we only post when
-            // the window isn't focused, but reminders can still matter).
+            // Show banners even while Coo is frontmost (Settings decides
+            // whether to post at all).
             #[unsafe(method(userNotificationCenter:willPresentNotification:withCompletionHandler:))]
             fn will_present(
                 &self,
@@ -263,6 +305,28 @@ mod mac {
     }
 
     static BUNDLED: AtomicBool = AtomicBool::new(false);
+    /// 0 unknown, 1 allowed, 2 denied.
+    pub static PERMISSION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+    pub fn refresh_permission() {
+        if !BUNDLED.load(Ordering::Relaxed) {
+            return;
+        }
+        let done = RcBlock::new(|settings: std::ptr::NonNull<objc2_user_notifications::UNNotificationSettings>| {
+            // SAFETY: the system passes a valid settings object.
+            let status = unsafe { settings.as_ref() }.authorizationStatus();
+            use objc2_user_notifications::UNAuthorizationStatus as S;
+            let v = if status == S::Denied {
+                2
+            } else if status == S::NotDetermined {
+                0
+            } else {
+                1
+            };
+            PERMISSION.store(v, Ordering::Relaxed);
+        });
+        UNUserNotificationCenter::currentNotificationCenter().getNotificationSettingsWithCompletionHandler(&done);
+    }
     static ASKED: AtomicBool = AtomicBool::new(false);
 
     /// UNUserNotificationCenter throws for processes without a bundle id.
