@@ -488,3 +488,14 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .toast__msg { line-height: 1.35; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 .toast > .btn, .toast > .icon { flex: none; }
 .toast--reminder { min-height: 52px; }
+
+/* Reading pane with nothing open (reader.rs ReaderEmpty): the list's
+   empty-state bird, awake, peeking toward the list now and then. */
+.reader-empty { gap: 18px; }
+.perch--awake { height: 112px; }
+.perch--awake::after { top: 88px; }
+.perch--awake > svg { top: 18px; transform-origin: 50% 90%; animation: pg-peek 6s var(--ease-standard) infinite; }
+@keyframes pg-peek { 0%, 70%, 100% { transform: none; } 78%, 92% { transform: translateX(-3px) rotate(-3deg); } }
+.reader-empty__keys { display: flex; gap: 18px; margin-top: 6px; color: var(--text-3); font-size: 12.5px; }
+.reader-empty__keys > span { display: inline-flex; align-items: center; gap: 6px; }
+@media (prefers-reduced-motion: reduce) { .perch--awake > svg { animation: none; } }

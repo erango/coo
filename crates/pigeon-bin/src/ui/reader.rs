@@ -32,6 +32,44 @@ pub fn Reader() -> Element {
     rsx! { ThreadReader {} }
 }
 
+/// Nothing open. With mail in the list, the app's bird waits on its perch,
+/// looking toward the list; with an empty list the list's own (sleeping) bird
+/// is the only one and this pane stays blank.
+#[component]
+fn ReaderEmpty() -> Element {
+    let s = use_context::<AppState>();
+    let items = s.visible_items();
+    if items.is_empty() {
+        return rsx! { div { class: "pane-empty" } };
+    }
+    let unread = items
+        .iter()
+        .filter(|i| match i {
+            pigeon_engine::service::ListItem::Thread(t) => t.unread_count > 0,
+            pigeon_engine::service::ListItem::Message(m) => !m.header.is_read,
+        })
+        .count();
+    let lede = match unread {
+        0 => "Choose one on the left, or start at the top.".to_string(),
+        1 => "1 unread here. Choose one on the left, or start at the top.".to_string(),
+        n => format!("{n} unread here. Choose one on the left, or start at the top."),
+    };
+    rsx! {
+        div { class: "empty-state reader-empty",
+            div { class: "perch perch--awake",
+                svg { view_box: "4 4 60 56", "aria-hidden": "true", dangerous_inner_html: super::list::AWAKE_BIRD }
+            }
+            div { class: "empty-state__title", "Pick a conversation" }
+            div { class: "empty-state__body", "{lede}" }
+            div { class: "reader-empty__keys",
+                span { kbd { class: "kbd", "J" } kbd { class: "kbd", "K" } "Move" }
+                span { kbd { class: "kbd", "C" } "New message" }
+                span { kbd { class: "kbd", "⌘K" } "Commands" }
+            }
+        }
+    }
+}
+
 #[component]
 fn ThreadReader() -> Element {
     let s = use_context::<AppState>();
@@ -40,7 +78,7 @@ fn ThreadReader() -> Element {
         return rsx! {
             main { class: "pane pane--reader",
                 div { class: "reader-toolbar", super::compose::DockedDraftChip {} }
-                div { class: "pane-empty", "No conversation selected" }
+                ReaderEmpty {}
             }
         };
     };
