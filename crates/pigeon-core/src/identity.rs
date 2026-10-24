@@ -26,6 +26,9 @@ pub struct Auth {
     pub spf: Option<String>,
     pub dkim: Option<String>,
     pub dmarc: Option<String>,
+    /// The From domain DMARC was evaluated against (`header.from=`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dmarc_from: Option<String>,
 }
 
 impl Auth {
@@ -56,6 +59,12 @@ pub fn parse_auth_results(value: &str) -> Auth {
         };
         if slot.is_none() {
             *slot = Some(verdict);
+            if method.trim().eq_ignore_ascii_case("dmarc") {
+                a.dmarc_from = rest
+                    .split_whitespace()
+                    .find_map(|t| t.strip_prefix("header.from="))
+                    .map(|d| d.trim_end_matches(')').to_ascii_lowercase());
+            }
         }
     }
     a
@@ -198,6 +207,22 @@ pub fn warnings(from: &Address, origin: Option<&Origin>, seen: Option<u32>) -> V
     w
 }
 
+/// Whether the sender can be shown as verified: the receiving server checked
+/// SPF, DKIM and DMARC and they all passed (DMARC pass means the From domain
+/// itself is authenticated), DMARC looked at this very From domain, and
+/// nothing else about the sender looks off. This proves the mail came from
+/// the domain shown, not who owns that domain.
+pub fn is_verified(from: &Address, origin: Option<&Origin>, warnings: &[Warning]) -> bool {
+    let Some(a) = origin.and_then(|o| o.auth.as_ref()) else { return false };
+    let pass = |v: &Option<String>| v.as_deref() == Some("pass");
+    let aligned = a.dmarc_from.as_deref().is_none_or(|d| d == domain_of(&from.email));
+    pass(&a.spf)
+        && pass(&a.dkim)
+        && pass(&a.dmarc)
+        && aligned
+        && warnings.iter().all(|w| matches!(w, Warning::FirstTime))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -216,6 +241,23 @@ mod tests {
         assert_eq!(r.dmarc.as_deref(), Some("fail"));
         assert!(r.any_failed());
         assert!(!parse_auth_results("mx; dkim=pass; spf=pass; dmarc=pass").any_failed());
+        assert_eq!(r.dmarc_from.as_deref(), Some("x.io"));
+    }
+
+    #[test]
+    fn verified_only_when_everything_passes() {
+        let from = a(Some("Shop"), "news@mail.shop.com");
+        let origin = |v: &str| Origin { auth: Some(parse_auth_results(v)), ..Default::default() };
+        let all = origin("mx; dkim=pass header.i=@shop.com; spf=pass; dmarc=pass (p=REJECT) header.from=mail.shop.com");
+        assert!(is_verified(&from, Some(&all), &[]));
+        assert!(is_verified(&from, Some(&all), &[Warning::FirstTime]), "new senders can still be verified");
+        assert!(!is_verified(&from, Some(&all), &[Warning::BrandMismatch("paypal")]));
+        let softfail = origin("mx; dkim=pass; spf=softfail; dmarc=pass header.from=mail.shop.com");
+        assert!(!is_verified(&from, Some(&softfail), &[]));
+        let other = origin("mx; dkim=pass; spf=pass; dmarc=pass header.from=evil.io");
+        assert!(!is_verified(&from, Some(&other), &[]), "DMARC must be about this From domain");
+        assert!(!is_verified(&from, Some(&origin("mx; dkim=pass; spf=pass")), &[]), "no DMARC, no badge");
+        assert!(!is_verified(&from, None, &[]));
     }
 
     #[test]

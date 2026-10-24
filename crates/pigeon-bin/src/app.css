@@ -344,7 +344,19 @@ input, textarea, [contenteditable="true"] { cursor: text; }
 .sender-card__head { display: flex; align-items: center; gap: 12px; padding: 16px 16px 14px; }
 .sender-card__who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .sender-card__name { font-size: 15px; font-weight: var(--fw-semibold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sender-card__addr { font: var(--fs-caption)/18px var(--font-mono); color: var(--text-2); overflow-wrap: anywhere; user-select: text; }
+/* One line: a long local part shortens with an ellipsis first, the domain
+   (what matters for trust) stays whole unless it alone is too wide. Hover
+   shows the full address. */
+.sender-card__addr { display: flex; min-width: 0; white-space: nowrap; font: var(--fs-caption)/18px var(--font-mono); color: var(--text-2); user-select: text; }
+.sender-card__local { min-width: 3ch; overflow: hidden; text-overflow: ellipsis; }
+.sender-card__addr .sender-card__domain { flex: 0 0 auto; max-width: 85%; overflow: hidden; text-overflow: ellipsis; }
+.sender-card__name-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.sender-card__name-row .sender-card__name { min-width: 0; }
+.verified-badge {
+  flex: none; display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--success); color: var(--bg-0); cursor: help;
+}
+.verified-badge .icon { width: 10px; height: 10px; stroke-width: 3; }
 .sender-card__domain { color: var(--text-1); font-weight: var(--fw-bold); background: var(--bg-2); border-radius: 4px; padding: 0 3px; }
 .sender-card__domain[data-puny] { background: var(--warning-soft); color: var(--warning); }
 .sender-card__raw { font: 11px var(--font-mono); color: var(--text-3); }

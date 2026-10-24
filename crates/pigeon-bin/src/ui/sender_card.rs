@@ -171,6 +171,11 @@ pub fn SenderCard() -> Element {
     let seen = s.sender_seen.read().get(&(card.account_id.clone(), email.to_lowercase())).copied();
     // Warnings are about the sender; a recipient card only shows the facts.
     let warnings = if card.sender { identity::warnings(&addr, origin.as_ref(), seen) } else { Vec::new() };
+    let verified = card.sender && identity::is_verified(&addr, origin.as_ref(), &warnings);
+    let verified_tip = format!(
+        "Verified sender\nThis message really came from {shown_domain}: SPF, DKIM and DMARC all passed.\n\
+         It confirms the domain, not who's behind it. Check it's the domain you expect."
+    );
     let serious = warnings.iter().any(|w| !matches!(w, Warning::FirstTime));
     let delivered = origin
         .as_ref()
@@ -194,9 +199,16 @@ pub fn SenderCard() -> Element {
             div { class: "sender-card__head",
                 super::avatar::Avatar { email: email.clone(), label: name.clone().unwrap_or_else(|| email.clone()), hue, class: "avatar--40" }
                 div { class: "sender-card__who",
-                    div { class: "sender-card__name", dir: "auto", "{name.clone().unwrap_or_else(|| email.clone())}" }
-                    div { class: "sender-card__addr",
-                        span { "{local}@" }
+                    div { class: "sender-card__name-row",
+                        div { class: "sender-card__name", dir: "auto", "{name.clone().unwrap_or_else(|| email.clone())}" }
+                        if verified {
+                            span { class: "verified-badge", title: "{verified_tip}", "aria-label": "Verified sender",
+                                Icon { name: "check", class: "icon--xs" }
+                            }
+                        }
+                    }
+                    div { class: "sender-card__addr", title: "{email}",
+                        span { class: "sender-card__local", "{local}@" }
                         b { class: "sender-card__domain", "data-puny": puny.then_some("true"), "{shown_domain}" }
                     }
                     if puny { div { class: "sender-card__raw", "{domain}" } }
