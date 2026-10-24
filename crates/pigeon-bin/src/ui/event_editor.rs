@@ -351,7 +351,7 @@ pub fn EventEditor() -> Element {
                                     }
                                 },
                                 for a in accounts.iter() {
-                                    optgroup { label: "{a.account.email}",
+                                    optgroup { label: "{s.account_label(&a.account.id, &a.account.email)}",
                                         for (_, c) in calendars.iter().filter(|(id, c)| id == &a.account.id && c.can_edit) {
                                             option { value: "{a.account.id}|{c.id}", selected: a.account.id == form.account_id && c.id == form.calendar_id, "{c.name}" }
                                         }

@@ -27,6 +27,8 @@ pub struct Prefs {
     pub notify_new_mail: bool,
     /// Desktop reminder before events start.
     pub notify_events: bool,
+    /// Nicknames shown instead of an account's address, by account id.
+    pub account_nicknames: std::collections::BTreeMap<String, String>,
     /// Unread inbox count on the Dock icon.
     pub dock_badge: bool,
     /// How long before an event the reminder fires.
@@ -93,6 +95,7 @@ impl Default for Prefs {
             recent_move_targets: Vec::new(),
             notify_new_mail: true,
             notify_events: true,
+            account_nicknames: Default::default(),
             dock_badge: true,
             event_reminder_minutes: 10,
             notify_accounts_muted: Vec::new(),

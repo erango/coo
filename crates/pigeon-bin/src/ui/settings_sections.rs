@@ -459,7 +459,7 @@ pub fn Notifications() -> Element {
                                             p.set(prefs::get());
                                         }
                                     }
-                                    span { dir: "auto", "{a.account.email}" }
+                                    span { dir: "auto", "{s.account_label(&a.account.id, &a.account.email)}" }
                                 }
                             }
                         }

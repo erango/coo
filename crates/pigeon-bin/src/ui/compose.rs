@@ -411,7 +411,7 @@ fn FromPicker() -> Element {
                         {
                             let mine: Vec<Sender> = senders.iter().filter(|x| x.account_id == a.account.id).cloned().collect();
                             rsx! {
-                                if !mine.is_empty() { div { class: "from-menu__group", "{a.account.email}" } }
+                                if !mine.is_empty() { div { class: "from-menu__group", "{s.account_label(&a.account.id, &a.account.email)}" } }
                                 for sender in mine {
                                     {
                                         let selected = sender == d.from;

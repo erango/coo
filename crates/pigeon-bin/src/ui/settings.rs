@@ -15,7 +15,11 @@ use crate::{prefs, themes};
 pub const PAGES: &[(&str, &str, &str)] = &[
     ("General", "gear", "close window menu bar quit startup archive delete next message after"),
     ("Appearance", "sun", "theme dark light mode color colour text size font zoom"),
-    ("Accounts", "at", "account sign in sign out add microsoft google gmail icloud zoom video calls order"),
+    (
+        "Accounts",
+        "at",
+        "account sign in sign out add microsoft google gmail icloud zoom video calls order nickname name rename",
+    ),
     ("Composing", "edit", "undo send later reply new message window docked"),
     ("Signatures", "text", "signature signatures sign-off footer html"),
     ("Calendar", "cal", "week start sunday monday weekend"),
@@ -248,7 +252,7 @@ fn Accounts() -> Element {
 
     rsx! {
         div { class: "settings__title", style: "margin-top:12px", "Accounts" }
-        div { class: "settings__hint", "Drag accounts in the sidebar to reorder them; this list follows the same order." }
+        div { class: "settings__hint", "Click an account's name to give it a nickname. Drag accounts in the sidebar to reorder them; this list follows the same order." }
         AccountList {}
         div { class: "account-detail__actions", style: "margin-top:4px",
             button { class: "btn btn--secondary", r#type: "button", disabled: *signing_in.read(),
@@ -361,14 +365,19 @@ fn AccountRow(
         ProviderKind::Google => "Google Workspace",
         ProviderKind::ICloud => "iCloud",
     };
-    let name = if a.display_name.is_empty() { a.email.clone() } else { a.display_name.clone() };
-    let (id1, id2) = (a.id.clone(), a.id.clone());
+    let s = use_context::<AppState>();
+    let nickname = s.nicknames.read().get(&a.id).cloned().unwrap_or_default();
+    let (id1, id2, id3) = (a.id.clone(), a.id.clone(), a.id.clone());
     rsx! {
         div { class: "account-row", "data-hue": "{nav.hue}", "aria-selected": "{confirming}",
             span { class: "account-row__grip", Icon { name: "grip", class: "icon--sm" } }
             span { class: "dot" }
             div { class: "account-row__text",
-                span { class: "account-row__name", dir: "auto", "{name}" }
+                input { class: "account-row__nick", r#type: "text", dir: "auto", value: "{nickname}",
+                    placeholder: "Add a nickname", "aria-label": "Nickname for {a.email}", title: "Nickname shown in the sidebar and elsewhere",
+                    spellcheck: "false", maxlength: "40",
+                    onchange: move |e| s.set_nickname(&id3, &e.value()),
+                }
                 span { class: "account-row__addr", "{a.email} · {provider}" }
             }
             span { class: "account-row__status", "data-state": if auth { "auth" } else { "ok" },

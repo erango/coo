@@ -131,7 +131,7 @@ pub fn SearchPane() -> Element {
                             button { class: "chip", r#type: "button", "data-hue": "{a.hue}", "aria-pressed": "{pressed}", key: "{a.account.id}",
                                 onclick: move |_| toggle(s, &op),
                                 span { class: "dot dot--sm" }
-                                "{a.account.email}"
+                                "{s.account_label(&a.account.id, &a.account.email)}"
                             }
                         }
                     }

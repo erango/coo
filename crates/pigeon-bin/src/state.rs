@@ -189,6 +189,8 @@ pub struct AppState {
     pub os_dark: Signal<bool>,
     pub signing_in: Signal<bool>,
     pub collapsed_accounts: Signal<HashSet<String>>,
+    /// Account nicknames (Settings › Accounts), by account id.
+    pub nicknames: Signal<std::collections::BTreeMap<String, String>>,
 }
 
 impl AppState {
@@ -252,6 +254,7 @@ impl AppState {
             os_dark: Signal::new(true),
             signing_in: Signal::new(false),
             collapsed_accounts: Signal::new(HashSet::new()),
+            nicknames: Signal::new(crate::prefs::get().account_nicknames),
         }
     }
 
@@ -278,6 +281,34 @@ impl AppState {
     }
 
     /// Key for a list item, matching `selected`.
+    /// How an account is named in the UI: its nickname, else its address.
+    pub fn account_label(&self, account_id: &str, email: &str) -> String {
+        self.nicknames
+            .read()
+            .get(account_id)
+            .filter(|n| !n.trim().is_empty())
+            .cloned()
+            .unwrap_or_else(|| email.to_string())
+    }
+
+    /// Set (or, when blank, clear) an account's nickname.
+    pub fn set_nickname(&self, account_id: &str, nickname: &str) {
+        let (id, nick) = (account_id.to_string(), nickname.trim().to_string());
+        let mut names = self.nicknames;
+        if nick.is_empty() {
+            names.write().remove(&id);
+        } else {
+            names.write().insert(id.clone(), nick.clone());
+        }
+        crate::prefs::update(move |p| {
+            if nick.is_empty() {
+                p.account_nicknames.remove(&id);
+            } else {
+                p.account_nicknames.insert(id, nick);
+            }
+        });
+    }
+
     pub fn key(item: &ListItem) -> String {
         match item {
             ListItem::Thread(t) => format!("{}|{}", t.account_id, t.thread_id),

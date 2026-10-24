@@ -131,7 +131,7 @@ fn build(s: &AppState, query: &str) -> Vec<Item> {
             let icon = if f.folder.role == Some(FolderRole::Inbox) { "inbox" } else { "folder" };
             let mb = Mailbox::Folder { account_id: a.account.id.clone(), folder_id: f.folder.id.clone() };
             out.push(Item {
-                meta: a.account.email.clone(),
+                meta: s.account_label(&a.account.id, &a.account.email),
                 ..item("Go to", icon, f.folder.name.clone(), "", Action::Go(mb))
             });
         }

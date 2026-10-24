@@ -153,7 +153,7 @@ fn Thread(view: ReaderView) -> Element {
         .read()
         .iter()
         .find(|a| a.account.id == view.account_id)
-        .map(|a| a.account.email.clone())
+        .map(|a| s.account_label(&a.account.id, &a.account.email))
         .unwrap_or_default();
     let subject = view
         .messages

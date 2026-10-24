@@ -766,7 +766,7 @@ pub fn CalendarSidebar() -> Element {
                 {
                     let mine: Vec<_> = calendars.iter().filter(|(id, _)| id == &a.account.id).map(|(_, c)| c.clone()).collect();
                     rsx! {
-                        div { class: "nav-section", key: "{a.account.id}", span { class: "spacer", dir: "auto", "{a.account.email}" } }
+                        div { class: "nav-section", key: "{a.account.id}", span { class: "spacer", dir: "auto", "{s.account_label(&a.account.id, &a.account.email)}" } }
                         for c in mine {
                             label { class: "cal-list__item", "data-hue": "{a.hue}", key: "{c.id}",
                                 input { class: "check check--hue", r#type: "checkbox", checked: true, disabled: true }

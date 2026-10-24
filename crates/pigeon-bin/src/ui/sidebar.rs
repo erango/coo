@@ -210,7 +210,8 @@ fn AccountSection(
     let mut collapsed_set = s.collapsed_accounts;
     let id = nav.account.id.clone();
     let collapsed = collapsed_set.read().contains(&id);
-    let name = nav.account.email.clone();
+    let name = s.account_label(&nav.account.id, &nav.account.email);
+    let address = nav.account.email.clone();
     let meta = match nav.account.provider {
         ProviderKind::Microsoft => "Microsoft 365",
         ProviderKind::Google => {
@@ -222,7 +223,7 @@ fn AccountSection(
         }
         ProviderKind::ICloud => "iCloud",
     };
-    let letter = format::initials(&nav.account.email).chars().next().unwrap_or('?');
+    let letter = format::initials(&name).chars().next().unwrap_or('?');
     let current = mailbox.read().clone();
     // Settings replaces the mail view: no mailbox reads as current then.
     let settings_open = *s.settings_open.read();
@@ -246,7 +247,7 @@ fn AccountSection(
                 if !set.remove(&toggle_id) { set.insert(toggle_id.clone()); }
             },
             if many { span { class: "pip", "{letter}" } } else { span { class: "dot" } }
-            span { dir: "auto", style: "overflow:hidden;text-overflow:ellipsis;white-space:nowrap", "{name}" }
+            span { dir: "auto", style: "overflow:hidden;text-overflow:ellipsis;white-space:nowrap", title: "{address}", "{name}" }
             span { class: "nav-section__meta", title: "{meta}", dangerous_inner_html: provider_mark(nav.account.provider, meta) }
             if draggable { Icon { name: "grip", class: "icon--xs nav-section__grip" } }
         }

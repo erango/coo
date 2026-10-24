@@ -52,7 +52,7 @@ fn title(s: &AppState, mb: &Mailbox) -> (String, String) {
                 .and_then(|a| a.folders.iter().find(|f| &f.folder.id == folder_id))
                 .map(|f| f.folder.name.clone())
                 .unwrap_or_default();
-            (name, acct.map(|a| a.account.email.clone()).unwrap_or_default())
+            (name, acct.map(|a| s.account_label(&a.account.id, &a.account.email)).unwrap_or_default())
         }
     }
 }
