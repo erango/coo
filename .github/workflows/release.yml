@@ -149,6 +149,11 @@ jobs:
           MIN_OS="$(plutil -extract LSMinimumSystemVersion raw dist/Coo.app/Contents/Info.plist)"
           URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${DMG}"
           PAGE="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${GITHUB_REF_NAME}"
+          # Inline notes (Sparkle renders them in its dialog): the hand-written
+          # release-notes/<tag>.md if present, else this release's commit titles.
+          PREV="$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
+          git log --no-merges --pretty='%s' ${PREV:+"$PREV.."}"$GITHUB_REF_NAME" \
+            | python3 scripts/release-notes-html.py "$VER" > notes.html
           cat > appcast.xml <<EOF
           <?xml version="1.0" encoding="utf-8"?>
           <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
@@ -160,7 +165,8 @@ jobs:
                 <sparkle:version>${BUILD}</sparkle:version>
                 <sparkle:shortVersionString>${VER}</sparkle:shortVersionString>
                 <sparkle:minimumSystemVersion>${MIN_OS}</sparkle:minimumSystemVersion>
-                <sparkle:releaseNotesLink>${PAGE}</sparkle:releaseNotesLink>
+                <description><![CDATA[$(cat notes.html)]]></description>
+                <sparkle:fullReleaseNotesLink>${PAGE}</sparkle:fullReleaseNotesLink>
                 <enclosure url="${URL}" type="application/octet-stream" ${ATTRS} />
               </item>
             </channel>
