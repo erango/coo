@@ -3,7 +3,7 @@
 
 use chrono::DateTime;
 use pigeon_core::http::{client, send, send_once};
-use pigeon_core::model::{Event, EventDraft, FreeBusy, Response};
+use pigeon_core::model::{Conferencing, Event, EventDraft, FreeBusy, Response};
 use pigeon_core::provider::CalendarWriter;
 use pigeon_core::{Error, Result};
 use reqwest::{Method, Response as HttpResponse};
@@ -57,6 +57,16 @@ fn event_body(d: &EventDraft) -> Result<Value> {
         "location": d.location.clone().unwrap_or_default(),
         "attendees": attendees,
     });
+    // Ask Google to create a Meet link for this event (needs
+    // conferenceDataVersion=1 on the request).
+    if d.conferencing == Conferencing::GoogleMeet {
+        body["conferenceData"] = json!({
+            "createRequest": {
+                "requestId": pigeon_core::auth::random_token(16),
+                "conferenceSolutionKey": { "type": "hangoutsMeet" },
+            }
+        });
+    }
     // No description means "leave it as is": we don't store descriptions
     // locally, so a patch must never blank the server's copy.
     if let Some(text) = &d.description {
@@ -132,6 +142,16 @@ impl Google {
         url
     }
 
+    /// `event_url`, plus `conferenceDataVersion=1` when a Meet link is requested
+    /// (without it Google silently ignores conferenceData).
+    fn write_url(draft: &EventDraft, event_id: Option<&str>) -> Url {
+        let mut url = Self::event_url(&draft.calendar_id, event_id);
+        if draft.conferencing == Conferencing::GoogleMeet {
+            url.query_pairs_mut().append_pair("conferenceDataVersion", "1");
+        }
+        url
+    }
+
     async fn event_from(&self, resp: HttpResponse, calendar_id: &str) -> Result<Event> {
         let raw: GEvent = resp.json().await?;
         to_event(raw, calendar_id).ok_or_else(|| Error::Other("server returned an event without times".into()))
@@ -142,14 +162,13 @@ impl CalendarWriter for Google {
     async fn create_event(&self, draft: &EventDraft) -> Result<Event> {
         let body = event_body(draft)?;
         // Not idempotent: never retried (a retry could double-book).
-        let resp = self.write(Method::POST, Self::event_url(&draft.calendar_id, None), Some(&body), true).await?;
+        let resp = self.write(Method::POST, Self::write_url(draft, None), Some(&body), true).await?;
         self.event_from(resp, &draft.calendar_id).await
     }
 
     async fn update_event(&self, event_id: &str, draft: &EventDraft) -> Result<Event> {
         let body = event_body(draft)?;
-        let resp =
-            self.write(Method::PATCH, Self::event_url(&draft.calendar_id, Some(event_id)), Some(&body), false).await?;
+        let resp = self.write(Method::PATCH, Self::write_url(draft, Some(event_id)), Some(&body), false).await?;
         self.event_from(resp, &draft.calendar_id).await
     }
 
@@ -190,6 +209,25 @@ impl CalendarWriter for Google {
 #[cfg(test)]
 mod tests {
     use pigeon_core::model::{Address, Attendee};
+
+    #[test]
+    fn meet_request_only_when_asked() {
+        use super::*;
+        let mut d = EventDraft {
+            calendar_id: "primary".into(),
+            title: "Sync".into(),
+            start_at: 0,
+            end_at: 3_600_000,
+            ..Default::default()
+        };
+        assert!(event_body(&d).unwrap().get("conferenceData").is_none());
+        assert!(!Google::write_url(&d, None).as_str().contains("conferenceDataVersion"));
+        d.conferencing = Conferencing::GoogleMeet;
+        let b = event_body(&d).unwrap();
+        assert_eq!(b["conferenceData"]["createRequest"]["conferenceSolutionKey"]["type"], "hangoutsMeet");
+        assert!(b["conferenceData"]["createRequest"]["requestId"].as_str().is_some_and(|r| !r.is_empty()));
+        assert!(Google::write_url(&d, None).as_str().contains("conferenceDataVersion=1"));
+    }
 
     use super::*;
 

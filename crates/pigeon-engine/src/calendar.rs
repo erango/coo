@@ -9,6 +9,7 @@ use crate::{Backend, Pigeon};
 
 impl Pigeon {
     pub async fn create_event(&self, account: &Account, draft: &EventDraft) -> Result<Event> {
+        check_conferencing(account, draft)?;
         let event = match &*self.backend(account)? {
             Backend::Microsoft(p) => p.create_event(draft).await?,
             Backend::Google(p) => p.create_event(draft).await?,
@@ -19,6 +20,7 @@ impl Pigeon {
     }
 
     pub async fn update_event(&self, account: &Account, event_id: &str, draft: &EventDraft) -> Result<Event> {
+        check_conferencing(account, draft)?;
         let event = match &*self.backend(account)? {
             Backend::Microsoft(p) => p.update_event(event_id, draft).await?,
             Backend::Google(p) => p.update_event(event_id, draft).await?,
@@ -75,5 +77,17 @@ impl Pigeon {
             .or(cals.first())
             .map(|c| c.id.clone())
             .ok_or_else(|| Error::Other(format!("no calendars synced for {}", account.email)))
+    }
+}
+
+/// A Meet link can only be created by a Google calendar (the provider attaches
+/// it to its own event); say so rather than silently dropping the request.
+fn check_conferencing(account: &Account, draft: &EventDraft) -> Result<()> {
+    use pigeon_core::model::{Conferencing, ProviderKind};
+    match draft.conferencing {
+        Conferencing::GoogleMeet if account.provider != ProviderKind::Google => {
+            Err(pigeon_core::Error::Other("Google Meet links can only be added to events on a Google calendar".into()))
+        }
+        _ => Ok(()),
     }
 }

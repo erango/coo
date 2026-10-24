@@ -436,12 +436,14 @@ pub enum CalendarChange {
     },
 }
 
-/// Online meeting to attach when creating an event (phase 2 adds providers).
+/// Online meeting to attach when creating an event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Conferencing {
     #[default]
     None,
+    /// A Meet link created by the event's own Google calendar.
+    GoogleMeet,
 }
 
 /// What the user edits in the event composer.

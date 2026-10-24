@@ -452,6 +452,12 @@ fn TimeGrid(days: Vec<NaiveDate>, selected: Signal<Option<(String, String)>>) ->
     let events: Vec<EventRow> =
         data.events.iter().filter(|e| e.event.end_at > first && e.event.start_at < last).cloned().collect();
     let (all_day, timed): (Vec<EventRow>, Vec<EventRow>) = events.into_iter().partition(|e| e.event.all_day);
+    let draft_form = s.editor.read().clone();
+    let draft = draft_form.as_ref().and_then(super::event_editor::draft_span);
+    let draft_title = draft_form
+        .as_ref()
+        .map(|f| if f.title.trim().is_empty() { "New event".to_string() } else { f.title.trim().to_string() })
+        .unwrap_or_default();
     let utc0 = days[0].and_hms_opt(0, 0, 0).expect("midnight").and_utc().timestamp_millis();
     let spans: Vec<(usize, usize)> = all_day
         .iter()
@@ -558,6 +564,22 @@ fn TimeGrid(days: Vec<NaiveDate>, selected: Signal<Option<(String, String)>>) ->
                                                         }
                                                         if !short { div { class: "event__time", "{format::hhmm(e.event.start_at)}–{format::hhmm(e.event.end_at)}" } }
                                                         if drag { div { class: "event__resize" } }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        // The new event being created, tracking the editor's times.
+                                        if let Some((ds, de)) = draft.filter(|(ds, de)| *ds < day_end && *de > day_start) {
+                                            {
+                                                let (start, end) = (ds.max(day_start), de.min(day_end));
+                                                let top = (start - day_start) as f64 / 3_600_000.0 * HOUR_PX;
+                                                let height = ((end - start) as f64 / 3_600_000.0 * HOUR_PX - 2.0).max(14.0);
+                                                rsx! {
+                                                    div { class: "event event--draft", "aria-hidden": "true",
+                                                        "data-short": (height < 40.0).then_some("true"),
+                                                        style: "top:{top}px;height:{height}px;--col:0;--cols:1;pointer-events:none",
+                                                        div { class: "event__title", dir: "auto", "{draft_title}" }
+                                                        if height >= 40.0 { div { class: "event__time", "{format::hhmm(ds)}–{format::hhmm(de)}" } }
                                                     }
                                                 }
                                             }

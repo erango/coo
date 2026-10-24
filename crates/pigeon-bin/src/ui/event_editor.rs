@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use chrono::{Local, NaiveDate, NaiveTime, TimeZone};
 use dioxus::prelude::*;
-use pigeon_core::model::{Attendee, EventDraft, EventRow, Response};
+use pigeon_core::model::{Attendee, Conferencing, EventDraft, EventRow, Response};
 use pigeon_core::text::parse_address_list;
 use pigeon_engine::service::Cmd;
 
@@ -39,6 +39,10 @@ pub struct EventForm {
     pub description: String,
     /// Comma-separated addresses.
     pub guests: String,
+    /// Online meeting to create with the event.
+    pub conferencing: Conferencing,
+    /// The event already has a Meet link (edits keep it; nothing to create).
+    pub has_meet: bool,
 }
 
 fn hhmm(minutes: u32) -> String {
@@ -87,6 +91,9 @@ pub fn form_from_event(row: &EventRow) -> EventForm {
         location: e.location.clone().unwrap_or_default(),
         description: String::new(),
         guests: e.attendees.iter().map(|a| a.address.email.clone()).collect::<Vec<_>>().join(", "),
+        conferencing: Conferencing::None,
+        has_meet: pigeon_core::meeting::meeting_link(e)
+            .is_some_and(|l| l.service == pigeon_core::meeting::Service::Meet),
     }
 }
 
@@ -100,6 +107,19 @@ pub fn parse_date(s: &str) -> Option<NaiveDate> {
 
 pub fn parse_time(s: &str) -> Option<NaiveTime> {
     NaiveTime::parse_from_str(s.trim(), "%H:%M").ok()
+}
+
+/// Where a new, unsaved event would land (start, end) while the editor is
+/// open, for the calendar's draft block. None for edits, all-day events, or
+/// times that don't parse yet (the user is mid-typing).
+pub fn draft_span(f: &EventForm) -> Option<(i64, i64)> {
+    if f.editing.is_some() || f.all_day {
+        return None;
+    }
+    let date = parse_date(&f.date)?;
+    let s = local_ms(date, parse_time(&f.start)?)?;
+    let e = local_ms(date, parse_time(&f.end)?)?;
+    (e > s).then_some((s, e))
 }
 
 /// Validate the form and build what the engine sends.
@@ -137,7 +157,8 @@ pub fn to_draft(f: &EventForm) -> Result<EventDraft, String> {
         location: opt(&f.location),
         description: opt(&f.description),
         attendees,
-        conferencing: Default::default(),
+        // An existing Meet link stays as it is; only ask Google for a new one.
+        conferencing: if f.has_meet { Conferencing::None } else { f.conferencing },
     })
 }
 
@@ -373,16 +394,30 @@ pub fn EventEditor() -> Element {
                         }
                     }
 
-                    div { class: "ee-row ee-row--top",
-                        Icon { name: "video", class: "ee-row__icon" }
-                        div { class: "ee-row__content", style: "flex-direction:column;align-items:flex-start;gap:6px",
-                            div { class: "segmented conf-picker", role: "radiogroup", "aria-label": "Conferencing",
-                                button { role: "radio", "aria-checked": "true", "aria-selected": "true", "None" }
-                                button { role: "radio", "aria-checked": "false", disabled: true, "Zoom" }
-                                button { role: "radio", "aria-checked": "false", disabled: true, "Google Meet" }
-                                button { role: "radio", "aria-checked": "false", disabled: true, "Microsoft Teams" }
+                    // Only meeting types this calendar can actually create.
+                    if form.has_meet || form.account_id.starts_with("google:") {
+                        {
+                            let meet = form.has_meet || form.conferencing == Conferencing::GoogleMeet;
+                            rsx! {
+                                div { class: "ee-row ee-row--top",
+                                    Icon { name: "video", class: "ee-row__icon" }
+                                    div { class: "ee-row__content", style: "flex-direction:column;align-items:flex-start;gap:6px",
+                                        if form.has_meet {
+                                            span { class: "conf-note", "Google Meet link included" }
+                                        } else {
+                                            div { class: "segmented conf-picker", role: "radiogroup", "aria-label": "Video call",
+                                                button { role: "radio", "aria-checked": "{!meet}", "aria-selected": "{!meet}",
+                                                    onclick: move |_| { if let Some(f) = editor.write().as_mut() { f.conferencing = Conferencing::None; } },
+                                                    "No video call" }
+                                                button { role: "radio", "aria-checked": "{meet}", "aria-selected": "{meet}",
+                                                    onclick: move |_| { if let Some(f) = editor.write().as_mut() { f.conferencing = Conferencing::GoogleMeet; } },
+                                                    "Google Meet" }
+                                            }
+                                            if meet { span { class: "conf-note", "The link is created when you save and sent with the invitation." } }
+                                        }
+                                    }
+                                }
                             }
-                            span { class: "conf-note", "Zoom, Google Meet and Teams links arrive in phase 2." }
                         }
                     }
 
@@ -486,6 +521,20 @@ fn Availability(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn draft_span_tracks_the_form() {
+        let mut f = form();
+        let (s, e) = draft_span(&f).unwrap();
+        assert_eq!(e - s, 90 * 60_000);
+        f.end = "14:".into(); // mid-typing
+        assert!(draft_span(&f).is_none());
+        f.end = "13:00".into(); // ends before it starts
+        assert!(draft_span(&f).is_none());
+        f.end = "15:00".into();
+        f.editing = Some(("a".into(), "e".into()));
+        assert!(draft_span(&f).is_none(), "edits move the real event, no draft block");
+    }
 
     fn form() -> EventForm {
         EventForm {
