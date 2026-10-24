@@ -674,3 +674,20 @@ fn draft_server_reference_roundtrips() {
     assert_eq!(back.server, d.server);
     assert_eq!(back.full_html(), "<div dir=\"auto\">hi</div>");
 }
+
+#[test]
+fn services_and_zoom_meetings_round_trip() {
+    let (store, a, _) = setup();
+    assert!(store.service("zoom").unwrap().is_none());
+    let svc =
+        ConnectedService { id: "zoom".into(), email: "me@x.com".into(), display_name: "Me".into(), connected_at: 5 };
+    store.upsert_service(&svc).unwrap();
+    assert_eq!(store.service("zoom").unwrap(), Some(svc));
+    let link = ZoomMeetingLink { meeting_id: "123".into(), join_url: "https://zoom.us/j/123".into() };
+    store.set_zoom_meeting(&a.id, "ev1", &link).unwrap();
+    assert_eq!(store.zoom_meeting(&a.id, "ev1").unwrap(), Some(link));
+    store.delete_zoom_meeting(&a.id, "ev1").unwrap();
+    assert!(store.zoom_meeting(&a.id, "ev1").unwrap().is_none());
+    store.delete_service("zoom").unwrap();
+    assert!(store.service("zoom").unwrap().is_none());
+}

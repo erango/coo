@@ -130,6 +130,9 @@ pub enum Cmd {
     },
     SyncNow,
     Login(ProviderKind),
+    /// Connect a Zoom account in the browser (for Zoom calls on events).
+    ZoomConnect,
+    ZoomDisconnect,
     /// iCloud-style sign-in with an app-specific password.
     LoginPassword {
         provider: ProviderKind,
@@ -290,6 +293,8 @@ pub enum Delta {
         draft_id: String,
     },
     Accounts(Vec<AccountNav>),
+    /// The connected Zoom account, if any.
+    Zoom(Option<pigeon_core::model::ConnectedService>),
     List {
         mailbox: Mailbox,
         threaded: bool,
@@ -575,6 +580,7 @@ impl Service {
         let scheduled = self.app.store().drafts()?.into_iter().filter(|d| d.scheduled_at.is_some()).collect();
         self.send(Delta::Scheduled(scheduled));
         self.send(Delta::Accounts(accounts));
+        self.send(Delta::Zoom(self.app.zoom_service().unwrap_or(None)));
         self.send(Delta::List { mailbox, threaded, items });
         self.send(Delta::NextUp(next_up.into_iter().filter(|e| !e.event.all_day).take(3).collect()));
         if let Some((from, to, events, calendars)) = cal {
@@ -793,6 +799,21 @@ impl Service {
                 self.toast(format!("Signed in as {}", account.email), false, None);
                 self.publish().await;
                 tokio::spawn(self.clone().sync());
+            }
+            Cmd::ZoomConnect => match self.app.zoom_connect(|url| tracing::info!(url, "Zoom sign-in URL")).await {
+                Ok(z) => {
+                    self.toast(format!("Zoom connected as {}", z.email), false, None);
+                    self.send(Delta::Zoom(Some(z)));
+                }
+                Err(e) => {
+                    self.toast(e.to_string(), true, None);
+                    self.send(Delta::Zoom(self.app.zoom_service().unwrap_or(None)));
+                }
+            },
+            Cmd::ZoomDisconnect => {
+                self.app.zoom_disconnect().await?;
+                self.toast("Zoom disconnected. Meetings you already created keep working.", false, None);
+                self.send(Delta::Zoom(None));
             }
             Cmd::LoginPassword { provider, email, password } => {
                 let account = self.app.login_password(provider, &email, &password.0).await?;

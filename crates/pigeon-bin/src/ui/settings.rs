@@ -254,6 +254,52 @@ fn Accounts() -> Element {
             if *signing_in.read() && !*icloud.read() { span { class: "settings__hint", style: "margin:0;align-self:center", "Finish signing in in your browser…" } }
         }
         ICloudPanel { open: icloud }
+        VideoCalls {}
+    }
+}
+
+/// Settings › Accounts › Video calls: the connected Zoom account.
+#[component]
+fn VideoCalls() -> Element {
+    let s = use_context::<AppState>();
+    let zoom = s.zoom.read().clone();
+    let mut connecting = use_signal(|| false);
+    // A reply (connected or a failure toast) ends the wait.
+    use_effect(move || {
+        let _ = s.zoom.read();
+        connecting.set(false);
+    });
+    let available = pigeon_core::auth::zoom_client_id().is_some();
+    rsx! {
+        div { class: "settings__title", style: "margin-top:20px", "Video calls" }
+        div { class: "settings__hint", "Add Zoom meetings to events on any of your calendars." }
+        div { class: "settings-group",
+            div { class: "settings-field",
+                span { class: "settings-field__label", "Zoom" }
+                match zoom {
+                    Some(z) => rsx! {
+                        div { style: "display:flex;align-items:center;gap:10px;flex:1;min-width:0",
+                            Icon { name: "video", class: "icon--sm" }
+                            span { dir: "auto", style: "overflow:hidden;text-overflow:ellipsis;white-space:nowrap",
+                                "{z.display_name} ", span { class: "settings-field__hint", style: "margin:0", "{z.email}" } }
+                        }
+                        button { class: "btn btn--ghost btn--sm", r#type: "button",
+                            onclick: move |_| send_cmd(Cmd::ZoomDisconnect), "Disconnect" }
+                    },
+                    None => rsx! {
+                        button { class: "btn btn--secondary btn--sm", r#type: "button",
+                            disabled: *connecting.read() || !available,
+                            onclick: move |_| { connecting.set(true); send_cmd(Cmd::ZoomConnect); },
+                            Icon { name: "video", class: "icon--sm" } "Connect Zoom" }
+                        span { class: "settings-field__hint", style: "margin:0",
+                            if !available { "Zoom isn't set up in this build." }
+                            else if *connecting.read() { "Finish signing in to Zoom in your browser…" }
+                            else { "While Coo's Zoom app is in development, only accounts in its owner's Zoom organization can connect." }
+                        }
+                    },
+                }
+            }
+        }
     }
 }
 

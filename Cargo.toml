@@ -14,6 +14,7 @@ pigeon-google = { path = "crates/pigeon-google" }
 pigeon-engine = { path = "crates/pigeon-engine" }
 pigeon-imap = { path = "crates/pigeon-imap" }
 pigeon-caldav = { path = "crates/pigeon-caldav" }
+pigeon-zoom = { path = "crates/pigeon-zoom" }
 
 ammonia = "4.2"
 async-imap = { version = "0.12", default-features = false, features = ["runtime-tokio"] }

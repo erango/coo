@@ -43,6 +43,8 @@ pub struct EventForm {
     pub conferencing: Conferencing,
     /// The event already has a Meet link (edits keep it; nothing to create).
     pub has_meet: bool,
+    /// The event already has a Zoom link.
+    pub has_zoom: bool,
 }
 
 fn hhmm(minutes: u32) -> String {
@@ -92,6 +94,8 @@ pub fn form_from_event(row: &EventRow) -> EventForm {
         description: String::new(),
         guests: e.attendees.iter().map(|a| a.address.email.clone()).collect::<Vec<_>>().join(", "),
         conferencing: Conferencing::None,
+        has_zoom: pigeon_core::meeting::meeting_link(e)
+            .is_some_and(|l| l.service == pigeon_core::meeting::Service::Zoom),
         has_meet: pigeon_core::meeting::meeting_link(e)
             .is_some_and(|l| l.service == pigeon_core::meeting::Service::Meet),
     }
@@ -120,6 +124,20 @@ pub fn draft_span(f: &EventForm) -> Option<(i64, i64)> {
     let s = local_ms(date, parse_time(&f.start)?)?;
     let e = local_ms(date, parse_time(&f.end)?)?;
     (e > s).then_some((s, e))
+}
+
+/// The video-call choices for an event on `account_id`'s calendar: only what
+/// can actually be created (Meet needs a Google calendar; Zoom needs a
+/// connected Zoom account and a timed event). Always starts with "none".
+pub fn video_options(account_id: &str, zoom_connected: bool, all_day: bool) -> Vec<(Conferencing, &'static str)> {
+    let mut v = vec![(Conferencing::None, "No video call")];
+    if account_id.starts_with("google:") {
+        v.push((Conferencing::GoogleMeet, "Google Meet"));
+    }
+    if zoom_connected && !all_day {
+        v.push((Conferencing::Zoom, "Zoom"));
+    }
+    v
 }
 
 /// Validate the form and build what the engine sends.
@@ -158,7 +176,7 @@ pub fn to_draft(f: &EventForm) -> Result<EventDraft, String> {
         description: opt(&f.description),
         attendees,
         // An existing Meet link stays as it is; only ask Google for a new one.
-        conferencing: if f.has_meet { Conferencing::None } else { f.conferencing },
+        conferencing: if f.has_meet || f.has_zoom { Conferencing::None } else { f.conferencing },
     })
 }
 
@@ -395,25 +413,36 @@ pub fn EventEditor() -> Element {
                     }
 
                     // Only meeting types this calendar can actually create.
-                    if form.has_meet || form.account_id.starts_with("google:") {
-                        {
-                            let meet = form.has_meet || form.conferencing == Conferencing::GoogleMeet;
-                            rsx! {
+                    {
+                        let zoom = s.zoom.read().clone();
+                        let opts = video_options(&form.account_id, zoom.is_some(), form.all_day);
+                        let existing = if form.has_meet { Some("Google Meet link included") } else if form.has_zoom { Some("Zoom link included") } else { None };
+                        let chosen = form.conferencing;
+                        let note = match chosen {
+                            Conferencing::GoogleMeet => "The link is created when you save and sent with the invitation.".to_string(),
+                            Conferencing::Zoom => format!(
+                                "A Zoom meeting is created on {} when you save; the link goes in the location and invitation.",
+                                zoom.as_ref().map(|z| z.email.as_str()).unwrap_or("your Zoom account")
+                            ),
+                            Conferencing::None => String::new(),
+                        };
+                        rsx! {
+                            if existing.is_some() || opts.len() > 1 {
                                 div { class: "ee-row ee-row--top",
                                     Icon { name: "video", class: "ee-row__icon" }
                                     div { class: "ee-row__content", style: "flex-direction:column;align-items:flex-start;gap:6px",
-                                        if form.has_meet {
-                                            span { class: "conf-note", "Google Meet link included" }
+                                        if let Some(text) = existing {
+                                            span { class: "conf-note", "{text}" }
                                         } else {
                                             div { class: "segmented conf-picker", role: "radiogroup", "aria-label": "Video call",
-                                                button { role: "radio", "aria-checked": "{!meet}", "aria-selected": "{!meet}",
-                                                    onclick: move |_| { if let Some(f) = editor.write().as_mut() { f.conferencing = Conferencing::None; } },
-                                                    "No video call" }
-                                                button { role: "radio", "aria-checked": "{meet}", "aria-selected": "{meet}",
-                                                    onclick: move |_| { if let Some(f) = editor.write().as_mut() { f.conferencing = Conferencing::GoogleMeet; } },
-                                                    "Google Meet" }
+                                                for (kind, label) in opts {
+                                                    button { role: "radio", key: "{label}",
+                                                        "aria-checked": "{chosen == kind}", "aria-selected": "{chosen == kind}",
+                                                        onclick: move |_| { if let Some(f) = editor.write().as_mut() { f.conferencing = kind; } },
+                                                        "{label}" }
+                                                }
                                             }
-                                            if meet { span { class: "conf-note", "The link is created when you save and sent with the invitation." } }
+                                            if !note.is_empty() { span { class: "conf-note", "{note}" } }
                                         }
                                     }
                                 }
@@ -521,6 +550,17 @@ fn Availability(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn video_options_are_only_what_works() {
+        let names = |v: Vec<(Conferencing, &'static str)>| v.into_iter().map(|(_, n)| n).collect::<Vec<_>>();
+        assert_eq!(names(video_options("microsoft:a@x.com", false, false)), ["No video call"]);
+        assert_eq!(names(video_options("microsoft:a@x.com", true, false)), ["No video call", "Zoom"]);
+        assert_eq!(names(video_options("google:a@x.com", true, false)), ["No video call", "Google Meet", "Zoom"]);
+        assert_eq!(names(video_options("google:a@x.com", true, true)), ["No video call", "Google Meet"]);
+        let f = EventForm { has_zoom: true, conferencing: Conferencing::Zoom, ..form() };
+        assert_eq!(to_draft(&f).unwrap().conferencing, Conferencing::None, "an existing Zoom link is kept, not remade");
+    }
 
     #[test]
     fn draft_span_tracks_the_form() {

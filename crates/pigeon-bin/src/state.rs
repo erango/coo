@@ -175,6 +175,8 @@ pub struct AppState {
     pub settings_open: Signal<bool>,
     /// Settings subpage shown (a `settings::PAGES` title).
     pub settings_page: Signal<String>,
+    /// The connected Zoom account (Zoom calls on events), if any.
+    pub zoom: Signal<Option<pigeon_core::model::ConnectedService>>,
     /// "Connect an AI agent" popup.
     pub agent_setup_open: Signal<bool>,
     /// A downloaded update waiting for a restart (its version).
@@ -237,6 +239,7 @@ impl AppState {
             }),
             settings_open: Signal::new(false),
             settings_page: Signal::new("General".into()),
+            zoom: Signal::new(None),
             agent_setup_open: Signal::new(false),
             update_ready: Signal::new(None),
             os_dark: Signal::new(true),
@@ -419,6 +422,7 @@ fn apply(s: &mut AppState, delta: Delta) {
                 s.signing_in.set(false);
                 s.login_error.set(Some((provider, error)));
             }
+            Delta::Zoom(z) => s.zoom.set(z),
             Delta::Accounts(a) => {
                 if a.is_empty() && !*s.loaded.peek() {
                     s.first_run.set(true);

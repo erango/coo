@@ -444,6 +444,25 @@ pub enum Conferencing {
     None,
     /// A Meet link created by the event's own Google calendar.
     GoogleMeet,
+    /// A Zoom meeting from the connected Zoom account, on any calendar.
+    Zoom,
+}
+
+/// A connected service that isn't a mail/calendar account (Zoom).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConnectedService {
+    /// `zoom`
+    pub id: String,
+    pub email: String,
+    pub display_name: String,
+    pub connected_at: i64,
+}
+
+/// A Zoom meeting Coo created for a calendar event.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ZoomMeetingLink {
+    pub meeting_id: String,
+    pub join_url: String,
 }
 
 /// What the user edits in the event composer.

@@ -4224,6 +4224,7 @@ dependencies = [
  "pigeon-google",
  "pigeon-graph",
  "pigeon-imap",
+ "pigeon-zoom",
  "sentry",
  "serde_json",
  "tokio",
@@ -4276,6 +4277,18 @@ dependencies = [
  "rustls-platform-verifier",
  "tokio",
  "tokio-rustls",
+ "tracing",
+]
+
+[[package]]
+name = "pigeon-zoom"
+version = "0.1.2"
+dependencies = [
+ "chrono",
+ "pigeon-core",
+ "reqwest",
+ "serde",
+ "serde_json",
  "tracing",
 ]
 

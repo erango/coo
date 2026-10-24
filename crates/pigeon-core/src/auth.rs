@@ -39,9 +39,32 @@ const GOOGLE_SCOPES: &[&str] = &[
     "https://www.googleapis.com/auth/calendar",
 ];
 
+/// Zoom's OAuth app: PKCE public client (no secret). Zoom only accepts a
+/// loopback redirect for PKCE apps, at this exact registered address.
+pub const ZOOM_REDIRECT_PORT: u16 = 47821;
+pub const ZOOM_REDIRECT_PATH: &str = "/zoom/callback";
+/// Token-store key for the connected Zoom account (there's at most one).
+pub const ZOOM_TOKEN_KEY: &str = "zoom";
+
+/// What an OAuth app signs in to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppKind {
+    Mail(ProviderKind),
+    Zoom,
+}
+
+impl AppKind {
+    fn label(self) -> &'static str {
+        match self {
+            AppKind::Mail(p) => p.as_str(),
+            AppKind::Zoom => "zoom",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct OAuthApp {
-    pub provider: ProviderKind,
+    pub kind: AppKind,
     pub client_id: String,
     /// Google "Desktop app" clients ship a non-confidential secret that the
     /// token endpoint still requires. Microsoft public clients have none.
@@ -51,12 +74,15 @@ pub struct OAuthApp {
     scopes: &'static [&'static str],
     extra_auth_params: &'static [(&'static str, &'static str)],
     redirect_host: &'static str,
+    /// 0 = any free port (providers that match loopback on any port).
+    redirect_port: u16,
+    redirect_path: &'static str,
 }
 
 impl OAuthApp {
     pub fn microsoft(client_id: impl Into<String>) -> Self {
         OAuthApp {
-            provider: ProviderKind::Microsoft,
+            kind: AppKind::Mail(ProviderKind::Microsoft),
             client_id: client_id.into(),
             client_secret: None,
             auth_url: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
@@ -65,12 +91,14 @@ impl OAuthApp {
             extra_auth_params: &[("prompt", "select_account")],
             // Entra matches `http://localhost` registrations on any port.
             redirect_host: "localhost",
+            redirect_port: 0,
+            redirect_path: "",
         }
     }
 
     pub fn google(client_id: impl Into<String>, client_secret: impl Into<String>) -> Self {
         OAuthApp {
-            provider: ProviderKind::Google,
+            kind: AppKind::Mail(ProviderKind::Google),
             client_id: client_id.into(),
             client_secret: Some(client_secret.into()),
             auth_url: "https://accounts.google.com/o/oauth2/v2/auth",
@@ -79,7 +107,60 @@ impl OAuthApp {
             // `consent` guarantees a refresh token on every sign-in.
             extra_auth_params: &[("access_type", "offline"), ("prompt", "consent select_account")],
             redirect_host: "127.0.0.1",
+            redirect_port: 0,
+            redirect_path: "",
         }
+    }
+
+    /// Zoom (meetings). Scopes come from the Marketplace app's configuration.
+    pub fn zoom(client_id: impl Into<String>) -> Self {
+        OAuthApp {
+            kind: AppKind::Zoom,
+            client_id: client_id.into(),
+            client_secret: None,
+            auth_url: "https://zoom.us/oauth/authorize",
+            token_url: "https://zoom.us/oauth/token",
+            scopes: &[],
+            extra_auth_params: &[],
+            redirect_host: "127.0.0.1",
+            redirect_port: ZOOM_REDIRECT_PORT,
+            redirect_path: ZOOM_REDIRECT_PATH,
+        }
+    }
+
+    /// The Zoom app with the client id from the environment or baked in.
+    pub fn zoom_from_env() -> Result<Self> {
+        zoom_client_id().map(Self::zoom).ok_or_else(|| Error::Auth("PIGEON_ZOOM_CLIENT_ID is not set".into()))
+    }
+
+    /// The mail provider this app signs in to (None for Zoom).
+    pub fn provider(&self) -> Option<ProviderKind> {
+        match self.kind {
+            AppKind::Mail(p) => Some(p),
+            AppKind::Zoom => None,
+        }
+    }
+
+    pub fn redirect_uri(&self, port: u16) -> String {
+        format!("http://{}:{port}{}", self.redirect_host, self.redirect_path)
+    }
+
+    /// The authorization URL the browser opens.
+    pub fn authorize_url(&self, redirect_uri: &str, state: &str, challenge: &str) -> Result<Url> {
+        let mut params = vec![
+            ("client_id", self.client_id.as_str()),
+            ("response_type", "code"),
+            ("redirect_uri", redirect_uri),
+            ("state", state),
+            ("code_challenge_method", "S256"),
+            ("code_challenge", challenge),
+        ];
+        let scope = self.scope();
+        if !scope.is_empty() {
+            params.push(("scope", &scope));
+        }
+        params.extend(self.extra_auth_params.iter().copied());
+        Url::parse_with_params(self.auth_url, &params).map_err(|e| Error::Other(e.to_string()))
     }
 
     /// Client credentials from the runtime environment, falling back to
@@ -140,34 +221,38 @@ pub fn pkce_challenge(verifier: &str) -> String {
 /// `on_url` receives the authorization URL (e.g. to print it in case the
 /// browser does not open).
 pub async fn authorize(app: &OAuthApp, on_url: impl FnOnce(&str)) -> Result<TokenResponse> {
-    let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
+    let listener = match TcpListener::bind(("127.0.0.1", app.redirect_port)).await {
+        Ok(l) => l,
+        Err(e) if app.redirect_port != 0 && e.kind() == std::io::ErrorKind::AddrInUse => {
+            return Err(Error::Auth(format!(
+                "Another app is using port {}, so Coo can't receive the sign-in. Close it and try again.",
+                app.redirect_port
+            )));
+        }
+        Err(e) => return Err(e.into()),
+    };
     let port = listener.local_addr()?.port();
-    let redirect_uri = format!("http://{}:{port}", app.redirect_host);
+    let redirect_uri = app.redirect_uri(port);
     let state = random_token(16);
     let verifier = random_token(48);
-
-    let mut params = vec![
-        ("client_id", app.client_id.as_str()),
-        ("response_type", "code"),
-        ("redirect_uri", redirect_uri.as_str()),
-        ("state", state.as_str()),
-        ("code_challenge_method", "S256"),
-    ];
     let challenge = pkce_challenge(&verifier);
     let scope = app.scope();
-    params.push(("code_challenge", &challenge));
-    params.push(("scope", &scope));
-    params.extend(app.extra_auth_params.iter().copied());
-    let url = Url::parse_with_params(app.auth_url, &params).map_err(|e| Error::Other(e.to_string()))?;
+    let url = app.authorize_url(&redirect_uri, &state, &challenge)?;
 
     on_url(url.as_str());
     if let Err(e) = open::that_detached(url.as_str()) {
         tracing::warn!(error = %e, "could not open browser");
     }
 
-    let code = tokio::time::timeout(LOGIN_TIMEOUT, wait_for_code(&listener, &state))
-        .await
-        .map_err(|_| Error::Auth("timed out waiting for the browser sign-in".into()))??;
+    let code =
+        tokio::time::timeout(LOGIN_TIMEOUT, wait_for_code(&listener, &state)).await.map_err(|_| match app.kind {
+            AppKind::Zoom => Error::Auth(
+                "The Zoom sign-in didn't finish. While Coo's Zoom app is in development, only accounts in its \
+                 owner's Zoom organization can connect."
+                    .into(),
+            ),
+            AppKind::Mail(_) => Error::Auth("timed out waiting for the browser sign-in".into()),
+        })??;
 
     let mut form = vec![
         ("grant_type", "authorization_code"),
@@ -179,7 +264,7 @@ pub async fn authorize(app: &OAuthApp, on_url: impl FnOnce(&str)) -> Result<Toke
     if let Some(secret) = &app.client_secret {
         form.push(("client_secret", secret));
     }
-    if app.provider == ProviderKind::Microsoft {
+    if app.kind == AppKind::Mail(ProviderKind::Microsoft) {
         form.push(("scope", &scope));
     }
     token_request(app, &form).await
@@ -194,7 +279,7 @@ pub async fn refresh(app: &OAuthApp, refresh_token: &str) -> Result<TokenRespons
     if let Some(secret) = &app.client_secret {
         form.push(("client_secret", secret));
     }
-    if app.provider == ProviderKind::Microsoft {
+    if app.kind == AppKind::Mail(ProviderKind::Microsoft) {
         form.push(("scope", &scope));
     }
     token_request(app, &form).await
@@ -206,7 +291,7 @@ async fn token_request(app: &OAuthApp, form: &[(&str, &str)]) -> Result<TokenRes
     let body = resp.text().await?;
     if !status.is_success() {
         if body.contains("invalid_grant") {
-            return Err(Error::SignInRequired(app.provider.as_str().into()));
+            return Err(Error::SignInRequired(app.kind.label().into()));
         }
         return Err(Error::Auth(format!("token endpoint returned {status}: {body}")));
     }
@@ -375,6 +460,29 @@ pub fn admin_consent_code(error: &str) -> Option<&'static str> {
         .then_some("consent_required")
 }
 
+/// The Zoom (PKCE public) client id in effect (runtime env, else baked in).
+pub fn zoom_client_id() -> Option<String> {
+    std::env::var("PIGEON_ZOOM_CLIENT_ID")
+        .ok()
+        .or(option_env!("PIGEON_ZOOM_CLIENT_ID").map(String::from))
+        .filter(|v| !v.is_empty())
+}
+
+/// Best-effort revoke of a Zoom token (public clients may not be allowed to;
+/// the local copy is deleted either way).
+pub async fn zoom_revoke(client_id: &str, token: &str) -> Result<()> {
+    let resp = client()
+        .post("https://zoom.us/oauth/revoke")
+        .form(&[("token", token), ("client_id", client_id)])
+        .send()
+        .await?;
+    if resp.status().is_success() {
+        Ok(())
+    } else {
+        Err(Error::Auth(format!("Zoom revoke returned {}", resp.status())))
+    }
+}
+
 /// The Microsoft client id in effect (runtime env, else baked in).
 pub fn microsoft_client_id() -> Option<String> {
     std::env::var("PIGEON_MS_CLIENT_ID")
@@ -419,6 +527,47 @@ mod tests {
         );
         assert_eq!(parse_callback(&req("/favicon.ico"), "s1"), Callback::Ignore);
         assert_eq!(parse_callback("", "s1"), Callback::Ignore);
+    }
+
+    #[test]
+    fn zoom_authorize_url_is_pkce_with_the_registered_redirect() {
+        let app = OAuthApp::zoom("cid");
+        let redirect = app.redirect_uri(ZOOM_REDIRECT_PORT);
+        assert_eq!(redirect, "http://127.0.0.1:47821/zoom/callback");
+        let url = app.authorize_url(&redirect, "st", "ch").unwrap();
+        assert_eq!(url.host_str(), Some("zoom.us"));
+        assert_eq!(url.path(), "/oauth/authorize");
+        let q: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
+        assert_eq!(q["client_id"], "cid");
+        assert_eq!(q["redirect_uri"], "http://127.0.0.1:47821/zoom/callback");
+        assert_eq!(q["code_challenge_method"], "S256");
+        assert_eq!(q["code_challenge"], "ch");
+        assert_eq!(q["response_type"], "code");
+        assert!(!q.contains_key("scope"), "Zoom scopes come from the app config");
+        assert!(app.client_secret.is_none() && app.provider().is_none());
+        // Mail providers keep a random port and the bare root path.
+        assert_eq!(OAuthApp::google("a", "b").redirect_uri(5000), "http://127.0.0.1:5000");
+    }
+
+    #[tokio::test]
+    async fn zoom_listens_on_the_registered_port_and_says_when_its_taken() {
+        // Hold the port, then try to sign in: a clear error, no browser.
+        let Ok(_held) = TcpListener::bind(("127.0.0.1", ZOOM_REDIRECT_PORT)).await else {
+            return; // something else already has it; nothing to prove here
+        };
+        let mut opened = false;
+        let err = authorize(&OAuthApp::zoom("cid"), |_| opened = true).await.unwrap_err();
+        assert!(err.to_string().contains("port 47821"), "{err}");
+        assert!(!opened, "must fail before opening the browser");
+    }
+
+    #[test]
+    fn zoom_token_response_parses() {
+        let t: TokenResponse = serde_json::from_str(
+            r#"{"access_token":"at","token_type":"bearer","refresh_token":"rt","expires_in":3599,"scope":"meeting:write:meeting user:read:user"}"#,
+        )
+        .unwrap();
+        assert_eq!((t.access_token.as_str(), t.refresh_token.as_deref(), t.expires_in), ("at", Some("rt"), Some(3599)));
     }
 
     #[test]

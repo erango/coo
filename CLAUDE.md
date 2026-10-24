@@ -19,6 +19,10 @@ and `DESIGN_SPEC.md` (brief handed to Claude Design).
   `tokens.rs` (Keychain / dev file), `http.rs` (retry/backoff), `text.rs`.
 - `crates/pigeon-graph`, `crates/pigeon-google` — provider impls. Thin
   hand-written `reqwest` + serde clients; only the fields we use.
+- `crates/pigeon-zoom` — Zoom meetings for events (create/move/delete the
+  meetings Coo makes). Zoom is a "connected service" (store `services` row +
+  token-store key `zoom`), not an account; OAuth is a PKCE public client with
+  the fixed redirect `http://127.0.0.1:47821/zoom/callback`.
 - `crates/pigeon-engine` — login, account registry, concurrent sync of all
   accounts. Will own the UI `Cmd`/`Delta` loop.
 - `crates/pigeon-cli` — `coo` binary, dev harness for the engine.

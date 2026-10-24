@@ -12,6 +12,7 @@ mod calendar;
 pub mod notify;
 pub mod service;
 pub mod telemetry;
+mod zoom;
 
 pub use actions::MailAction;
 use chrono::{Duration, Utc};

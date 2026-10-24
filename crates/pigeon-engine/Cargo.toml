@@ -11,6 +11,7 @@ pigeon-google.workspace = true
 pigeon-graph.workspace = true
 pigeon-imap.workspace = true
 pigeon-caldav.workspace = true
+pigeon-zoom.workspace = true
 tracing.workspace = true
 futures.workspace = true
 base64.workspace = true

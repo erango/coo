@@ -39,6 +39,18 @@ impl AppBroker {
                     Err(e) => broker::failure_for(&e),
                 },
             },
+            // The connected Zoom account (not a mail account).
+            Request::AccessToken { account } if account == pigeon_core::auth::ZOOM_TOKEN_KEY => {
+                match self.app.zoom_tokens() {
+                    Ok(src) => match src.access_token_with_expiry().await {
+                        Ok((token, expires_at)) => {
+                            Response::token(token, expires_at.saturating_duration_since(Instant::now()))
+                        }
+                        Err(e) => broker::failure_for(&e),
+                    },
+                    Err(e) => broker::failure_for(&e),
+                }
+            }
             Request::AccessToken { account } => {
                 let Some(a) = self.account(&account) else {
                     return Response::fail(Failure::UnknownAccount, format!("{account} isn't signed in to Coo"));
