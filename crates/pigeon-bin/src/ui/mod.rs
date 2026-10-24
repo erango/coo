@@ -10,6 +10,7 @@ mod list;
 mod list_motion;
 pub mod mailframe;
 mod move_picker;
+mod multi;
 mod onboarding;
 mod palette;
 mod reader;
@@ -344,9 +345,10 @@ pub fn App() -> Element {
         let mailbox = s.mailbox.read().clone();
         let threaded = *s.threaded.read();
         if last_mailbox.peek().as_ref().is_some_and(|m| *m != mailbox) {
-            let (mut sel, mut reader) = (s.selected, s.reader);
+            let (mut sel, mut reader, mut multi) = (s.selected, s.reader, s.multi);
             sel.set(None);
             reader.set(None);
+            multi.set(Vec::new());
         }
         last_mailbox.set(Some(mailbox.clone()));
         crate::perf::mark_show_sent();
@@ -707,7 +709,9 @@ pub fn selected_item(s: &AppState) -> Option<ListItem> {
 /// Select a list item and open it in the reader.
 pub fn select(s: AppState, item: &ListItem) {
     compose::leave_docked(s);
-    let mut sel = s.selected;
+    let (mut sel, mut multi, mut anchor) = (s.selected, s.multi, s.anchor);
+    multi.set(Vec::new());
+    anchor.set(Some(AppState::key(item)));
     sel.set(Some(AppState::key(item)));
     match item {
         ListItem::Thread(t) => {
@@ -724,7 +728,8 @@ fn step(s: AppState, delta: isize) {
     if list.is_empty() {
         return;
     }
-    let current = s.selected.read().clone();
+    // From a multi-selection, move on from the row clicked last.
+    let current = s.selected.read().clone().or_else(|| s.anchor.read().clone().filter(|_| !s.multi.read().is_empty()));
     let idx = current.and_then(|k| list.iter().position(|i| AppState::key(i) == k));
     let next = match idx {
         Some(i) => (i as isize + delta).clamp(0, list.len() as isize - 1) as usize,
@@ -839,6 +844,9 @@ fn on_key(s: AppState, key: &str) {
                 let mut e = s.editor;
                 return e.set(None);
             }
+            if !composing && !s.multi.read().is_empty() {
+                return multi::clear(s);
+            }
             if !composing && *s.settings_open.read() {
                 let mut o = s.settings_open;
                 return o.set(false);
@@ -877,6 +885,16 @@ fn on_key(s: AppState, key: &str) {
         "l" => move_picker::open(s, true),
         "j" | "ArrowDown" => step(s, 1),
         "k" | "ArrowUp" => step(s, -1),
+        _ if !multi::items(&s).is_empty() => {
+            let items = multi::items(&s);
+            match key {
+                "e" | "ctrl+meta+a" => multi::act_many(s, &items, MailAction::Archive),
+                "meta+Backspace" | "#" | "x" => multi::act_many(s, &items, MailAction::Trash),
+                "s" | "meta+shift+l" => multi::act_many(s, &items, multi::toggle_flag(&items)),
+                "u" | "meta+shift+u" => multi::act_many(s, &items, multi::toggle_read(&items)),
+                _ => {}
+            }
+        }
         _ => {
             let Some(item) = selected_item(&s) else { return };
             let h = item.header();

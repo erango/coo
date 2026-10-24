@@ -132,6 +132,11 @@ pub struct AppState {
     pub list: Signal<Vec<ListItem>>,
     /// `account|id` of the selected row (thread id or message id).
     pub selected: Signal<Option<String>>,
+    /// Keys of a multi-selection (two or more rows, list order); empty
+    /// otherwise. See `ui/multi.rs`.
+    pub multi: Signal<Vec<String>>,
+    /// Row a ⇧-click range starts from.
+    pub anchor: Signal<Option<String>>,
     pub reader: Signal<Option<ReaderView>>,
     pub bodies: Signal<HashMap<(String, String), StoredBody>>,
     /// Invites in loaded bodies, resolved to local events.
@@ -208,6 +213,8 @@ impl AppState {
             threaded: Signal::new(true),
             list: Signal::new(Vec::new()),
             selected: Signal::new(None),
+            multi: Signal::new(Vec::new()),
+            anchor: Signal::new(None),
             contacts: Signal::new((0, Vec::new())),
             reader: Signal::new(None),
             bodies: Signal::new(HashMap::new()),

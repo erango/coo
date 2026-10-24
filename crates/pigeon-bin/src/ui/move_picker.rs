@@ -13,7 +13,12 @@ const RECENT_MAX: usize = 8;
 
 /// Open the picker for the selected item. `label` = Gmail add-label mode.
 pub fn open(s: AppState, label: bool) {
-    let Some(item) = selected_item(&s) else { return };
+    // A multi-selection moves together; folders belong to one account.
+    let many = super::multi::items(&s);
+    if many.iter().any(|i| i.account_id() != many[0].account_id()) {
+        return s.local_toast("Select messages from one account to move them together", true);
+    }
+    let Some(item) = many.first().cloned().or_else(|| selected_item(&s)) else { return };
     let provider = s.accounts.read().iter().find(|a| a.account.id == item.account_id()).map(|a| a.account.provider);
     if label && provider != Some(ProviderKind::Google) {
         return open(s, false);
@@ -132,7 +137,8 @@ pub fn MovePickerView() -> Element {
         let mut pk = picker;
         pk.set(None);
         let action = if p.label { MailAction::AddLabel(folder_id) } else { MailAction::MoveTo(folder_id) };
-        act(s, &item, action);
+        let many = super::multi::items(&s);
+        if many.is_empty() { act(s, &item, action) } else { super::multi::act_many(s, &many, action) }
     };
     let title = if p.label { "Label as…" } else { "Move to…" };
 

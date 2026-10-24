@@ -26,6 +26,9 @@ pub fn Reader() -> Element {
             }
         };
     }
+    if !super::multi::items(&s).is_empty() {
+        return rsx! { super::multi::MultiPane {} };
+    }
     rsx! { ThreadReader {} }
 }
 

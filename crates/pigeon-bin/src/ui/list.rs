@@ -6,7 +6,7 @@ use pigeon_engine::service::{ListItem, Mailbox};
 use pigeon_core::model::ProviderKind;
 use pigeon_engine::service::Cmd;
 
-use super::{Icon, act, select, vlist};
+use super::{Icon, act, vlist};
 use crate::format;
 use crate::send_cmd;
 use crate::state::{AppState, OutState, Outgoing};
@@ -391,7 +391,8 @@ fn Empty(syncing: bool) -> Element {
 pub fn Row(item: ListItem, many: bool, #[props(default)] motion: Option<&'static str>) -> Element {
     let s = use_context::<AppState>();
     let key = AppState::key(&item);
-    let selected = s.selected.read().as_deref() == Some(key.as_str());
+    let open = s.selected.read().as_deref() == Some(key.as_str());
+    let selected = open || s.multi.read().contains(&key);
     let hue = s.hue(item.account_id());
     let h = item.header().clone();
     let (who, count, unread) = match &item {
@@ -436,8 +437,8 @@ pub fn Row(item: ListItem, many: bool, #[props(default)] motion: Option<&'static
             "data-state": h.is_draft.then_some("draft"),
             "data-stale": s.sync.read().needs_sign_in.iter().any(|a| a == item.account_id()).then_some("true"),
             "aria-selected": "{selected}",
-            "data-focused": selected.then_some("true"),
-            onclick: move |_| select(s, &i1),
+            "data-focused": open.then_some("true"),
+            onclick: move |e| super::multi::click(s, &i1, super::multi::How::of(&e)),
             div { class: "row__line",
                 if many { span { class: "pip", "{letter}" } } else { span { class: "dot" } }
                 match h.from.clone().filter(|_| !h.is_draft) {

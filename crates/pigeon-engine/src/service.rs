@@ -68,6 +68,17 @@ impl Mailbox {
     }
 }
 
+/// One list item of an `ActMany`: a message, or a thread (see `Cmd::Act`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActItem {
+    pub account_id: String,
+    pub ids: Vec<String>,
+    pub thread_id: Option<String>,
+}
+
+/// Undo "account" of a bulk action that touched several accounts.
+pub const BULK_UNDO: &str = "*";
+
 #[derive(Debug, Clone)]
 pub enum Cmd {
     /// Send `draft` at `at` (ms). `undo_window`: the undo-send grace period
@@ -124,6 +135,14 @@ pub enum Cmd {
         action: MailAction,
         label: String,
     },
+    /// `Act` on several list items at once (a multi-selection), possibly
+    /// across accounts; one toast, one undo for all of them.
+    ActMany {
+        items: Vec<ActItem>,
+        action: MailAction,
+        label: String,
+    },
+    /// `account_id` is `BULK_UNDO` for an `ActMany` spanning accounts.
     Undo {
         account_id: String,
         handle: i64,
@@ -446,6 +465,8 @@ struct Service {
     notify_marks: std::sync::Mutex<crate::notify::Marks>,
     /// Scheduled drafts currently being sent (guards the 1 s due-check).
     in_flight: Mutex<std::collections::HashSet<String>>,
+    /// Undo handles of bulk actions that spanned accounts, by bulk handle.
+    bulk_undo: std::sync::Mutex<std::collections::HashMap<i64, Vec<(String, i64)>>>,
 }
 
 /// How many newest inbox rows per account are checked for new mail.
@@ -740,35 +761,13 @@ impl Service {
                 let thread_id = h.thread_id.clone();
                 self.open(account, thread_id, vec![h], message_id, true).await?;
             }
-            Cmd::Act { account_id, mut ids, thread_id, action, label } => {
+            Cmd::Act { account_id, ids, thread_id, action, label } => {
                 let account = self.app.account(&account_id)?;
-                let from = {
-                    let v = self.view.lock().await;
-                    let store = self.app.store();
-                    v.mailbox.folder_for(|a, r| store.role_folder(a, r).ok().flatten(), &account_id)
-                };
-                if let Some(thread_id) = thread_id {
-                    let store = self.app.store();
-                    let in_view = |m: &MessageHeader| {
-                        let full = store.message(&account_id, &m.id).ok().flatten();
-                        from.as_ref().is_none_or(|f| full.is_some_and(|h| h.folder_ids.contains(f)))
-                    };
-                    let messages = store.thread_messages(&account_id, &thread_id)?;
-                    ids = match action {
-                        // Read state applies to the whole conversation.
-                        MailAction::MarkRead | MailAction::MarkUnread => {
-                            messages.iter().map(|m| m.id.clone()).collect()
-                        }
-                        // Flag the newest message, like Gmail/Outlook.
-                        MailAction::Flag | MailAction::Unflag => {
-                            messages.iter().rev().find(|m| in_view(m)).map(|m| vec![m.id.clone()]).unwrap_or_default()
-                        }
-                        _ => messages.iter().filter(|m| in_view(m)).map(|m| m.id.clone()).collect(),
-                    };
-                }
+                let ids = self.act_ids(&account_id, ids, thread_id, &action).await?;
                 if ids.is_empty() {
                     return Ok(());
                 }
+                let from = self.act_folder(&account_id).await;
                 let handle = self.app.act(&account, &ids, from.as_deref(), &action)?;
                 let undoable = !matches!(action, MailAction::MarkRead | MailAction::MarkUnread);
                 if undoable {
@@ -776,6 +775,53 @@ impl Service {
                 }
                 self.publish().await;
                 self.flush(account).await;
+            }
+            Cmd::ActMany { items, action, label } => {
+                // One act per account, so each account's change undoes as one.
+                let mut by_account: Vec<(String, Vec<String>)> = Vec::new();
+                for item in items {
+                    let ids = self.act_ids(&item.account_id, item.ids, item.thread_id, &action).await?;
+                    match by_account.iter_mut().find(|(a, _)| *a == item.account_id) {
+                        Some((_, all)) => all.extend(ids),
+                        None => by_account.push((item.account_id, ids)),
+                    }
+                }
+                let mut handles = Vec::new();
+                let mut touched = Vec::new();
+                for (account_id, ids) in by_account.into_iter().filter(|(_, ids)| !ids.is_empty()) {
+                    let account = self.app.account(&account_id)?;
+                    let from = self.act_folder(&account_id).await;
+                    handles.push((account_id, self.app.act(&account, &ids, from.as_deref(), &action)?));
+                    touched.push(account);
+                }
+                let undoable = !matches!(action, MailAction::MarkRead | MailAction::MarkUnread);
+                if undoable && !handles.is_empty() {
+                    let undo = if handles.len() == 1 {
+                        handles.pop()
+                    } else {
+                        let bulk = handles[0].1;
+                        self.bulk_undo.lock().unwrap().insert(bulk, handles);
+                        Some((BULK_UNDO.to_string(), bulk))
+                    };
+                    self.toast(label, false, undo);
+                }
+                self.publish().await;
+                for account in touched {
+                    self.clone().flush(account).await;
+                }
+            }
+            Cmd::Undo { account_id, handle } if account_id == BULK_UNDO => {
+                let handles = self.bulk_undo.lock().unwrap().remove(&handle).unwrap_or_default();
+                let mut touched = Vec::new();
+                for (account_id, handle) in handles {
+                    let account = self.app.account(&account_id)?;
+                    self.app.undo(&account, handle)?;
+                    touched.push(account);
+                }
+                self.publish().await;
+                for account in touched {
+                    self.clone().flush(account).await;
+                }
             }
             Cmd::Undo { account_id, handle } => {
                 let account = self.app.account(&account_id)?;
@@ -1060,6 +1106,40 @@ impl Service {
         Ok(())
     }
 
+    /// The folder the current mailbox lists for `account_id`.
+    async fn act_folder(&self, account_id: &str) -> Option<String> {
+        let v = self.view.lock().await;
+        let store = self.app.store();
+        v.mailbox.folder_for(|a, r| store.role_folder(a, r).ok().flatten(), account_id)
+    }
+
+    /// The message ids an action applies to: `ids`, or for a thread its
+    /// messages in the current mailbox (all of them for read state, the
+    /// newest for flags, like Gmail/Outlook).
+    async fn act_ids(
+        &self,
+        account_id: &str,
+        ids: Vec<String>,
+        thread_id: Option<String>,
+        action: &MailAction,
+    ) -> Result<Vec<String>> {
+        let Some(thread_id) = thread_id else { return Ok(ids) };
+        let from = self.act_folder(account_id).await;
+        let store = self.app.store();
+        let in_view = |m: &MessageHeader| {
+            let full = store.message(account_id, &m.id).ok().flatten();
+            from.as_ref().is_none_or(|f| full.is_some_and(|h| h.folder_ids.contains(f)))
+        };
+        let messages = store.thread_messages(account_id, &thread_id)?;
+        Ok(match action {
+            MailAction::MarkRead | MailAction::MarkUnread => messages.iter().map(|m| m.id.clone()).collect(),
+            MailAction::Flag | MailAction::Unflag => {
+                messages.iter().rev().find(|m| in_view(m)).map(|m| vec![m.id.clone()]).unwrap_or_default()
+            }
+            _ => messages.iter().filter(|m| in_view(m)).map(|m| m.id.clone()).collect(),
+        })
+    }
+
     async fn flush(self: Arc<Self>, account: Account) {
         match self.app.flush(&account).await {
             Ok(r) => {
@@ -1104,6 +1184,7 @@ pub async fn run(app: Arc<Pigeon>, mut rx: mpsc::UnboundedReceiver<Cmd>, tx: mps
         draft_sending: Default::default(),
         notify_marks: Default::default(),
         in_flight: Mutex::new(Default::default()),
+        bulk_undo: Default::default(),
     });
     // Watermark existing mail so only what arrives from now on notifies.
     svc.check_new_mail().await;
