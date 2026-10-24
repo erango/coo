@@ -9,6 +9,7 @@ mod actions;
 pub mod agent_setup;
 pub mod broker;
 mod calendar;
+pub mod drive;
 pub mod notify;
 pub mod service;
 pub mod telemetry;
@@ -133,6 +134,9 @@ impl Pigeon {
         let account = Account { id: Account::make_id(provider, &email), provider, email, display_name };
         self.tokens.set(&account.id, refresh)?;
         self.store().upsert_account(&account)?;
+        if let Some(scopes) = &token.scope {
+            self.store().set_account_scopes(&account.id, scopes)?;
+        }
         Ok(account)
     }
 
@@ -358,7 +362,7 @@ impl Pigeon {
                 tracing::warn!(error = %e, "could not remove the draft from the previous account");
             }
         }
-        let (_, mime) = self.draft_mime(&draft).await?;
+        let (_, mime) = self.draft_mime(&server_copy(&draft)).await?;
         let thread = draft.thread_hint().map(String::from);
         let id = match &*self.backend(&account)? {
             Backend::Microsoft(p) => p.put_draft(&mime, existing.as_deref(), thread.as_deref()).await?,
@@ -438,6 +442,11 @@ impl Pigeon {
                 AttachmentSource::File { path } => PathBuf::from(path),
                 AttachmentSource::Message { account_id, message_id, attachment_id } => {
                     self.attachment(&self.account(account_id)?, message_id, attachment_id).await?
+                }
+                // Streamed from Drive into the message; never written to disk.
+                AttachmentSource::Drive { account_id, file_id, export_mime, .. } => {
+                    bytes.push(self.drive_bytes(account_id, file_id, export_mime.as_deref()).await?);
+                    continue;
                 }
             };
             bytes.push(std::fs::read(&path)?);
@@ -589,6 +598,16 @@ impl Pigeon {
     }
 }
 
+/// What a draft's server copy holds. It leaves out Google Drive
+/// attachments: fetching them from Drive on every autosave would be slow
+/// and spend quota. The local draft keeps them, and they go out with the
+/// message.
+pub fn server_copy(draft: &Draft) -> Draft {
+    let mut copy = draft.clone();
+    copy.attachments.retain(|a| !a.source.is_drive());
+    copy
+}
+
 /// A local draft rebuilt from a server draft message: recipients, subject,
 /// body (into `body_html`, the editable part) and threading headers, so a
 /// reply drafted elsewhere still threads when sent from here.
@@ -617,6 +636,30 @@ mod draft_tests {
     use pigeon_core::model::{Address, MessageHeader};
 
     use super::*;
+
+    #[test]
+    fn server_draft_copies_leave_out_drive_attachments() {
+        use pigeon_core::compose::DraftAttachment;
+        let from = Sender { account_id: "graph:me@work.com".into(), address: Address::new(None, "me@work.com") };
+        let mut d = Draft::new(from, 0);
+        let att = |name: &str, source| DraftAttachment { name: name.into(), content_type: None, source };
+        d.attachments = vec![
+            att("local.pdf", AttachmentSource::File { path: "/tmp/local.pdf".into() }),
+            att(
+                "Budget.xlsx",
+                AttachmentSource::Drive {
+                    account_id: "google:me@gmail.com".into(),
+                    file_id: "f1".into(),
+                    export_mime: Some("application/pdf".into()),
+                    size: None,
+                },
+            ),
+        ];
+        let copy = server_copy(&d);
+        assert_eq!(copy.attachments.len(), 1);
+        assert_eq!(copy.attachments[0].name, "local.pdf");
+        assert_eq!(d.attachments.len(), 2, "the local draft keeps them");
+    }
 
     #[test]
     fn edit_from_message_keeps_recipients_body_and_threading() {
