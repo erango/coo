@@ -478,3 +478,6 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .multi-pane__actions .btn .kbd, .multi-pane__clear .kbd { margin-left: 4px; }
 .multi-pane__clear { display: inline-flex; align-items: center; gap: 4px; color: var(--text-2); }
 .multi-pane__hint { font-size: var(--fs-caption); color: var(--text-3); }
+/* Hidden until the bridge first fits it to its content (no short box that
+   then jumps to full height). */
+.mail-frame:not([data-fit]) { visibility: hidden; }

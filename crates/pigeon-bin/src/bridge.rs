@@ -328,20 +328,29 @@ pub const JS: &str = r#"
   }, true);
 
   // ---- Mail frames: fit height to content, open links in the browser ----
+  // The frame's `load` waits for every image, so a long message showed as a
+  // short box first. Instead, hook the new document as soon as it has a
+  // body (polled per frame), keep the frame hidden until its first fit, and
+  // re-fit as images arrive.
   function wire(f) {
     const fit = () => {
       try {
         const d = f.contentDocument; if (!d || !d.documentElement) return;
-        f.style.height = (d.documentElement.scrollHeight + 2) + 'px';
+        // No inner scrollbar, and no padding on top of the content height:
+        // mail styled with height:100% / 100vh grows with the frame, so a
+        // "+2px" fit fed the resize observer forever.
+        d.documentElement.style.overflow = 'hidden';
+        const h = d.documentElement.scrollHeight;
+        if (Math.abs(h - f.getBoundingClientRect().height) > 1) f.style.height = h + 'px';
+        f.dataset.fit = '1';
       } catch (_) {}
     };
-    f._pgFit = fit;
-    if (!f.dataset.wired) {
-      f.dataset.wired = '1';
-      f.addEventListener('load', () => {
-        fit();
-        try {
-          const d = f.contentDocument;
+    const hook = () => {
+      try {
+        const d = f.contentDocument;
+        if (!d || d.URL !== 'about:srcdoc' || !d.body) return false;
+        if (!d._pgHooked) {
+          d._pgHooked = true;
           d.addEventListener('click', (e) => {
             const a = e.target.closest && e.target.closest('a[href]');
             if (a) { e.preventDefault(); send('link', a.href); }
@@ -349,10 +358,23 @@ pub const JS: &str = r#"
           d.addEventListener('contextmenu', (e) => contextGuard(e, d));
           new ResizeObserver(fit).observe(d.documentElement);
           for (const img of d.images) img.addEventListener('load', fit);
-        } catch (_) {}
-      });
+        }
+        fit();
+        return true;
+      } catch (_) { return true; }
+    };
+    f._pgFit = fit;
+    if (f._pgSrc !== f.srcdoc) {
+      f._pgSrc = f.srcdoc;
+      delete f.dataset.fit;
+      const t0 = performance.now();
+      const poll = () => { if (!hook() && performance.now() - t0 < 3000) requestAnimationFrame(poll); };
+      requestAnimationFrame(poll);
     }
-    fit();
+    if (!f.dataset.wired) {
+      f.dataset.wired = '1';
+      f.addEventListener('load', () => { hook(); fit(); });
+    }
   }
   const scan = () => document.querySelectorAll('iframe.mail-frame').forEach(wire);
   // Re-fit every frame (after a text-size change).
