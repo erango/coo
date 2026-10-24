@@ -27,6 +27,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("008_body_origin.sql"),
     include_str!("009_services.sql"),
     include_str!("010_refetch_partial_graph.sql"),
+    include_str!("011_account_scopes.sql"),
 ];
 
 /// Which folder a list query reads.
@@ -110,6 +111,25 @@ impl Store {
     pub fn delete_account(&self, account_id: &str) -> Result<()> {
         self.conn.execute("DELETE FROM accounts WHERE id = ?1", [account_id])?;
         Ok(())
+    }
+
+    /// Record the scopes an account's sign-in was granted.
+    pub fn set_account_scopes(&self, account_id: &str, scopes: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO account_scopes (account_id, scopes) VALUES (?1, ?2)
+             ON CONFLICT (account_id) DO UPDATE SET scopes = excluded.scopes",
+            params![account_id, scopes],
+        )?;
+        Ok(())
+    }
+
+    /// The scopes recorded for an account; None when unknown.
+    pub fn account_scopes(&self, account_id: &str) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .prepare_cached("SELECT scopes FROM account_scopes WHERE account_id = ?1")?
+            .query_row([account_id], |r| r.get(0))
+            .optional()?)
     }
 
     // ---- folders ----

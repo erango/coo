@@ -55,6 +55,24 @@ pub enum AttachmentSource {
         message_id: String,
         attachment_id: String,
     },
+    /// A file picked from Google Drive, fetched with that Google account's
+    /// sign-in at send time (straight into the message, never to disk).
+    /// `export_mime` exports a Google Docs/Sheets/Slides file to that format.
+    Drive {
+        account_id: String,
+        file_id: String,
+        #[serde(default)]
+        export_mime: Option<String>,
+        /// For the composer's chip only (unknown for exports).
+        #[serde(default)]
+        size: Option<u64>,
+    },
+}
+
+impl AttachmentSource {
+    pub fn is_drive(&self) -> bool {
+        matches!(self, AttachmentSource::Drive { .. })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -500,6 +518,32 @@ mod tests {
         assert_eq!(d.thread_hint(), None);
         assert_eq!(prefixed("Fwd:", "FW: x"), "FW: x");
         assert_eq!(prefixed("Re:", "RE: x"), "RE: x");
+    }
+
+    #[test]
+    fn drive_sources_round_trip_and_old_ones_still_parse() {
+        let a = DraftAttachment {
+            name: "Budget.xlsx".into(),
+            content_type: Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".into()),
+            source: AttachmentSource::Drive {
+                account_id: "google:me@x.io".into(),
+                file_id: "f1".into(),
+                export_mime: Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".into()),
+                size: None,
+            },
+        };
+        let json = serde_json::to_string(&a).unwrap();
+        assert!(json.contains(r#""kind":"drive""#), "{json}");
+        assert_eq!(serde_json::from_str::<DraftAttachment>(&json).unwrap(), a);
+        assert!(a.source.is_drive());
+        let minimal: AttachmentSource =
+            serde_json::from_str(r#"{"kind":"drive","account_id":"g","file_id":"f"}"#).unwrap();
+        assert_eq!(
+            minimal,
+            AttachmentSource::Drive { account_id: "g".into(), file_id: "f".into(), export_mime: None, size: None }
+        );
+        let local: AttachmentSource = serde_json::from_str(r#"{"kind":"file","path":"/tmp/a"}"#).unwrap();
+        assert!(!local.is_drive());
     }
 
     #[test]

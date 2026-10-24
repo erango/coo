@@ -6,6 +6,7 @@ pub mod auth;
 pub mod bodies;
 pub mod broker;
 pub mod compose;
+pub mod drive;
 pub mod error;
 pub mod html;
 pub mod http;
