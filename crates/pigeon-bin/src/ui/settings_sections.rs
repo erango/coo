@@ -417,6 +417,8 @@ pub fn Privacy() -> Element {
 /// Version, update check and automatic installs (Sparkle; release builds only).
 #[component]
 pub fn AboutUpdates() -> Element {
+    let s = use_context::<AppState>();
+    let ready = s.update_ready.read().clone();
     let available = crate::updater::available();
     let (version, build) = crate::updater::version();
     let mut auto = use_signal(crate::updater::automatic);
@@ -426,8 +428,13 @@ pub fn AboutUpdates() -> Element {
             div { class: "settings-field",
                 span { class: "settings-field__label", "Version" }
                 span { "Coo {version} ({build})" }
-                button { class: "btn btn--secondary btn--sm", r#type: "button", disabled: !available,
-                    onclick: move |_| crate::updater::check_now(), "Check for updates" }
+                if let Some(v) = ready {
+                    button { class: "btn btn--primary btn--sm", r#type: "button",
+                        onclick: move |_| super::restart_to_update(), "Restart to update to {v}" }
+                } else {
+                    button { class: "btn btn--secondary btn--sm", r#type: "button", disabled: !available,
+                        onclick: move |_| crate::updater::check_now(), "Check for updates" }
+                }
             }
             if available {
                 label { class: "settings-field",
@@ -439,7 +446,7 @@ pub fn AboutUpdates() -> Element {
                             auto.set(on);
                         }
                     }
-                    span { class: "settings-field__hint", "Install updates automatically: Coo downloads new versions in the background and installs them when you quit." }
+                    span { class: "settings-field__hint", "Install updates automatically: Coo downloads new versions in the background. Restart when it says an update is ready, or let it update itself while it's in the menu bar." }
                 }
             } else {
                 div { class: "settings-field",

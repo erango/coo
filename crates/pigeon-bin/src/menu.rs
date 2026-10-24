@@ -8,11 +8,15 @@
 //! nothing fires twice.
 
 use dioxus::desktop::muda::accelerator::{Accelerator, Code, Modifiers};
-use dioxus::desktop::muda::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use std::cell::RefCell;
+
+use dioxus::desktop::muda::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 
 pub const SETTINGS: &str = "pigeon-settings";
 pub const AGENT_SETUP: &str = "pigeon-agent-setup";
 pub const CHECK_UPDATES: &str = "pigeon-check-updates";
+pub const ABOUT: &str = "pigeon-about";
+pub const RESTART_TO_UPDATE: &str = "pigeon-restart-to-update";
 pub const ZOOM_IN: &str = "pigeon-zoom-in";
 pub const ZOOM_OUT: &str = "pigeon-zoom-out";
 pub const ZOOM_RESET: &str = "pigeon-zoom-reset";
@@ -40,19 +44,47 @@ pub fn key_for(id: &str) -> Option<&'static str> {
     MESSAGE_ITEMS.iter().find(|(i, _, _)| *i == id).map(|(_, _, k)| *k)
 }
 
+thread_local! {
+    /// The Coo menu, and its "Restart to Update" item while one is shown.
+    static APP_MENU: RefCell<Option<(Submenu, Option<MenuItem>)>> = const { RefCell::new(None) };
+}
+
+/// "Restart to Update to x.y.z" title.
+pub fn restart_title(version: &str) -> String {
+    format!("Restart to Update to {version}")
+}
+
+/// Show (Some) or remove (None) "Restart to Update to x.y.z" under About.
+pub fn set_restart(version: Option<&str>) {
+    APP_MENU.with(|m| {
+        let mut m = m.borrow_mut();
+        let Some((app, item)) = m.as_mut() else { return };
+        match (version, item.as_ref()) {
+            (Some(v), Some(existing)) => existing.set_text(restart_title(v)),
+            (Some(v), None) => {
+                let it = MenuItem::with_id(RESTART_TO_UPDATE, restart_title(v), true, None);
+                if app.insert(&it, 1).is_ok() {
+                    *item = Some(it);
+                }
+            }
+            (None, Some(existing)) => {
+                let _ = app.remove(existing);
+                *item = None;
+            }
+            (None, None) => {}
+        }
+    });
+}
+
 pub fn build() -> Menu {
-    let about = AboutMetadata {
-        name: Some("Coo".into()),
-        version: Some(env!("CARGO_PKG_VERSION").into()),
-        ..Default::default()
-    };
     let settings =
         MenuItem::with_id(SETTINGS, "Settings…", true, Some(Accelerator::new(Some(Modifiers::SUPER), Code::Comma)));
     let app = Submenu::with_items(
         "Coo",
         true,
         &[
-            &PredefinedMenuItem::about(Some("About Coo"), Some(about)),
+            // Our own About (credits link + update status), not muda's.
+            &MenuItem::with_id(ABOUT, "About Coo", true, None),
             &MenuItem::with_id(CHECK_UPDATES, "Check for Updates…", true, None),
             &PredefinedMenuItem::separator(),
             &settings,
@@ -117,6 +149,7 @@ pub fn build() -> Menu {
 
     let menu = Menu::new();
     menu.append_items(&[&app, &edit, &view, &message, &window, &help]).expect("menu bar");
+    APP_MENU.with(|m| *m.borrow_mut() = Some((app.clone(), None)));
     #[cfg(target_os = "macos")]
     {
         window.set_as_windows_menu_for_nsapp();

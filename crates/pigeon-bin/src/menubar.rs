@@ -39,7 +39,10 @@ pub enum Action {
 
 struct Tray {
     _icon: TrayIcon,
+    menu: Menu,
     unread: MenuItem,
+    /// "Restart to Update to x.y.z" and its separator, while shown.
+    restart: Option<(MenuItem, PredefinedMenuItem)>,
 }
 
 thread_local! {
@@ -107,16 +110,57 @@ pub fn install(main: DesktopContext) {
         }
     };
     let built = TrayIconBuilder::new()
-        .with_menu(Box::new(menu))
+        .with_menu(Box::new(menu.clone()))
         .with_menu_on_left_click(true)
         .with_icon(icon)
         .with_icon_as_template(true)
         .with_tooltip("Coo")
         .build();
     match built {
-        Ok(icon) => TRAY.with(|t| *t.borrow_mut() = Some(Tray { _icon: icon, unread })),
+        Ok(icon) => TRAY.with(|t| *t.borrow_mut() = Some(Tray { _icon: icon, menu, unread, restart: None })),
         Err(e) => tracing::warn!(error = %e, "could not create the status item"),
     }
+}
+
+/// Show (Some) or remove (None) "Restart to Update to x.y.z" at the top of
+/// the status menu.
+pub fn set_restart(version: Option<&str>) {
+    TRAY.with(|t| {
+        let mut t = t.borrow_mut();
+        let Some(t) = t.as_mut() else { return };
+        match (version, t.restart.as_ref()) {
+            (Some(v), Some((item, _))) => item.set_text(crate::menu::restart_title(v)),
+            (Some(v), None) => {
+                let item = MenuItem::with_id(crate::menu::RESTART_TO_UPDATE, crate::menu::restart_title(v), true, None);
+                let sep = PredefinedMenuItem::separator();
+                if t.menu.insert(&item, 0).is_ok() && t.menu.insert(&sep, 1).is_ok() {
+                    t.restart = Some((item, sep));
+                }
+            }
+            (None, Some(_)) => {
+                if let Some((item, sep)) = t.restart.take() {
+                    let _ = t.menu.remove(&item);
+                    let _ = t.menu.remove(&sep);
+                }
+            }
+            (None, None) => {}
+        }
+    });
+}
+
+/// The main window is hidden (menu-bar mode).
+pub fn main_hidden() -> bool {
+    MAIN.with(|m| m.borrow().as_ref().is_some_and(|w| !w.is_visible()))
+}
+
+/// Start hidden in menu-bar mode (after a silent update relaunch).
+pub fn start_hidden() {
+    MAIN.with(|m| {
+        if let Some(w) = m.borrow().as_ref() {
+            w.set_visible(false);
+        }
+    });
+    imp::set_dock_icon(false);
 }
 
 /// Keep the status menu's unread line current.

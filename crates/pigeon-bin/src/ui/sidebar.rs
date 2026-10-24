@@ -364,6 +364,13 @@ fn SyncFooter() -> Element {
                     }
                 }
             }
+            if let Some(v) = s.update_ready.read().clone() {
+                button { class: "update-pill", r#type: "button", title: "Restart Coo to update to {v}",
+                    onclick: move |_| super::restart_to_update(),
+                    Icon { name: "sync", class: "icon--xs" }
+                    span { "Update ready · Restart" }
+                }
+            }
             div { class: "sync-status", "data-state": "{state}", title: "{text}",
                 onclick: move |_| send_cmd(Cmd::SyncNow),
                 Icon { name: icon, class: "icon--sm" }

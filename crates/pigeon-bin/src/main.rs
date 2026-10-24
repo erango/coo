@@ -1,6 +1,7 @@
 //! Coo desktop app (Dioxus 0.7). Renders from signals fed by the engine
 //! service; every action goes out as a `Cmd`.
 
+mod about;
 mod bridge;
 mod dock;
 mod fonts;
@@ -118,6 +119,8 @@ fn main() {
 
     let mut window = WindowBuilder::new()
         .with_title("Coo")
+        // Relaunched by a silent update while Coo was in the menu bar.
+        .with_visible(!prefs::get().relaunch_hidden)
         .with_inner_size(LogicalSize::new(1360.0, 860.0))
         .with_min_inner_size(LogicalSize::new(960.0, 600.0));
     #[cfg(target_os = "macos")]

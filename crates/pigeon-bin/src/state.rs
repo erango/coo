@@ -175,6 +175,8 @@ pub struct AppState {
     pub settings_open: Signal<bool>,
     /// "Connect an AI agent" popup.
     pub agent_setup_open: Signal<bool>,
+    /// A downloaded update waiting for a restart (its version).
+    pub update_ready: Signal<Option<String>>,
     pub os_dark: Signal<bool>,
     pub signing_in: Signal<bool>,
     pub collapsed_accounts: Signal<HashSet<String>>,
@@ -233,6 +235,7 @@ impl AppState {
             }),
             settings_open: Signal::new(false),
             agent_setup_open: Signal::new(false),
+            update_ready: Signal::new(None),
             os_dark: Signal::new(true),
             signing_in: Signal::new(false),
             collapsed_accounts: Signal::new(HashSet::new()),

@@ -379,3 +379,12 @@ input, textarea, [contenteditable="true"] { cursor: text; }
 /* Connect an AI agent: what's already configured. */
 .agent-setup__status { display: flex; align-items: center; gap: 8px; font-size: var(--fs-ui); color: var(--text-2); }
 .agent-setup__status .icon { color: var(--success); }
+
+/* Sidebar footer: a downloaded update waiting for a restart. */
+.update-pill {
+  flex: none; display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 9px;
+  border: 0; border-radius: 999px; background: var(--accent-soft); color: var(--accent);
+  font: var(--fw-semibold) 11.5px/1 var(--font-ui); white-space: nowrap; cursor: pointer;
+}
+.update-pill:hover { background: color-mix(in oklab, var(--accent-soft) 70%, var(--accent)); color: var(--accent); }
+.update-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }

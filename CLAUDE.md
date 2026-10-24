@@ -68,7 +68,9 @@ cargo cli events --days 3
   signs, notarizes and publishes the dmg plus the Sparkle `appcast.xml`
   (README → Releasing). Updates are Sparkle 2 (`pigeon-bin/src/updater.rs`,
   loaded at runtime so `cargo app` runs without it). Sparkle compares
-  `CFBundleVersion`, which must only grow (the commit count).
+  `CFBundleVersion`, which must only grow (the commit count). Coo rarely
+  quits (menu-bar mode), so the updater delegate takes Sparkle's
+  install-on-quit block and Coo restarts into the update itself.
 - Login/sync hit **real mailboxes**. Sync is read-only today; anything that
   mutates server state (send, move, delete) must be explicit.
 

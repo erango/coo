@@ -76,9 +76,13 @@ Bump `[workspace.package] version` in `Cargo.toml`, then
 3. signs the dmg for Sparkle (EdDSA) and writes `appcast.xml`;
 4. publishes a GitHub Release with the dmg, its `.sha256` and `appcast.xml`.
 
-Installed apps read `releases/latest/download/appcast.xml`, check every 6 h,
-download in the background and install on quit (Settings → About & updates,
-or Coo → Check for Updates…).
+Installed apps read `releases/latest/download/appcast.xml` and check every
+6 h, when they come back to the foreground (at most hourly) and when About
+opens. Updates download in the background; then the sidebar shows "Update
+ready · Restart" (also Coo → Restart to Update, and the menu-bar menu). While
+Coo sits in the menu bar it installs by itself after 10 minutes, unless
+something is being written or sent (Settings → About & updates, or Coo →
+Check for Updates…).
 
 Secrets (repo settings): `MACOS_CERT_P12` + `MACOS_CERT_PASSWORD` (Developer
 ID .p12), `MACOS_SIGN_IDENTITY`, `APPLE_API_KEY_ID` / `APPLE_API_ISSUER_ID` /

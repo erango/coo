@@ -70,7 +70,12 @@ pub fn App() -> Element {
                     compose_window::close_all();
                 }
             }
-            Event::Reopen { .. } => crate::menubar::show_main(),
+            Event::Reopen { .. } => {
+                crate::menubar::show_main();
+                crate::updater::check_background(false);
+            }
+            // Coming back to the foreground: a silent update check, at most hourly.
+            Event::WindowEvent { event: WindowEvent::Focused(true), .. } => crate::updater::check_background(false),
             _ => {}
         }
     });
@@ -79,6 +84,11 @@ pub fn App() -> Element {
         // Sparkle (release builds only): starts its background check schedule.
         crate::updater::start();
         crate::menubar::install(dioxus::desktop::window());
+        if crate::prefs::get().relaunch_hidden {
+            crate::prefs::update(|p| p.relaunch_hidden = false);
+            crate::menubar::start_hidden();
+        }
+        spawn(update_loop(s));
         spawn(menubar_loop(s));
         spawn(state::pump(s));
         spawn(bridge_loop(s));
@@ -240,6 +250,25 @@ pub fn App() -> Element {
                 }
                 // Ask Sparkle to check now (update tests; release builds only).
                 "check-updates" => crate::updater::check_now(),
+                // update-ready:<version>: pretend an update downloaded (the pill, menus)
+                "update-ready" => crate::updater::fake_ready(if arg.is_empty() { "9.9.9" } else { arg }),
+                // install-update: run the immediate-install path once an update is ready
+                // install-update[:<secs>]: once an update is ready, wait <secs>, then install
+                "install-update" => {
+                    let wait = arg.parse::<u64>().unwrap_or(0);
+                    spawn(async move {
+                        for _ in 0..180 {
+                            if matches!(crate::updater::status(), crate::updater::Status::Ready(_)) {
+                                tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+                                restart_to_update();
+                                return;
+                            }
+                            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                        }
+                        tracing::warn!("install-update: no update became ready");
+                    });
+                }
+                "about" => crate::about::show(),
                 "agent-setup" => {
                     let mut o = s.agent_setup_open;
                     o.set(true);
@@ -412,6 +441,8 @@ fn on_menu(s: AppState, id: &str) {
             let mut o = s.agent_setup_open;
             o.set(true);
         }
+        crate::menu::ABOUT => crate::about::show(),
+        crate::menu::RESTART_TO_UPDATE => restart_to_update(),
         crate::menu::CHECK_UPDATES => {
             if crate::updater::available() {
                 crate::updater::check_now();
@@ -439,6 +470,58 @@ pub fn open_settings_at(s: AppState, section: &str) {
     document::eval(&format!(
         "setTimeout(() => {{ const h = [...document.querySelectorAll('.settings__title')].find(e => e.textContent.trim() === {section:?}); h && h.scrollIntoView(); }}, 300);"
     ));
+}
+
+/// Install the downloaded update and relaunch into it.
+pub fn restart_to_update() {
+    if !crate::updater::install_now() {
+        tracing::warn!("restart to update: no update is ready");
+    }
+}
+
+/// Composing, or a send still inside its undo window: never restart then.
+fn update_would_interrupt(s: AppState) -> bool {
+    compose_window::any_open()
+        || s.draft.peek().is_some()
+        || s.outgoing.peek().iter().any(|o| matches!(o.state, crate::state::OutState::Sending))
+}
+
+/// Updater status to the "Update ready" pill, menus and About; and the
+/// silent install while Coo sits in the menu bar.
+async fn update_loop(s: AppState) {
+    let Some(mut rx) = crate::updater::take_events() else { return };
+    let mut ready_since: Option<std::time::SystemTime> = None;
+    let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));
+    loop {
+        tokio::select! {
+            next = rx.recv() => {
+                let Some(next) = next else { return };
+                let ready = match &next {
+                    crate::updater::Status::Ready(v) => Some(v.clone()),
+                    _ => None,
+                };
+                if ready.is_some() && ready_since.is_none() {
+                    ready_since = Some(std::time::SystemTime::now());
+                }
+                crate::menu::set_restart(ready.as_deref());
+                crate::menubar::set_restart(ready.as_deref());
+                let mut r = s.update_ready;
+                r.set(ready);
+                crate::about::refresh();
+            }
+            _ = tick.tick() => {
+                let Some(since) = ready_since else { continue };
+                let hidden = crate::menubar::main_hidden();
+                if crate::updater::silent_install_due(since, std::time::SystemTime::now(), hidden, update_would_interrupt(s)) {
+                    tracing::info!("installing the ready update silently (Coo is in the menu bar)");
+                    crate::prefs::update(|p| p.relaunch_hidden = true);
+                    if !crate::updater::install_now() {
+                        crate::prefs::update(|p| p.relaunch_hidden = false);
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// The status item's popover buttons.

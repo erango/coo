@@ -68,6 +68,8 @@ pub struct Prefs {
     /// Closing the main window keeps Coo running in the menu bar (false:
     /// closing quits).
     pub close_to_menu_bar: bool,
+    /// Relaunching after a silent update: start hidden in the menu bar.
+    pub relaunch_hidden: bool,
     /// The one-time "Coo is still running" hint was shown.
     pub menu_bar_hint_shown: bool,
 }
@@ -97,6 +99,7 @@ impl Default for Prefs {
             reply_mode: "inline".into(),
             photos_gravatar: false,
             close_to_menu_bar: true,
+            relaunch_hidden: false,
             menu_bar_hint_shown: false,
             mail_alert: "banner".into(),
             reminders_time_sensitive: true,
