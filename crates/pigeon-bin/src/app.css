@@ -398,3 +398,12 @@ input, textarea, [contenteditable="true"] { cursor: text; }
 .settings-nav__search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text-1); font: inherit; font-size: var(--fs-ui); }
 .settings-layout > .settings { flex: 1; min-width: 0; }
 .settings > .settings__title:first-of-type { margin-top: 0 !important; }
+
+/* Thread subject: selectable, with a copy button that appears on hover (and
+   stays visible briefly as a check after copying). */
+.thread-subject-row { display: flex; align-items: flex-start; gap: 6px; }
+.thread-subject-row .thread-subject { min-width: 0; cursor: text; }
+.thread-subject__copy { flex: none; margin-top: 3px; opacity: 0; transition: opacity 120ms ease; }
+.thread-subject-row:hover .thread-subject__copy,
+.thread-subject__copy:focus-visible,
+.thread-subject__copy[data-copied] { opacity: 1; }

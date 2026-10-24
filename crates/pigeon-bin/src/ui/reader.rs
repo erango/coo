@@ -73,6 +73,33 @@ fn ThreadReader() -> Element {
     }
 }
 
+/// The thread subject: selectable like any text, plus a copy button that
+/// shows on hover and turns into a check for a moment once copied.
+#[component]
+fn SubjectLine(subject: String) -> Element {
+    let mut copied = use_signal(|| false);
+    let text = subject.clone();
+    let (icon, tip) = if *copied.read() { ("check", "Copied") } else { ("copy", "Copy subject") };
+    rsx! {
+        div { class: "thread-subject-row",
+            h2 { class: "thread-subject selectable", dir: "auto", "{subject}" }
+            button { class: "icon-btn icon-btn--xs thread-subject__copy", r#type: "button", title: tip,
+                "data-copied": if *copied.read() { "true" },
+                onclick: move |_| {
+                    let js = format!("navigator.clipboard.writeText({})", serde_json::to_string(&text).unwrap_or_default());
+                    document::eval(&js);
+                    copied.set(true);
+                    spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+                        copied.set(false);
+                    });
+                },
+                Icon { name: icon, class: "icon--sm" }
+            }
+        }
+    }
+}
+
 #[component]
 fn Thread(view: ReaderView) -> Element {
     let s = use_context::<AppState>();
@@ -117,7 +144,7 @@ fn Thread(view: ReaderView) -> Element {
 
     rsx! {
         div { class: "reader",
-            h2 { class: "thread-subject", dir: "auto", "{subject}" }
+            SubjectLine { subject: subject.clone() }
             div { class: "thread-meta",
                 span { class: "tag", "data-hue": "{hue}", span { class: "dot dot--sm" } "{account_email}" }
                 // A single message is just a message: no conversation summary.
