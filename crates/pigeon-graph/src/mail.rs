@@ -150,6 +150,15 @@ fn to_change(m: types::Message, folder_id: &str) -> MailChange {
     if m.removed.is_some() {
         return MailChange::Unlink { id: m.id, folder_id: folder_id.to_string() };
     }
+    // An "updated" item can carry only what changed (e.g. isRead after the
+    // message was read elsewhere); never let it blank the stored header.
+    if m.received_date_time.is_none() && m.subject.is_none() && m.from.is_none() {
+        return MailChange::Patch {
+            id: m.id,
+            is_read: m.is_read,
+            is_flagged: m.flag.map(|f| f.flag_status.is_some_and(|s| s == "flagged")),
+        };
+    }
     MailChange::Upsert(MessageHeader {
         thread_id: m.conversation_id.unwrap_or_else(|| m.id.clone()),
         internet_message_id: m.internet_message_id,
@@ -204,6 +213,15 @@ mod tests {
     #[test]
     fn search_param_quotes_and_encodes() {
         assert_eq!(search_param(r#"deck from:"Priya Raman""#), "%22deck+from%3A%5C%22Priya+Raman%5C%22%22");
+    }
+
+    #[test]
+    fn changed_only_items_patch_instead_of_replacing() {
+        let json = r#"{"@odata.deltaLink": "https://x/delta?$deltatoken=t",
+          "value": [{"id": "AAMk1", "isRead": true}, {"id": "AAMk2", "flag": {"flagStatus": "notFlagged"}}]}"#;
+        let out = to_page(serde_json::from_str(json).unwrap(), "F").unwrap();
+        assert_eq!(out.changes[0], MailChange::Patch { id: "AAMk1".into(), is_read: Some(true), is_flagged: None });
+        assert_eq!(out.changes[1], MailChange::Patch { id: "AAMk2".into(), is_read: None, is_flagged: Some(false) });
     }
 
     #[test]

@@ -26,6 +26,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("007_server_drafts.sql"),
     include_str!("008_body_origin.sql"),
     include_str!("009_services.sql"),
+    include_str!("010_refetch_partial_graph.sql"),
 ];
 
 /// Which folder a list query reads.
@@ -909,6 +910,20 @@ fn apply_changes(tx: &Transaction, account_id: &str, changes: &[MailChange]) -> 
                     "UPDATE messages SET is_read = ?3, is_flagged = ?4 WHERE account_id = ?1 AND id = ?2",
                 )?
                 .execute(params![account_id, id, is_read, is_flagged])?;
+            }
+            MailChange::Patch { id, is_read, is_flagged } => {
+                tx.prepare_cached(
+                    "UPDATE messages SET is_read = COALESCE(?3, is_read), is_flagged = COALESCE(?4, is_flagged)
+                     WHERE account_id = ?1 AND id = ?2",
+                )?
+                .execute(params![account_id, id, is_read, is_flagged])?;
+                if let Some(read) = is_read {
+                    tx.prepare_cached(
+                        "UPDATE message_folders SET unread = ?3
+                         WHERE message_pk = (SELECT pk FROM messages WHERE account_id = ?1 AND id = ?2)",
+                    )?
+                    .execute(params![account_id, id, !read])?;
+                }
             }
             MailChange::Retain { folder_id, ids, since } => {
                 let keep: std::collections::HashSet<&str> = ids.iter().map(String::as_str).collect();

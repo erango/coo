@@ -691,3 +691,16 @@ fn services_and_zoom_meetings_round_trip() {
     store.delete_service("zoom").unwrap();
     assert!(store.service("zoom").unwrap().is_none());
 }
+
+#[test]
+fn patch_changes_state_and_keeps_the_header() {
+    let (mut s, ms, _) = setup();
+    let mut h = msg("a", "t", 100, &["in-ms"]);
+    h.subject = "Quarterly".into();
+    s.apply_mail(&ms.id, "f", &[MailChange::Upsert(h)], "1").unwrap();
+    s.apply_mail(&ms.id, "f", &[MailChange::Patch { id: "a".into(), is_read: Some(true), is_flagged: None }], "2")
+        .unwrap();
+    let got = s.message(&ms.id, "a").unwrap().unwrap();
+    assert_eq!((got.subject.as_str(), got.received_at, got.thread_id.as_str()), ("Quarterly", 100, "t"));
+    assert!(got.is_read);
+}

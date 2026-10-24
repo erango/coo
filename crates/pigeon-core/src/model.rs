@@ -185,6 +185,9 @@ pub enum MailChange {
     /// Only the read/flag state changed (IMAP flag sync); ignored if the
     /// message isn't stored.
     Flags { id: String, is_read: bool, is_flagged: bool },
+    /// Only the given states changed (a Graph delta "updated" item carries
+    /// just the changed properties); ignored if the message isn't stored.
+    Patch { id: String, is_read: Option<bool>, is_flagged: Option<bool> },
     /// The server's complete list of ids in `folder_id` received at or after
     /// `since` (IMAP has no delete feed): anything else stored there is
     /// unlinked, and deleted if it's in no other folder.
