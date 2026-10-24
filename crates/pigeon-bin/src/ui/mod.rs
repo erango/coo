@@ -3,6 +3,7 @@ mod avatar;
 pub mod calendar;
 pub mod compose;
 pub mod compose_window;
+mod drive;
 pub mod event_editor;
 mod icloud;
 mod invite;

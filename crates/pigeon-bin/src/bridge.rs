@@ -95,6 +95,39 @@ pub const JS: &str = r#"
     ed._pgSave = setTimeout(() => send('draft-input', ed.id), 1500);
   }, true);
 
+  // ---- Composer: remember each editor's caret, so things inserted from
+  // outside (Google Drive links) land where the user was typing ----
+  document.addEventListener('selectionchange', () => {
+    const sel = getSelection();
+    if (!sel.rangeCount) return;
+    const n = sel.anchorNode;
+    const el = n && (n.nodeType === 1 ? n : n.parentElement);
+    const ed = el && el.closest && el.closest('[data-editor]');
+    if (ed) ed._pgRange = sel.getRangeAt(0).cloneRange();
+  });
+  // Insert HTML at the remembered caret, else at the end of the typed text
+  // (the signature and quote live outside the editor).
+  window.__pigeonInsertHtml = (edId, html) => {
+    const ed = document.getElementById(edId);
+    if (!ed) return false;
+    ed.focus();
+    const sel = getSelection();
+    const r = ed._pgRange;
+    if (r && ed.contains(r.startContainer)) {
+      sel.removeAllRanges(); sel.addRange(r);
+      document.execCommand('insertHTML', false, html + '&nbsp;');
+    } else {
+      const div = document.createElement('div');
+      div.setAttribute('dir', 'auto');
+      div.innerHTML = html;
+      ed.appendChild(div);
+      const end = document.createRange(); end.selectNodeContents(div); end.collapse(false);
+      sel.removeAllRanges(); sel.addRange(end);
+      ed.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    return true;
+  };
+
   // ---- Composer: floating format bar over a selection ----
   // Commands go through execCommand on the focused editor; new blocks pick
   // up dir="auto" from the input handler above, explicit dirs are kept.
@@ -379,6 +412,14 @@ pub async fn try_editor_html(id: &str) -> Option<String> {
 pub async fn editor_html(id: &str) -> String {
     let js = format!("return document.getElementById({id:?})?.innerHTML ?? ''");
     document::eval(&js).join::<String>().await.unwrap_or_default()
+}
+
+/// Insert HTML into an editor at its last caret (or at the end of the
+/// typed text). The editor's input event then autosaves the draft.
+pub fn insert_html(editor: &str, html: &str) {
+    let (id, html) =
+        (serde_json::to_string(editor).unwrap_or_default(), serde_json::to_string(html).unwrap_or_default());
+    document::eval(&format!("window.__pigeonInsertHtml && window.__pigeonInsertHtml({id}, {html})"));
 }
 
 pub fn set_theme(theme: &str) {

@@ -4,6 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::compose::{AttachmentSource, DraftAttachment};
 use crate::text::escape_html;
 
 /// The OAuth scope that lets Coo open only the files the user picks.
@@ -149,6 +150,30 @@ pub fn chosen_bytes(files: &[DriveFile], choices: &[DriveChoice]) -> u64 {
     files.iter().zip(choices).filter(|(_, c)| **c == DriveChoice::Attach).map(|(f, _)| f.size_bytes.unwrap_or(0)).sum()
 }
 
+/// The draft attachment for a file attached (or exported) from the Google
+/// account `account_id`. None for links.
+pub fn drive_attachment(account_id: &str, file: &DriveFile, choice: DriveChoice) -> Option<DraftAttachment> {
+    let (name, content_type, export_mime, size) = match choice {
+        DriveChoice::Link => return None,
+        DriveChoice::Attach if file.is_native() => return None,
+        DriveChoice::Attach => (file.name.clone(), file.mime_type.clone(), None, file.size_bytes),
+        DriveChoice::Export(i) => {
+            let f = export_formats(&file.mime_type).get(i)?;
+            (export_name(&file.name, f.ext), f.mime.to_string(), Some(f.mime.to_string()), None)
+        }
+    };
+    Some(DraftAttachment {
+        name,
+        content_type: Some(content_type),
+        source: AttachmentSource::Drive {
+            account_id: account_id.to_string(),
+            file_id: file.id.clone(),
+            export_mime,
+            size,
+        },
+    })
+}
+
 /// The link inserted for a file: its name, pointing at Drive.
 pub fn link_html(file: &DriveFile) -> Option<String> {
     let url = file.url.as_deref().filter(|u| u.starts_with("https://"))?;
@@ -251,6 +276,33 @@ mod tests {
         assert_eq!(chosen_bytes(&files, &choices), 13 * MB);
         // Unknown size counts as small.
         assert_eq!(default_choices(&[file("x", "text/plain", None)], 0)[0].0, DriveChoice::Attach);
+    }
+
+    #[test]
+    fn attachments_from_choices() {
+        let pdf = file("p", "application/pdf", Some(2048));
+        let a = drive_attachment("google:me@x.io", &pdf, DriveChoice::Attach).unwrap();
+        assert_eq!((a.name.as_str(), a.content_type.as_deref()), ("p name", Some("application/pdf")));
+        assert_eq!(
+            a.source,
+            AttachmentSource::Drive {
+                account_id: "google:me@x.io".into(),
+                file_id: "p".into(),
+                export_mime: None,
+                size: Some(2048)
+            }
+        );
+        assert_eq!(drive_attachment("g", &pdf, DriveChoice::Link), None);
+
+        let mut sheet = file("s", "application/vnd.google-apps.spreadsheet", None);
+        sheet.name = "Budget".into();
+        let x = drive_attachment("g", &sheet, DriveChoice::Export(1)).unwrap();
+        assert_eq!(x.name, "Budget.xlsx");
+        let AttachmentSource::Drive { export_mime, .. } = &x.source else { panic!() };
+        assert_eq!(export_mime.as_deref(), x.content_type.as_deref());
+        assert_eq!(drive_attachment("g", &sheet, DriveChoice::Export(0)).unwrap().name, "Budget.pdf");
+        assert_eq!(drive_attachment("g", &sheet, DriveChoice::Export(5)), None);
+        assert_eq!(drive_attachment("g", &sheet, DriveChoice::Attach), None, "native files only export");
     }
 
     #[test]

@@ -478,6 +478,8 @@ fn file_size(a: &DraftAttachment) -> String {
             std::fs::metadata(path).map(|m| crate::format::size(m.len())).unwrap_or_default()
         }
         AttachmentSource::Message { .. } => "forwarded".into(),
+        AttachmentSource::Drive { size: Some(n), .. } => crate::format::size(*n),
+        AttachmentSource::Drive { .. } => "Google Drive".into(),
     }
 }
 
@@ -493,10 +495,18 @@ fn Attachments() -> Element {
         div { class: "composer__attachments",
             for (i, a) in atts.into_iter().enumerate() {
                 div { class: "attachment", key: "{i}-{a.name}",
-                    span { class: "attachment__icon", "data-kind": "file", Icon { name: "file", class: "icon--sm" } }
+                    {
+                        let (kind, icon) = super::drive::file_kind(a.content_type.as_deref().unwrap_or_default(), &a.name);
+                        rsx! { span { class: "attachment__icon", "data-kind": "{kind}", Icon { name: icon, class: "icon--sm" } } }
+                    }
                     div { style: "min-width:0;flex:1",
                         div { class: "attachment__name", dir: "auto", "{a.name}" }
-                        div { class: "attachment__size", "{file_size(&a)}" }
+                        div { class: "attachment__size",
+                            if a.source.is_drive() {
+                                span { class: "attachment__drive", title: "From Google Drive", Icon { name: "cloud", class: "icon--xs" } }
+                            }
+                            "{file_size(&a)}"
+                        }
                     }
                     button { class: "icon-btn icon-btn--sm", "aria-label": "Remove attachment",
                         onclick: move |_| { if let Some(d) = draft.write().as_mut() && i < d.attachments.len() { d.attachments.remove(i); } },
@@ -505,20 +515,6 @@ fn Attachments() -> Element {
                 }
             }
         }
-    }
-}
-
-/// Paperclip button: a hidden file input (Dioxus desktop opens the native
-/// picker and reports real paths).
-#[component]
-fn AttachButton(id: String) -> Element {
-    let slot = use_context::<ComposeSlot>();
-    rsx! {
-        label { class: "icon-btn icon-btn--sm", r#for: "{id}", title: "Attach files", "aria-label": "Attach files",
-            Icon { name: "clip" }
-        }
-        input { id: "{id}", r#type: "file", multiple: true, style: "display:none",
-            onchange: move |e| add_files(slot, e.files()) }
     }
 }
 
@@ -664,8 +660,10 @@ pub fn InlineReply(draft: Draft) -> Element {
                 button { class: "inline-reply__quoted", r#type: "button", title: "Quoted text is included", "•••" }
             }
             Attachments {}
+            super::drive::DriveWaiting {}
+            super::drive::DriveSheet { editor: id.clone() }
             div { class: "inline-reply__footer",
-                AttachButton { id: "attach-{current.id}" }
+                super::drive::AttachMenu { id: "attach-{current.id}", on_files: move |f| add_files(slot, f) }
                 span { class: "spacer" }
                 SendButton {}
             }
@@ -864,8 +862,10 @@ pub fn Composer(draft: Draft, #[props(default)] docked: bool) -> Element {
                     SignaturePreview {}
                 }
                 Attachments {}
+                super::drive::DriveWaiting {}
+                super::drive::DriveSheet { editor: id.clone() }
                 div { class: "composer__footer",
-                    AttachButton { id: "attach-{current.id}" }
+                    super::drive::AttachMenu { id: "attach-{current.id}", on_files: move |f| add_files(slot, f) }
                     match notice {
                         Some(n) => rsx! { span { class: "t-caption composer__notice", role: "alert", "{n}" } },
                         None => rsx! { span { class: "t-caption", "Ctrl+Right Shift: RTL · Ctrl+Left Shift: LTR" } },

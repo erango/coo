@@ -478,3 +478,29 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .multi-pane__actions .btn .kbd, .multi-pane__clear .kbd { margin-left: 4px; }
 .multi-pane__clear { display: inline-flex; align-items: center; gap: 4px; color: var(--text-2); }
 .multi-pane__hint { font-size: var(--fs-caption); color: var(--text-3); }
+
+/* Composer: attach menu (this Mac / Google Drive) and the Drive sheet (ui/drive.rs). */
+.attach-menu-anchor { position: relative; display: inline-flex; }
+.attach-menu-scrim { position: fixed; inset: 0; z-index: 29; }
+.attach-menu { position: absolute; left: 0; bottom: 36px; z-index: 30; min-width: 240px; max-width: 320px; }
+.attach-menu .menu-item { cursor: default; }
+.attach-menu__off { height: auto; min-height: 32px; padding-top: 6px; padding-bottom: 6px; color: var(--text-3); }
+.attach-menu__off:hover { background: transparent; }
+.attach-menu__text { display: flex; flex-direction: column; min-width: 0; }
+.attach-menu__hint { font-size: 11.5px; color: var(--text-3); }
+.attach-menu__account { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attachment__drive { display: inline-flex; vertical-align: -2px; margin-right: 4px; color: var(--text-3); }
+.drive-waiting { display: flex; align-items: center; gap: 8px; margin: 4px 24px; padding: 6px 10px; border-radius: var(--radius-md); background: var(--bg-2); font-size: 12.5px; color: var(--text-2); }
+.inline-reply .drive-waiting, .inline-reply .drive-sheet { margin-left: 16px; margin-right: 16px; }
+.drive-sheet { margin: 6px 24px 8px; padding: 10px; display: flex; flex-direction: column; gap: 8px; box-shadow: var(--shadow-overlay), inset 0 0 0 1px var(--line); }
+.drive-sheet__head { display: flex; align-items: center; gap: 8px; padding: 0 2px; font-size: 12.5px; font-weight: var(--fw-semibold); color: var(--text-2); }
+.drive-sheet__list { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
+.drive-row { display: flex; align-items: center; gap: 10px; padding: 6px 4px; border-radius: var(--radius-sm); }
+.drive-row:hover { background: var(--bg-1); }
+.drive-row__meta { min-width: 0; flex: 1; }
+.drive-row__note { color: var(--warning, var(--text-3)); }
+.drive-row .segmented { flex: none; }
+.drive-row .segmented > button { white-space: nowrap; }
+.drive-sheet__warn { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius-sm); background: var(--error-soft); color: var(--error); font-size: 12px; }
+.drive-sheet__foot { display: flex; align-items: center; gap: 8px; padding-top: 2px; }
+.drive-sheet__share { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-2); }
