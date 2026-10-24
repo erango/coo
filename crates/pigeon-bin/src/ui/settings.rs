@@ -11,40 +11,127 @@ use crate::send_cmd;
 use crate::state::{AppState, Theme};
 use crate::{prefs, themes};
 
+/// Settings subpages: (title, icon, search keywords).
+pub const PAGES: &[(&str, &str, &str)] = &[
+    ("General", "gear", "close window menu bar quit startup"),
+    ("Appearance", "sun", "theme dark light mode color colour text size font zoom"),
+    ("Accounts", "at", "account sign in sign out add microsoft google gmail icloud zoom video calls order"),
+    ("Composing", "edit", "signature undo send later reply new message window docked"),
+    ("Calendar", "cal", "week start sunday monday weekend"),
+    ("Notifications", "bell", "sound sounds alert banner reminder meeting focus do not disturb mute volume"),
+    ("Privacy", "lock", "remote images tracking crash reports sentry photos gravatar"),
+    ("Keyboard shortcuts", "dash", "keys shortcut hotkey"),
+    ("AI agents", "link", "agent claude mcp assistant"),
+    ("About & updates", "question", "version update check about"),
+];
+
+/// Pages whose title or keywords match `query` (all pages when empty).
+pub fn matching_pages(query: &str) -> Vec<&'static str> {
+    let q = query.trim().to_lowercase();
+    PAGES
+        .iter()
+        .filter(|(title, _, kw)| {
+            q.is_empty()
+                || title.to_lowercase().contains(&q)
+                || kw.split(' ').any(|w| w.starts_with(&q))
+                || kw.contains(&q)
+        })
+        .map(|(title, _, _)| *title)
+        .collect()
+}
+
+/// Switch Settings to a page (unknown titles fall back to General).
+pub fn show_page(s: AppState, title: &str) {
+    let page = PAGES.iter().find(|(t, _, _)| t.eq_ignore_ascii_case(title)).map_or("General", |(t, _, _)| *t);
+    let mut p = s.settings_page;
+    p.set(page.to_string());
+}
+
 #[component]
 pub fn Settings() -> Element {
     let s = use_context::<AppState>();
     let mut open = s.settings_open;
+    let mut page = s.settings_page;
+    let mut query = use_signal(String::new);
+    let current = page.read().clone();
+    let shown = matching_pages(&query.read());
     rsx! {
         main { class: "pane pane--reader",
-            div { class: "settings",
-                div { class: "settings__crumbs",
-                    span { "Settings" }
-                    span { class: "spacer" }
-                    button { class: "icon-btn icon-btn--sm", "aria-label": "Close settings (Esc)", onclick: move |_| open.set(false),
-                        Icon { name: "x" }
+            div { class: "settings-layout",
+                nav { class: "settings-nav", "aria-label": "Settings pages",
+                    div { class: "settings-nav__search",
+                        Icon { name: "search", class: "icon--sm" }
+                        input { r#type: "search", placeholder: "Find a setting", value: "{query}", autocomplete: "off",
+                            oninput: move |e| {
+                                let v = e.value();
+                                // Jump to the first page that has it.
+                                if let Some(first) = matching_pages(&v).first() { page.set((*first).to_string()); }
+                                query.set(v);
+                            }
+                        }
+                    }
+                    for (title, icon, _) in PAGES.iter().filter(|(t, _, _)| shown.contains(t)) {
+                        a { class: "nav-item", href: "#", key: "{title}",
+                            "aria-current": if current == *title { "page" } else { "false" },
+                            onclick: move |e| { e.prevent_default(); page.set(title.to_string()); },
+                            Icon { name: icon }
+                            span { class: "nav-item__label", "{title}" }
+                        }
+                    }
+                    if shown.is_empty() {
+                        div { class: "settings__hint", style: "margin:8px 10px", "No settings match." }
                     }
                 }
-                Appearance {}
-                Accounts {}
-                super::settings_sections::General {}
-                super::settings_sections::Composing {}
-                super::settings_sections::CalendarSettings {}
-                super::settings_sections::Notifications {}
-                super::settings_sections::Privacy {}
-                super::settings_sections::Shortcuts {}
-                super::settings_sections::AboutUpdates {}
-                div { class: "settings__title", style: "margin-top:12px", "AI agents" }
-                div { class: "settings__hint", "Let Claude or another agent search and read your mail and calendar through Coo." }
-                div {
-                    button { class: "btn btn--secondary", r#type: "button",
-                        onclick: move |_| { let mut o = s.agent_setup_open; o.set(true); },
-                        Icon { name: "link", class: "icon--sm" }
-                        "Connect an AI agent…"
+                div { class: "settings",
+                    div { class: "settings__crumbs",
+                        span { "Settings" }
+                        span { "›" }
+                        span { style: "color:var(--text-2)", "{current}" }
+                        span { class: "spacer" }
+                        button { class: "icon-btn icon-btn--sm", "aria-label": "Close settings (Esc)", onclick: move |_| open.set(false),
+                            Icon { name: "x" }
+                        }
+                    }
+                    match current.as_str() {
+                        "Appearance" => rsx! { Appearance {} },
+                        "Accounts" => rsx! { Accounts {} },
+                        "Composing" => rsx! { super::settings_sections::Composing {} },
+                        "Calendar" => rsx! { super::settings_sections::CalendarSettings {} },
+                        "Notifications" => rsx! { super::settings_sections::Notifications {} },
+                        "Privacy" => rsx! { super::settings_sections::Privacy {} },
+                        "Keyboard shortcuts" => rsx! { super::settings_sections::Shortcuts {} },
+                        "About & updates" => rsx! { super::settings_sections::AboutUpdates {} },
+                        "AI agents" => rsx! {
+                            div { class: "settings__title", "AI agents" }
+                            div { class: "settings__hint", "Let Claude or another agent search and read your mail and calendar through Coo." }
+                            div {
+                                button { class: "btn btn--secondary", r#type: "button",
+                                    onclick: move |_| { let mut o = s.agent_setup_open; o.set(true); },
+                                    Icon { name: "link", class: "icon--sm" }
+                                    "Connect an AI agent…"
+                                }
+                            }
+                        },
+                        _ => rsx! { super::settings_sections::General {} },
                     }
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod page_tests {
+    use super::*;
+
+    #[test]
+    fn search_finds_the_right_page() {
+        assert_eq!(matching_pages("sound").first(), Some(&"Notifications"));
+        assert_eq!(matching_pages("signature").first(), Some(&"Composing"));
+        assert_eq!(matching_pages("week").first(), Some(&"Calendar"));
+        assert_eq!(matching_pages("dark").first(), Some(&"Appearance"));
+        assert_eq!(matching_pages("").len(), PAGES.len());
+        assert!(matching_pages("zzz").is_empty());
     }
 }
 

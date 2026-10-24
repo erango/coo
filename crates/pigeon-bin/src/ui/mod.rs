@@ -235,10 +235,7 @@ pub fn App() -> Element {
                     let mut o = s.settings_open;
                     o.set(true);
                     if !arg.is_empty() {
-                        let js = format!(
-                            "setTimeout(() => {{ const h = [...document.querySelectorAll('.settings__title')].find(e => e.textContent.trim() === {arg:?}); h && h.scrollIntoView(); }}, 400);"
-                        );
-                        document::eval(&js);
+                        settings::show_page(s, arg);
                     }
                 }
                 // menubar-hint — hide into the menu bar and show the one-time hint
@@ -467,9 +464,7 @@ pub fn open_settings_at(s: AppState, section: &str) {
     crate::menubar::show_main();
     let mut o = s.settings_open;
     o.set(true);
-    document::eval(&format!(
-        "setTimeout(() => {{ const h = [...document.querySelectorAll('.settings__title')].find(e => e.textContent.trim() === {section:?}); h && h.scrollIntoView(); }}, 300);"
-    ));
+    settings::show_page(s, section);
 }
 
 /// Install the downloaded update and relaunch into it.

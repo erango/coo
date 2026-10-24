@@ -173,6 +173,8 @@ pub struct AppState {
     /// Color theme family id (see `themes`).
     pub palette: Signal<String>,
     pub settings_open: Signal<bool>,
+    /// Settings subpage shown (a `settings::PAGES` title).
+    pub settings_page: Signal<String>,
     /// "Connect an AI agent" popup.
     pub agent_setup_open: Signal<bool>,
     /// A downloaded update waiting for a restart (its version).
@@ -234,6 +236,7 @@ impl AppState {
                 if crate::themes::is_known(&p) { p } else { crate::themes::DEFAULT.to_string() }
             }),
             settings_open: Signal::new(false),
+            settings_page: Signal::new("General".into()),
             agent_setup_open: Signal::new(false),
             update_ready: Signal::new(None),
             os_dark: Signal::new(true),
