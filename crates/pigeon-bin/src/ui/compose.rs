@@ -628,8 +628,18 @@ fn drop_handlers(
     )
 }
 
+/// The editor's starting HTML, taken once when the composer opens. The
+/// draft prop changes as autosave writes the typed body back into state;
+/// feeding that to `dangerous_inner_html` reset the editor's contents
+/// mid-typing, which threw the caret to the start.
+fn use_editor_body(draft: &Draft) -> String {
+    let body = draft.body_html.clone();
+    use_hook(move || body)
+}
+
 #[component]
 pub fn InlineReply(draft: Draft) -> Element {
+    let body = use_editor_body(&draft);
     let s = use_context::<AppState>();
     let slot = use_context::<ComposeSlot>();
     use_senders(s);
@@ -696,7 +706,7 @@ pub fn InlineReply(draft: Draft) -> Element {
             super::format_bar::FormatBar { editor: id.clone() }
             div { class: "inline-reply__editor", id: "{id}", contenteditable: "true", "data-editor": "true",
                 dir: "auto", "data-placeholder": "Write a reply…  Ctrl+Right Shift for RTL",
-                dangerous_inner_html: "{draft.body_html}",
+                dangerous_inner_html: "{body}",
             }
             div { style: "padding:0 16px", SignaturePreview {} }
             QuotedOriginal { html: current.html.clone() }
@@ -797,6 +807,7 @@ fn debug_extras() -> bool {
 
 #[component]
 pub fn Composer(draft: Draft, #[props(default)] docked: bool) -> Element {
+    let body = use_editor_body(&draft);
     let s = use_context::<AppState>();
     let slot = use_context::<ComposeSlot>();
     use_senders(s);
@@ -900,7 +911,7 @@ pub fn Composer(draft: Draft, #[props(default)] docked: bool) -> Element {
                 div { class: "dropzone", Icon { name: "upload" } "Drop to attach" span { class: "dropzone__meta", "files are added to this message" } }
                 div { class: "composer__body",
                     div { class: "composer__editor", id: "{id}", contenteditable: "true", "data-editor": "true", dir: "auto",
-                        dangerous_inner_html: "{draft.body_html}" }
+                        dangerous_inner_html: "{body}" }
                     SignaturePreview {}
                     if !current.html.is_empty() {
                         div { class: "composer__quote", QuotedOriginal { html: current.html.clone() } }
