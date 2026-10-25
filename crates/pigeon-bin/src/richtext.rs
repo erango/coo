@@ -72,11 +72,13 @@ pub const INLINE_CODE_RE: &str = "(^|[\\s(\\[{\"'])`([^`\\s](?:[^`]*[^`\\s])?)$"
 /// optional language name.
 pub const CODE_FENCE_RE: &str = "^[ \u{a0}]*```[A-Za-z0-9+#-]*[ \u{a0}]*$";
 
-/// Inline styles for code, so recipients' mail shows it as code.
+/// Inline styles for code, so recipients' mail shows it as code. The text
+/// color is set with the light background, so dark-mode readers (which
+/// lighten text) can't end up with light text on it.
 pub const CODE_STYLE: &str = "font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.9em;\
-     background-color:#f2f3f5;border-radius:4px;padding:1px 4px";
+     color:#24292f;background-color:#f2f3f5;border-radius:4px;padding:1px 4px";
 pub const PRE_STYLE: &str = "font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;\
-     line-height:1.45;white-space:pre-wrap;tab-size:4;text-align:left;background-color:#f6f8fa;\
+     line-height:1.45;white-space:pre-wrap;tab-size:4;text-align:left;color:#24292f;background-color:#f6f8fa;\
      border:1px solid #e1e4e8;border-radius:6px;padding:8px 10px;margin:4px 0";
 
 /// Emoticons typed as a word of their own (line start or after a space)

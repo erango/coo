@@ -439,8 +439,12 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 [data-editor] :is(ul, ol):dir(ltr) > li:dir(rtl) { margin-right: 1.7em; }
 [data-editor] blockquote[data-coo-quote] { color: var(--text-2) !important; border-color: var(--line-strong) !important; }
 /* Code goes out light (inline styles); here it follows the theme. */
-[data-editor] code, [data-editor] pre { background-color: var(--bg-2) !important; color: var(--text-1); }
+[data-editor] code, [data-editor] pre {
+  background-color: color-mix(in oklab, var(--text-1) 10%, transparent) !important;
+  color: var(--text-1) !important;
+}
 [data-editor] pre { border-color: var(--line-strong) !important; }
+[data-editor] :is(code, pre) * { color: inherit !important; background-color: transparent !important; }
 /* Recipient boxes read as text fields: I-beam anywhere in the row, and an
    empty one still shows where to type. */
 .recipients { cursor: text; }
