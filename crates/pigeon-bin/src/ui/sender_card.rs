@@ -36,6 +36,9 @@ pub struct CardState {
     /// Anchor's bottom-left, in viewport px.
     pub x: f64,
     pub y: f64,
+    /// The window the anchor is in (message windows have their own card);
+    /// None = the main window.
+    pub window: Option<dioxus::desktop::tao::window::WindowId>,
 }
 
 fn open_after(s: AppState, el: Option<Rc<MountedData>>, mut card: CardState, delay: Duration) {
@@ -91,7 +94,8 @@ pub fn Person(
 ) -> Element {
     let s = use_context::<AppState>();
     let mut el = use_signal(|| None::<Rc<MountedData>>);
-    let card = CardState { account_id, message_id, addr, sender, x: 0.0, y: 0.0 };
+    let window = Some(dioxus::desktop::window().id());
+    let card = CardState { account_id, message_id, addr, sender, x: 0.0, y: 0.0, window };
     let (c1, c2) = (card.clone(), card);
     rsx! {
         // List rows are navigated with J/K, so their names aren't tab stops.
@@ -150,6 +154,9 @@ fn title_case(s: &str) -> String {
 pub fn SenderCard() -> Element {
     let s = use_context::<AppState>();
     let Some(card) = s.sender_card.read().clone() else { return rsx! {} };
+    if !card.window.is_none_or(|w| w == dioxus::desktop::window().id()) {
+        return rsx! {};
+    }
     let addr = card.addr.clone();
     let email = addr.email.clone();
     let name = addr.name.clone().filter(|n| !n.trim().is_empty() && !n.eq_ignore_ascii_case(&email));
