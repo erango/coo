@@ -456,6 +456,11 @@ pub fn set_palette(palette: &str) {
     document::eval(&format!("document.documentElement.dataset.palette = {palette:?}"));
 }
 
+/// Focus an element by id. Called while a component first renders, so the
+/// element may not be in the page yet: try again for a few frames.
 pub fn focus(id: &str) {
-    document::eval(&format!("setTimeout(() => document.getElementById({id:?})?.focus(), 0)"));
+    document::eval(&format!(
+        "(() => {{ let n = 0; const go = () => {{ const e = document.getElementById({id:?}); \
+         if (e) e.focus(); else if (n++ < 40) setTimeout(go, 25); }}; setTimeout(go, 0); }})()"
+    ));
 }

@@ -440,7 +440,7 @@ impl Pigeon {
         for a in &draft.attachments {
             let path = match &a.source {
                 AttachmentSource::File { path } => PathBuf::from(path),
-                AttachmentSource::Message { account_id, message_id, attachment_id } => {
+                AttachmentSource::Message { account_id, message_id, attachment_id, .. } => {
                     self.attachment(&self.account(account_id)?, message_id, attachment_id).await?
                 }
                 // Streamed from Drive into the message; never written to disk.
