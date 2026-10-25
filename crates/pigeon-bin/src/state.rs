@@ -221,6 +221,10 @@ pub struct AppState {
     /// `default_from_account`; empty: the top account). Read it through
     /// [`AppState::default_from`].
     pub default_account: Signal<String>,
+    /// The chosen calendar for new events (prefs `default_calendar`,
+    /// `account_id|calendar_id`; empty: automatic). Resolved by
+    /// `event_editor::new_event_calendar`.
+    pub default_calendar: Signal<String>,
     /// An account header's right-click menu while open.
     pub account_menu: Signal<Option<crate::ui::account_menu::AccountMenu>>,
 }
@@ -297,6 +301,7 @@ impl AppState {
             collapsed_accounts: Signal::new(HashSet::new()),
             nicknames: Signal::new(crate::prefs::get().account_nicknames),
             default_account: Signal::new(crate::prefs::get().default_from_account),
+            default_calendar: Signal::new(crate::prefs::get().default_calendar),
             account_menu: Signal::new(None),
         }
     }
@@ -364,6 +369,15 @@ impl AppState {
         let mut d = self.default_account;
         d.set(id.clone());
         crate::prefs::update(move |p| p.default_from_account = id);
+    }
+
+    /// Make a calendar (account id, calendar id) the default for new
+    /// events; `None`: automatic.
+    pub fn set_default_calendar(&self, calendar: Option<(&str, &str)>) {
+        let v = calendar.map(|(a, c)| format!("{a}|{c}")).unwrap_or_default();
+        let mut d = self.default_calendar;
+        d.set(v.clone());
+        crate::prefs::update(move |p| p.default_calendar = v);
     }
 
     /// Set (or, when blank, clear) an account's nickname.

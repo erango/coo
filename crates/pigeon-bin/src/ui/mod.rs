@@ -242,6 +242,29 @@ pub fn App() -> Element {
                         }
                     });
                 }
+                // calmenu:<n>[|<k>] — the calendar, with the right-click menu of
+                // the n-th account header in its sidebar, or of its k-th calendar
+                "calmenu" => {
+                    let mut m = s.mode;
+                    m.set(Mode::Calendar);
+                    let (n, k) = arg.split_once('|').map_or((arg, None), |(n, k)| (n, k.parse::<usize>().ok()));
+                    let n: usize = n.parse().unwrap_or(0);
+                    spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(2000)).await;
+                        let Some(id) = s.accounts.peek().get(n).map(|a| a.account.id.clone()) else { return };
+                        let cal = k.and_then(|k| {
+                            s.calendar
+                                .peek()
+                                .calendars
+                                .iter()
+                                .filter(|(a, _)| *a == id)
+                                .nth(k)
+                                .map(|(_, c)| c.id.clone())
+                        });
+                        let target = cal.map_or(account_menu::Target::CalAccount, account_menu::Target::Calendar);
+                        account_menu::open_for(s, &id, target, 120.0, 330.0);
+                    });
+                }
                 // settings-account:<n> — Settings › Accounts at the n-th account
                 "settings-account" => {
                     let n: usize = arg.parse().unwrap_or(0);

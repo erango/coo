@@ -301,6 +301,19 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
   font-size: var(--fs-caption); font-weight: var(--fw-semibold); color: var(--text-3); cursor: pointer;
 }
 .allday-more:hover { background: var(--bg-2); color: var(--text-1); }
+/* A day's empty all-day space: a click makes an all-day event there
+   (calendar.rs). Under the chips; lit like a draft while that event's
+   editor is open. */
+.allday-slot {
+  position: absolute; top: -5px; bottom: -5px; border-radius: 5px;
+  left: calc(var(--day) / var(--days, 7) * 100% + 1px); width: calc(1 / var(--days, 7) * 100% - 2px);
+}
+.allday-slot:hover { background: var(--bg-2); }
+.allday-slot[data-draft] { background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px var(--accent); }
+/* A calendar's right-click menu (account_menu.rs): it's ringed, like an
+   account header with its menu open. */
+.cal-list__item[data-context] { box-shadow: inset 0 0 0 1.5px var(--accent); border-radius: var(--radius-sm); }
+.account-menu .menu-item > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ⌘K: the query box reads as a text field (people took the bare design
    input for a menu title): sunken, bordered, accent ring on focus. The row

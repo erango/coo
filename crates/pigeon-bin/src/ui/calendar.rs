@@ -10,6 +10,7 @@ use dioxus::prelude::*;
 use pigeon_core::model::{Attendee, EventDraft, EventRow, Response};
 use pigeon_engine::service::Cmd;
 
+use super::account_menu::Target;
 use super::{DAY_MS, Icon};
 use crate::format;
 use crate::send_cmd;
@@ -454,6 +455,10 @@ fn TimeGrid(days: Vec<NaiveDate>, selected: Signal<Option<(String, String)>>) ->
     let (all_day, timed): (Vec<EventRow>, Vec<EventRow>) = events.into_iter().partition(|e| e.event.all_day);
     let draft_form = s.editor.read().clone();
     let draft = draft_form.as_ref().and_then(super::event_editor::draft_span);
+    let allday_draft = draft_form
+        .as_ref()
+        .filter(|f| f.editing.is_none() && f.all_day)
+        .and_then(|f| super::event_editor::parse_date(&f.date));
     let draft_title = draft_form
         .as_ref()
         .map(|f| if f.title.trim().is_empty() { "New event".to_string() } else { f.title.trim().to_string() })
@@ -484,6 +489,15 @@ fn TimeGrid(days: Vec<NaiveDate>, selected: Signal<Option<(String, String)>>) ->
             div { class: "allday", style: "--allday-rows:{layout.rows}",
                 span { class: "allday__label", "all-day" }
                 div { class: "allday__track",
+                    // Empty space per day, under the chips: a click starts an
+                    // all-day event that day. Lit while that new event is open.
+                    for (d, date) in days.iter().copied().enumerate() {
+                        div { class: "allday-slot", key: "slot{d}", "aria-hidden": "true",
+                            style: "--day:{d};--days:{n}",
+                            "data-draft": (allday_draft == Some(date)).then_some("true"),
+                            onclick: move |_| { selected.set(None); super::event_editor::open_all_day(s, date); },
+                        }
+                    }
                     for (e, (start_day, end_day), lane) in all_day.iter().zip(spans.iter().copied()).zip(layout.lanes.iter().copied()).map(|((e, sp), l)| (e, sp, l)) {
                         if let Some(lane) = lane {
                             {
@@ -734,6 +748,13 @@ pub fn CalendarSidebar() -> Element {
     let today = Local::now().date_naive();
     let calendars = s.calendar.read().calendars.clone();
     let accounts = s.accounts.read().clone();
+    // Quiet, as for mail: the default for new events shows in a tooltip.
+    let pref = s.default_calendar.read().clone();
+    let chosen = super::event_editor::chosen_calendar(&calendars, &pref);
+    let default = chosen.clone().or_else(|| super::event_editor::auto_calendar(&calendars));
+    let menu = s.account_menu.read().clone();
+    let menu_on =
+        |account: &str, target: &Target| menu.as_ref().is_some_and(|m| m.account_id == account && &m.target == target);
 
     rsx! {
         div { class: "mini-month",
@@ -765,12 +786,41 @@ pub fn CalendarSidebar() -> Element {
             for a in accounts {
                 {
                     let mine: Vec<_> = calendars.iter().filter(|(id, _)| id == &a.account.id).map(|(_, c)| c.clone()).collect();
+                    let account_id = a.account.id.clone();
                     rsx! {
-                        div { class: "nav-section", key: "{a.account.id}", span { class: "spacer", dir: "auto", "{s.account_label(&a.account.id, &a.account.email)}" } }
+                        div { class: "nav-section", key: "{a.account.id}",
+                            "data-context": menu_on(&a.account.id, &Target::CalAccount).then_some("true"),
+                            oncontextmenu: move |e| {
+                                e.prevent_default();
+                                let p = e.client_coordinates();
+                                super::account_menu::open_for(s, &account_id, Target::CalAccount, p.x, p.y);
+                            },
+                            span { class: "spacer", dir: "auto", "{s.account_label(&a.account.id, &a.account.email)}" }
+                        }
                         for c in mine {
-                            label { class: "cal-list__item", "data-hue": "{a.hue}", key: "{c.id}",
-                                input { class: "check check--hue", r#type: "checkbox", checked: true, disabled: true }
-                                span { dir: "auto", "{c.name}" }
+                            {
+                                let here = Some((a.account.id.clone(), c.id.clone()));
+                                let tip = match (default == here, chosen.is_some()) {
+                                    (true, true) => "Default for new events",
+                                    (true, false) => "Default for new events (automatic)",
+                                    _ if !c.can_edit => "Read-only",
+                                    _ => "",
+                                };
+                                let target = Target::Calendar(c.id.clone());
+                                let on = menu_on(&a.account.id, &target);
+                                let account_id = a.account.id.clone();
+                                rsx! {
+                                    label { class: "cal-list__item", "data-hue": "{a.hue}", key: "{c.id}", title: "{tip}",
+                                        "data-context": on.then_some("true"),
+                                        oncontextmenu: move |e| {
+                                            e.prevent_default();
+                                            let p = e.client_coordinates();
+                                            super::account_menu::open_for(s, &account_id, target.clone(), p.x, p.y);
+                                        },
+                                        input { class: "check check--hue", r#type: "checkbox", checked: true, disabled: true }
+                                        span { dir: "auto", "{c.name}" }
+                                    }
+                                }
                             }
                         }
                     }

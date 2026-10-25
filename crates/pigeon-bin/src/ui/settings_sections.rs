@@ -55,7 +55,63 @@ pub fn CalendarSettings() -> Element {
                 }
                 span { class: "settings-field__hint", "Week view, the month grids and navigation use this." }
             }
+            DefaultCalendar {}
             DefaultVideoCall {}
+        }
+    }
+}
+
+/// "New events go to": the default calendar for new events (prefs
+/// `default_calendar`), among the calendars that take them, or Automatic
+/// (`event_editor::auto_calendar`). Also from the calendar sidebar's
+/// right-click menus.
+#[component]
+fn DefaultCalendar() -> Element {
+    let s = use_context::<AppState>();
+    // Calendars are only listed once the calendar has been shown: ask for
+    // them (today's week) when Settings opens first.
+    use_hook(move || {
+        if s.calendar.peek().calendars.is_empty() {
+            let d = chrono::Local::now().date_naive();
+            let (from, to) = super::calendar::view_range(crate::state::CalView::Week, d, *s.first_weekday.peek());
+            send_cmd(Cmd::ShowCalendar { from, to });
+        }
+    });
+    let calendars = s.calendar.read().calendars.clone();
+    let accounts = s.accounts.read().clone();
+    let chosen = super::event_editor::chosen_calendar(&calendars, &s.default_calendar.read());
+    let value = chosen.as_ref().map(|(a, c)| format!("{a}|{c}")).unwrap_or_default();
+    let auto = super::event_editor::auto_calendar(&calendars).and_then(|(a, c)| {
+        let cal = calendars.iter().find(|(x, k)| *x == a && k.id == c)?.1.name.clone();
+        let email = accounts.iter().find(|n| n.account.id == a).map(|n| n.account.email.clone()).unwrap_or_default();
+        Some(format!("{cal} ({})", s.account_label(&a, &email)))
+    });
+    let auto_label = auto.map_or_else(|| "Automatic".to_string(), |a| format!("Automatic: {a}"));
+    rsx! {
+        div { class: "settings-field",
+            span { class: "settings-field__label", title: "The calendar new events are created in", "New events go to" }
+            select { class: "select default-from", "aria-label": "Default calendar for new events",
+                onchange: move |e| {
+                    let v = e.value();
+                    s.set_default_calendar(v.split_once('|'));
+                },
+                option { value: "", selected: value.is_empty(), "{auto_label}" }
+                for a in accounts.iter() {
+                    if calendars.iter().any(|(id, c)| id == &a.account.id && c.can_edit) {
+                        optgroup { key: "{a.account.id}", label: "{s.account_label(&a.account.id, &a.account.email)}",
+                            for (_, c) in calendars.iter().filter(|(id, c)| id == &a.account.id && c.can_edit) {
+                                {
+                                    let v = format!("{}|{}", a.account.id, c.id);
+                                    rsx! { option { key: "{v}", value: "{v}", selected: v == value, "{c.name}" } }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            span { class: "settings-field__hint",
+                "Automatic is the primary calendar of the account you added first. Read-only calendars (holidays, subscriptions) aren't listed. The event editor can still pick another per event."
+            }
         }
     }
 }

@@ -240,7 +240,11 @@ fn AccountSection(
         (true, false) => format!("{address} · Default for new messages (top account)"),
         _ => address.clone(),
     };
-    let menu_open = s.account_menu.read().as_ref().is_some_and(|m| m.account_id == id);
+    let menu_open = s
+        .account_menu
+        .read()
+        .as_ref()
+        .is_some_and(|m| m.account_id == id && m.target == super::account_menu::Target::Mail);
 
     rsx! {
         div { class: "nav-account", "data-account-drop": "{index}",
