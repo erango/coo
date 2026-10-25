@@ -432,10 +432,16 @@ async fn run(cli: Cli) -> pigeon_core::Result<()> {
                     "merge into ~/Library/Application Support/Claude/claude_desktop_config.json"
                 }
             };
-            let notes = setup.notes();
+            let agent = agent_setup::Agent::from_client(c);
+            let status = agent_setup::Status::of(agent, &agent_setup::existing_entries());
+            let mut notes = setup.notes();
+            notes.extend(agent_setup::status_note(agent, status, allow_write));
             emit(
                 json,
-                &serde_json::json!({"client": client, "snippet": snippet, "where": target, "notes": notes}),
+                &serde_json::json!({
+                    "client": client, "snippet": snippet, "where": target, "notes": notes,
+                    "status": status.label(allow_write),
+                }),
                 |_| {
                     println!("{snippet}");
                     eprintln!("\n# {target}; then restart the client.");

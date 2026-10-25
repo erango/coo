@@ -1,6 +1,7 @@
 //! Connecting AI agents to Coo: the guide text agents read, the MCP config
-//! snippets for each client, the Claude Code skill, and the two installers
-//! (skill file, Claude Code user-scope MCP entry). Shared by the CLI
+//! snippets for each client, the Claude Code skill, the installers (skill
+//! file, MCP entries in the agents' config files), and how far along each
+//! agent's setup is. Shared by the CLI
 //! (`agent-help`, `mcp-config`, `install-skill`) and the app's
 //! "Connect an AI agent" popup, so they can't drift apart.
 //!
@@ -362,6 +363,185 @@ pub fn existing_entries() -> Vec<Existing> {
     out
 }
 
+pub fn skill_installed() -> bool {
+    default_skill_dir().is_ok_and(|d| d.join("SKILL.md").is_file())
+}
+
+// ---- the setup screen: which agents, how far along each is ----
+
+/// The agents the "Connect an AI agent" screen lists, in its order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Agent {
+    CodeTerminal,
+    CodeDesktop,
+    ClaudeDesktop,
+    Other,
+}
+
+impl Agent {
+    pub const ALL: [Agent; 4] = [Agent::CodeTerminal, Agent::CodeDesktop, Agent::ClaudeDesktop, Agent::Other];
+
+    pub fn from_client(c: Client) -> Self {
+        match c {
+            Client::ClaudeCodeCli => Agent::CodeTerminal,
+            Client::ClaudeCodeDesktop => Agent::CodeDesktop,
+            Client::ClaudeDesktop => Agent::ClaudeDesktop,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Agent::CodeTerminal => "Claude Code · Terminal",
+            Agent::CodeDesktop => "Claude Code · Desktop app",
+            Agent::ClaudeDesktop => "Claude Desktop",
+            Agent::Other => "Other agents",
+        }
+    }
+
+    /// The app to restart, in a sentence.
+    pub fn app_name(self) -> &'static str {
+        match self {
+            Agent::CodeTerminal | Agent::CodeDesktop => "Claude Code",
+            Agent::ClaudeDesktop => "Claude Desktop",
+            Agent::Other => "your agent",
+        }
+    }
+
+    /// The config file this agent reads and Coo can write (Claude Code's
+    /// terminal and desktop app share one). None: Coo can't see it.
+    pub fn config(self) -> Option<(Client, PathBuf)> {
+        match self {
+            Agent::CodeTerminal | Agent::CodeDesktop => {
+                claude_code_config_path().ok().map(|p| (Client::ClaudeCodeDesktop, p))
+            }
+            Agent::ClaudeDesktop => claude_desktop_config_path().ok().map(|p| (Client::ClaudeDesktop, p)),
+            Agent::Other => None,
+        }
+    }
+
+    /// Agents with the same slot share one config entry, so one access choice.
+    pub fn slot(self) -> usize {
+        match self {
+            Agent::CodeTerminal | Agent::CodeDesktop => 0,
+            Agent::ClaudeDesktop => 1,
+            Agent::Other => 2,
+        }
+    }
+
+    fn reads(self, c: Client) -> bool {
+        match self {
+            Agent::CodeTerminal | Agent::CodeDesktop => c != Client::ClaudeDesktop,
+            Agent::ClaudeDesktop => c == Client::ClaudeDesktop,
+            Agent::Other => false,
+        }
+    }
+}
+
+/// What an agent's config says about Coo.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Status {
+    NotSetUp,
+    Connected {
+        allow_write: bool,
+    },
+    /// An agent whose config Coo can't read.
+    Unknown,
+}
+
+impl Status {
+    pub fn of(agent: Agent, entries: &[Existing]) -> Self {
+        if agent == Agent::Other {
+            return Status::Unknown;
+        }
+        match entries.iter().find(|e| agent.reads(e.client)) {
+            Some(e) => Status::Connected { allow_write: e.allow_write },
+            None => Status::NotSetUp,
+        }
+    }
+
+    pub fn is_connected(self) -> bool {
+        matches!(self, Status::Connected { .. })
+    }
+
+    /// Configured with different access than `wants_write`: the entry needs
+    /// rewriting (Update).
+    pub fn needs_update(self, wants_write: bool) -> bool {
+        matches!(self, Status::Connected { allow_write } if allow_write != wants_write)
+    }
+
+    /// The one-line status under an agent's name.
+    pub fn label(self, wants_write: bool) -> &'static str {
+        match self {
+            Status::Connected { allow_write: false } if wants_write => "Read-only · update pending",
+            Status::Connected { allow_write: true } if !wants_write => "Can send · update pending",
+            Status::Connected { allow_write: false } => "Connected · read-only",
+            Status::Connected { allow_write: true } => "Connected · can send",
+            Status::NotSetUp => "Not set up",
+            Status::Unknown => "MCP config or CLI",
+        }
+    }
+}
+
+/// The agent to show first: the first connected one, else Claude Code in a
+/// terminal.
+pub fn default_agent(entries: &[Existing]) -> Agent {
+    Agent::ALL.into_iter().find(|a| Status::of(*a, entries).is_connected()).unwrap_or(Agent::CodeTerminal)
+}
+
+/// For `coo mcp-config`: what's already configured for this client, when
+/// that matters for the snippet being printed.
+pub fn status_note(agent: Agent, status: Status, wants_write: bool) -> Option<String> {
+    let Status::Connected { allow_write } = status else { return None };
+    let has = if allow_write { "can send" } else { "read-only" };
+    Some(if status.needs_update(wants_write) {
+        let to = if wants_write { "able to send" } else { "read-only" };
+        format!(
+            "Coo is already set up in {} ({has}). To make it {to}, replace that entry (Coo › Connect an AI agent › \
+             Update does it), then restart it.",
+            agent.app_name()
+        )
+    } else {
+        format!("Coo is already set up in {} ({has}); nothing to change.", agent.app_name())
+    })
+}
+
+/// One checklist step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Step {
+    Done,
+    /// The next thing to do.
+    Current,
+    Todo,
+}
+
+/// The setup screen's steps for one agent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Checklist {
+    pub access: Step,
+    pub install: Step,
+    pub restart: Step,
+    pub prompt: Step,
+}
+
+impl Checklist {
+    /// `changed`: the agent's entry was added or rewritten since the screen
+    /// opened, so the running agent hasn't loaded it yet.
+    pub fn new(status: Status, wants_write: bool, changed: bool) -> Self {
+        use Step::*;
+        let (access, install, restart, prompt) = match status {
+            Status::Connected { .. } if status.needs_update(wants_write) => (Current, Done, Todo, Todo),
+            Status::Connected { .. } if changed => (Done, Done, Current, Todo),
+            Status::Connected { .. } => (Done, Done, Done, Done),
+            Status::NotSetUp | Status::Unknown => (Done, Current, Todo, Todo),
+        };
+        Checklist { access, install, restart, prompt }
+    }
+
+    pub fn all_done(&self) -> bool {
+        [self.access, self.install, self.restart, self.prompt].iter().all(|s| *s == Step::Done)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigInstall {
     pub path: PathBuf,
@@ -480,6 +660,65 @@ mod tests {
         std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
         assert_eq!(find_cli_binary(&exe).unwrap(), absolute(&cli));
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    fn entry(client: Client, allow_write: bool) -> Existing {
+        Existing { client, path: PathBuf::from("/h/.claude.json"), allow_write }
+    }
+
+    #[test]
+    fn status_per_agent() {
+        let entries = [entry(Client::ClaudeCodeDesktop, false), entry(Client::ClaudeDesktop, true)];
+        // Terminal and the desktop app share ~/.claude.json.
+        assert_eq!(Status::of(Agent::CodeTerminal, &entries), Status::Connected { allow_write: false });
+        assert_eq!(Status::of(Agent::CodeDesktop, &entries), Status::Connected { allow_write: false });
+        assert_eq!(Status::of(Agent::ClaudeDesktop, &entries), Status::Connected { allow_write: true });
+        assert_eq!(Status::of(Agent::Other, &entries), Status::Unknown);
+        assert_eq!(Status::of(Agent::CodeTerminal, &entries[1..]), Status::NotSetUp);
+        assert_eq!(Status::of(Agent::ClaudeDesktop, &[]), Status::NotSetUp);
+        assert_eq!(Agent::CodeTerminal.slot(), Agent::CodeDesktop.slot());
+        assert_ne!(Agent::CodeDesktop.slot(), Agent::ClaudeDesktop.slot());
+
+        let ro = Status::Connected { allow_write: false };
+        assert_eq!(ro.label(false), "Connected · read-only");
+        assert_eq!(ro.label(true), "Read-only · update pending");
+        assert_eq!(Status::Connected { allow_write: true }.label(true), "Connected · can send");
+        assert_eq!(Status::NotSetUp.label(true), "Not set up");
+        assert!(ro.needs_update(true) && !ro.needs_update(false));
+        assert!(!Status::NotSetUp.needs_update(true) && !Status::Unknown.needs_update(true));
+    }
+
+    #[test]
+    fn default_agent_is_the_first_connected() {
+        assert_eq!(default_agent(&[]), Agent::CodeTerminal);
+        assert_eq!(default_agent(&[entry(Client::ClaudeDesktop, false)]), Agent::ClaudeDesktop);
+        let both = [entry(Client::ClaudeDesktop, false), entry(Client::ClaudeCodeDesktop, true)];
+        assert_eq!(default_agent(&both), Agent::CodeTerminal);
+    }
+
+    #[test]
+    fn checklist_steps() {
+        use Step::*;
+        let steps = |c: Checklist| (c.access, c.install, c.restart, c.prompt);
+        assert_eq!(steps(Checklist::new(Status::NotSetUp, false, false)), (Done, Current, Todo, Todo));
+        assert_eq!(steps(Checklist::new(Status::Unknown, true, false)), (Done, Current, Todo, Todo));
+        let ro = Status::Connected { allow_write: false };
+        // Just added (or the user ran the command): restart next.
+        assert_eq!(steps(Checklist::new(ro, false, true)), (Done, Done, Current, Todo));
+        let settled = Checklist::new(ro, false, false);
+        assert!(settled.all_done());
+        // Access changed: Update first.
+        assert_eq!(steps(Checklist::new(ro, true, false)), (Current, Done, Todo, Todo));
+        assert_eq!(steps(Checklist::new(ro, true, true)), (Current, Done, Todo, Todo));
+    }
+
+    #[test]
+    fn status_note_for_the_cli() {
+        let ro = Status::Connected { allow_write: false };
+        assert_eq!(status_note(Agent::CodeTerminal, Status::NotSetUp, true), None);
+        assert!(status_note(Agent::CodeTerminal, ro, false).unwrap().contains("nothing to change"));
+        let n = status_note(Agent::ClaudeDesktop, ro, true).unwrap();
+        assert!(n.starts_with("Coo is already set up in Claude Desktop (read-only)") && n.contains("Update"), "{n}");
     }
 
     #[test]
