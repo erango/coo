@@ -18,6 +18,8 @@ use pigeon_core::{Error, Result};
 use serde::de::DeserializeOwned;
 
 pub(crate) const BASE: &str = "https://graph.microsoft.com/v1.0";
+/// Only for actions not in v1.0 yet (`reportMessage`).
+pub(crate) const BETA: &str = "https://graph.microsoft.com/beta";
 
 /// Immutable ids survive moves between folders; page size for delta; event
 /// times in UTC.

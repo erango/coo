@@ -157,9 +157,12 @@ pub fn act_many(s: AppState, items: &[ListItem], action: MailAction) {
         MailAction::Unflag => format!("Unflagged {what}"),
         MailAction::MoveTo(_) => format!("Moved {what}"),
         MailAction::AddLabel(_) => format!("Labeled {what}"),
+        MailAction::Spam | MailAction::NotSpam | MailAction::Phishing => {
+            super::spam::label_for(&s, items, &action, &what).unwrap_or_default()
+        }
         _ => String::new(),
     };
-    if matches!(action, MailAction::Archive | MailAction::Trash | MailAction::MoveTo(_)) {
+    if action.leaves() {
         clear(s);
     }
     let items = items
@@ -185,7 +188,9 @@ pub fn MultiPane() -> Element {
     let (flag, read) = (toggle_flag(&items), toggle_read(&items));
     let flag_label = if flag == MailAction::Unflag { "Unflag" } else { "Flag" };
     let read_label = if read == MailAction::MarkRead { "Mark read" } else { "Mark unread" };
-    let (i1, i2, i3, i4) = (items.clone(), items.clone(), items.clone(), items.clone());
+    let (i1, i2, i3, i4, i5) = (items.clone(), items.clone(), items.clone(), items.clone(), items.clone());
+    // Spam or Not spam (in the spam folder), when every selected account can.
+    let spam = super::spam::for_items(&s, &items).into_iter().find(|a| *a != MailAction::Phishing);
     rsx! {
         main { class: "pane pane--reader",
             div { class: "reader-toolbar", super::compose::DockedDraftChip {} }
@@ -205,6 +210,18 @@ pub fn MultiPane() -> Element {
                         Icon { name: "mailopen", class: "icon--sm" } "{read_label}" kbd { class: "kbd", "U" } }
                     button { class: "btn btn--secondary", r#type: "button", onclick: move |_| act_many(s, &i4, flag.clone()),
                         Icon { name: "flag", class: "icon--sm" } "{flag_label}" kbd { class: "kbd", "S" } }
+                    if let Some(spam) = spam {
+                        {
+                            let (icon, text) =
+                                if spam == MailAction::NotSpam { ("inbox", "Not spam") } else { ("alert", "Spam") };
+                            rsx! {
+                                button { class: "btn btn--secondary", r#type: "button", onclick: move |_| act_many(s, &i5, spam.clone()),
+                                    Icon { name: icon, class: "icon--sm" }
+                                    "{text}"
+                                    kbd { class: "kbd", "!" } }
+                            }
+                        }
+                    }
                 }
                 button { class: "link-btn multi-pane__clear", r#type: "button", onclick: move |_| clear(s),
                     "Clear selection" kbd { class: "kbd", "Esc" } }

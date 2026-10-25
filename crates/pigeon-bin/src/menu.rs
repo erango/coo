@@ -20,6 +20,8 @@ pub const RESTART_TO_UPDATE: &str = "pigeon-restart-to-update";
 pub const ZOOM_IN: &str = "pigeon-zoom-in";
 pub const ZOOM_OUT: &str = "pigeon-zoom-out";
 pub const ZOOM_RESET: &str = "pigeon-zoom-reset";
+/// Message › Report Phishing (no shortcut: it can't be taken back).
+pub const REPORT_PHISHING: &str = "pigeon-msg-phishing";
 
 /// Mailbox and Message menu items: (menu id, title, bridge key it runs).
 /// Titles show the shortcut like the View items do; the keys themselves stay
@@ -37,6 +39,7 @@ const MESSAGE_ITEMS: &[(&str, &str, &str)] = &[
     ("pigeon-msg-flag", "Flag / Unflag        ⇧⌘L", "meta+shift+l"),
     ("pigeon-msg-unread", "Mark Read / Unread ⇧⌘U", "meta+shift+u"),
     ("pigeon-msg-move", "Move to…               V", "v"),
+    ("pigeon-msg-spam", "Spam / Not Spam        !", "!"),
 ];
 
 /// The bridge key a Message menu item runs.
@@ -133,6 +136,7 @@ pub fn build() -> Menu {
         }
         message.append(item).expect("message item");
     }
+    message.append(&MenuItem::with_id(REPORT_PHISHING, "Report Phishing", true, None)).expect("phishing item");
     let window = Submenu::with_items(
         "Window",
         true,

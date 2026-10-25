@@ -35,6 +35,9 @@ pub enum Entry {
     Delete,
     Move,
     Label,
+    Spam,
+    NotSpam,
+    Phishing,
     Flag,
     Unflag,
     MarkRead,
@@ -54,6 +57,9 @@ impl Entry {
             Entry::Delete => ("Delete", "trash", "#"),
             Entry::Move => ("Move to…", "folder", "V"),
             Entry::Label => ("Label as…", "tag", "L"),
+            Entry::Spam => ("Mark as spam", "alert", "!"),
+            Entry::NotSpam => ("Not spam", "inbox", "!"),
+            Entry::Phishing => ("Report phishing", "shield", ""),
             Entry::Flag => ("Flag", "flag", "S"),
             Entry::Unflag => ("Unflag", "flag", "S"),
             Entry::MarkRead => ("Mark as read", "mailopen", "U"),
@@ -65,8 +71,9 @@ impl Entry {
 
 /// The menu for one row (`bulk` = a multi-selection: no reply/forward, no
 /// window). `flag`/`read` are what the toggles would do; `labels` adds
-/// Gmail's "Label as…".
-pub fn entries(bulk: bool, labels: bool, flag: &MailAction, read: &MailAction) -> Vec<Entry> {
+/// Gmail's "Label as…"; `spam` is what the accounts support
+/// ([`super::spam::offered`]).
+pub fn entries(bulk: bool, labels: bool, flag: &MailAction, read: &MailAction, spam: &[MailAction]) -> Vec<Entry> {
     let mut v = Vec::new();
     if !bulk {
         v.extend([Entry::Reply, Entry::ReplyAll, Entry::Forward, Entry::Sep, Entry::OpenWindow, Entry::Sep]);
@@ -75,6 +82,12 @@ pub fn entries(bulk: bool, labels: bool, flag: &MailAction, read: &MailAction) -
     if labels {
         v.push(Entry::Label);
     }
+    v.extend(spam.iter().filter_map(|a| match a {
+        MailAction::Spam => Some(Entry::Spam),
+        MailAction::NotSpam => Some(Entry::NotSpam),
+        MailAction::Phishing => Some(Entry::Phishing),
+        _ => None,
+    }));
     v.push(Entry::Sep);
     v.push(if *flag == MailAction::Unflag { Entry::Unflag } else { Entry::Flag });
     v.push(if *read == MailAction::MarkRead { Entry::MarkRead } else { Entry::MarkUnread });
@@ -129,7 +142,7 @@ fn entries_for(s: &AppState, m: &RowMenu) -> Vec<Entry> {
         let flag = if m.item.header().is_flagged { MailAction::Unflag } else { MailAction::Flag };
         (flag, if unread(&m.item) { MailAction::MarkRead } else { MailAction::MarkUnread })
     };
-    entries(m.bulk, labels, &flag, &read)
+    entries(m.bulk, labels, &flag, &read, &super::spam::for_items(s, &items))
 }
 
 /// Right-click on a row.
@@ -172,6 +185,9 @@ fn run(s: AppState, m: &RowMenu, entry: Entry) {
         Entry::Unflag => MailAction::Unflag,
         Entry::MarkRead => MailAction::MarkRead,
         Entry::MarkUnread => MailAction::MarkUnread,
+        Entry::Spam => MailAction::Spam,
+        Entry::NotSpam => MailAction::NotSpam,
+        Entry::Phishing => MailAction::Phishing,
     };
     if m.bulk { multi::act_many(s, &items, action) } else { act(s, item, action) }
 }
@@ -257,7 +273,7 @@ mod tests {
 
     #[test]
     fn single_rows_get_reply_and_window_bulk_does_not() {
-        let one = entries(false, false, &MailAction::Flag, &MailAction::MarkUnread);
+        let one = entries(false, false, &MailAction::Flag, &MailAction::MarkUnread, &[]);
         assert_eq!(
             one,
             [
@@ -275,7 +291,7 @@ mod tests {
                 Entry::MarkUnread,
             ]
         );
-        let many = entries(true, true, &MailAction::Unflag, &MailAction::MarkRead);
+        let many = entries(true, true, &MailAction::Unflag, &MailAction::MarkRead, &[]);
         assert_eq!(
             many,
             [Entry::Archive, Entry::Delete, Entry::Move, Entry::Label, Entry::Sep, Entry::Unflag, Entry::MarkRead]
@@ -283,8 +299,17 @@ mod tests {
     }
 
     #[test]
+    fn spam_entries_follow_what_the_accounts_support() {
+        let spam = [MailAction::Spam, MailAction::Phishing];
+        let e = entries(true, false, &MailAction::Flag, &MailAction::MarkRead, &spam);
+        assert_eq!(&e[..5], [Entry::Archive, Entry::Delete, Entry::Move, Entry::Spam, Entry::Phishing]);
+        let e = entries(false, true, &MailAction::Flag, &MailAction::MarkRead, &[MailAction::NotSpam]);
+        assert!(e.contains(&Entry::NotSpam) && !e.contains(&Entry::Spam) && !e.contains(&Entry::Phishing));
+    }
+
+    #[test]
     fn keyboard_steps_skip_separators_and_stop_at_the_ends() {
-        let e = entries(false, false, &MailAction::Flag, &MailAction::MarkRead);
+        let e = entries(false, false, &MailAction::Flag, &MailAction::MarkRead, &[]);
         assert_eq!(step(&e, None, true), Some(0));
         assert_eq!(step(&e, None, false), Some(e.len() - 1));
         assert_eq!(step(&e, Some(2), true), Some(4), "skips the separator after Forward");

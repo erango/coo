@@ -319,6 +319,12 @@ async fn bridge_loop(s: AppState, item: ListItem) {
                     "f" | "meta+shift+f" => reply(s, &item, ReplyKind::Forward),
                     "e" | "ctrl+meta+a" => archive(s, &item, MailAction::Archive),
                     "meta+Backspace" | "#" | "x" => archive(s, &item, MailAction::Trash),
+                    "!" => {
+                        let spam = super::spam::for_items(&s, std::slice::from_ref(&item));
+                        if let Some(a) = spam.into_iter().find(|a| *a != MailAction::Phishing) {
+                            archive(s, &item, a);
+                        }
+                    }
                     "s" | "meta+shift+l" => {
                         act(s, &item, if item.header().is_flagged { MailAction::Unflag } else { MailAction::Flag })
                     }

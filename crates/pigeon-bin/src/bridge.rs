@@ -25,7 +25,7 @@ pub const JS: &str = r#"
   addEventListener('blur', () => send('focus', '0'));
 
   // ---- Keyboard shortcuts (outside editors) ----
-  const KEYS = new Set(['J','j','k','e','#','s','u','r','a','f','c','z','/','x','v','l','Escape','Enter','ArrowUp','ArrowDown',
+  const KEYS = new Set(['J','j','k','e','#','s','u','r','a','f','c','z','/','x','v','l','!','Escape','Enter','ArrowUp','ArrowDown',
                         'meta+1','meta+2','meta+k','meta+n','meta+Enter','meta+shift+z','meta+,',
                         // Apple Mail shortcuts (the single keys above stay as extras).
                         'meta+r','meta+shift+r','meta+shift+f','meta+Backspace','ctrl+meta+a','meta+shift+l',

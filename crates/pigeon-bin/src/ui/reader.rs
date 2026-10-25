@@ -90,6 +90,11 @@ fn ThreadReader() -> Element {
     };
     let flagged = item.as_ref().is_some_and(|i| i.header().is_flagged);
     let (i1, i2, i3, i4, i5, i6) = (item.clone(), item.clone(), item.clone(), item.clone(), item.clone(), item.clone());
+    let (i7, i8) = (item.clone(), item.clone());
+    // Spam, or Not spam in the spam folder (phishing is under More).
+    let spam = item.as_ref().and_then(|i| {
+        super::spam::for_items(&s, std::slice::from_ref(i)).into_iter().find(|a| *a != MailAction::Phishing)
+    });
 
     rsx! {
         main { class: "pane pane--reader",
@@ -101,6 +106,29 @@ fn ThreadReader() -> Element {
                     Icon { name: "flag", class: "icon--lg" }
                 }
                 button { class: "icon-btn", "aria-label": "Move (V)", onclick: move |_| super::move_picker::open(s, false), Icon { name: "folder", class: "icon--lg" } }
+                if let Some(spam) = spam {
+                    {
+                        let (icon, tip) = if spam == MailAction::NotSpam {
+                            ("inbox", "Not spam (!)")
+                        } else {
+                            ("alert", "Mark as spam (!)")
+                        };
+                        rsx! {
+                            button { class: "icon-btn", "aria-label": "{tip}",
+                                onclick: move |_| if let Some(i) = &i7 { act(s, i, spam.clone()) },
+                                Icon { name: icon, class: "icon--lg" }
+                            }
+                        }
+                    }
+                }
+                // Everything else for this message: the row's right-click menu.
+                button { class: "icon-btn", "aria-label": "More",
+                    onclick: move |e| if let Some(i) = &i8 {
+                        let p = e.client_coordinates();
+                        super::row_menu::open(s, i, p.x - 8.0, p.y + 14.0);
+                    },
+                    Icon { name: "more", class: "icon--lg" }
+                }
                 super::compose::DockedDraftChip {}
                 span { class: "spacer" }
                 if total > 0 { span { class: "reader-toolbar__pos", "{pos} of {total}" } }

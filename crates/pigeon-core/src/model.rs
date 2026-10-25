@@ -32,6 +32,30 @@ impl ProviderKind {
             _ => None,
         }
     }
+
+    /// What this provider's API can do about unwanted mail.
+    pub fn spam_support(self) -> SpamSupport {
+        match self {
+            // Adding the SPAM label is how Gmail's API reports spam; it has
+            // no phishing report (the web UI's isn't in the public API).
+            ProviderKind::Google => SpamSupport { reports: true, phishing: false },
+            // Graph `message: reportMessage` (beta): junk, notJunk, phish.
+            ProviderKind::Microsoft => SpamSupport { reports: true, phishing: true },
+            // IMAP has no report verb, only a move to the \Junk mailbox.
+            ProviderKind::ICloud => SpamSupport { reports: false, phishing: false },
+        }
+    }
+}
+
+/// Spam capabilities of a provider. Every provider can move mail to its
+/// spam/junk folder and back (when the account has one); these say what
+/// else it does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SpamSupport {
+    /// Spam / not-spam reach the provider's filters (not just a move).
+    pub reports: bool,
+    /// A separate "Report phishing".
+    pub phishing: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -385,6 +409,23 @@ pub enum MailOp {
     Untrash {
         ids: Vec<String>,
     },
+    /// Report to the provider (junk / not junk / phishing), then move to
+    /// `folder_id`: the spam folder, or the inbox for not-junk. Exchange
+    /// only; Gmail reports through the SPAM label (`Relabel`) and IMAP can
+    /// only move.
+    Report {
+        ids: Vec<String>,
+        report: SpamReport,
+        folder_id: String,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SpamReport {
+    Junk,
+    NotJunk,
+    Phishing,
 }
 
 impl MailOp {
@@ -395,7 +436,8 @@ impl MailOp {
             | MailOp::Relabel { ids, .. }
             | MailOp::MoveTo { ids, .. }
             | MailOp::Trash { ids }
-            | MailOp::Untrash { ids } => ids,
+            | MailOp::Untrash { ids }
+            | MailOp::Report { ids, .. } => ids,
         }
     }
 }
