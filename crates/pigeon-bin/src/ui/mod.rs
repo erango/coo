@@ -434,6 +434,22 @@ pub fn App() -> Element {
         }
     });
 
+    // Opening or leaving Settings swaps the whole view at once; tag the
+    // app for a moment so what appears slides in (app.css, `data-swap`).
+    let mut swap = use_signal(|| None::<&'static str>);
+    let mut was_open = use_signal(|| None::<bool>);
+    use_effect(move || {
+        let open = *s.settings_open.read();
+        if was_open.peek().is_some_and(|w| w != open) {
+            swap.set(Some(if open { "in" } else { "out" }));
+            spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(320)).await;
+                swap.set(None);
+            });
+        }
+        was_open.set(Some(open));
+    });
+
     let body = if !*s.loaded.read() {
         rsx! { div { class: "app" } }
     } else if s.accounts.read().is_empty() || *s.first_run.read() {
@@ -441,7 +457,7 @@ pub fn App() -> Element {
         rsx! { onboarding::Onboarding {} }
     } else {
         rsx! {
-            div { class: "app",
+            div { class: "app", "data-swap": *swap.read(),
                 sidebar::Sidebar {}
                 div { class: "splitter", "data-pane": "sidebar", role: "separator", "aria-orientation": "vertical",
                     title: "Drag to resize · double-click to reset" }

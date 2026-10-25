@@ -722,3 +722,20 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
    hovered; only the button under the pointer should light up. */
 .row__actions .icon-btn:first-child { background: transparent; }
 .row__actions .icon-btn:hover { background: var(--bg-3); }
+
+/* Opening Settings slides its sidebar and page in from the right; leaving
+   slides Mail or Calendar back in from the left (`data-swap`, set for a
+   moment in ui/mod.rs). Opacity and a short nudge only, so nothing
+   reflows; `backwards` drops the transform once it's done. */
+@keyframes coo-swap-in { from { opacity: 0; transform: translateX(14px); } }
+@keyframes coo-swap-out { from { opacity: 0; transform: translateX(-14px); } }
+.app[data-swap] > .sidebar > :not(.sidebar__top):not(.sidebar__footer),
+.app[data-swap] > :not(.sidebar):not(.splitter) {
+  animation: coo-swap-in 220ms var(--ease-standard) backwards;
+}
+.app[data-swap="out"] > .sidebar > :not(.sidebar__top):not(.sidebar__footer),
+.app[data-swap="out"] > :not(.sidebar):not(.splitter) { animation-name: coo-swap-out; }
+.app[data-swap] > :not(.sidebar):not(.splitter) { animation-delay: 40ms; }
+@media (prefers-reduced-motion: reduce) {
+  .app[data-swap] > .sidebar > *, .app[data-swap] > * { animation: none; }
+}
