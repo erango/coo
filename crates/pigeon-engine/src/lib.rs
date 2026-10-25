@@ -15,7 +15,7 @@ pub mod service;
 pub mod telemetry;
 mod zoom;
 
-pub use actions::MailAction;
+pub use actions::{MailAction, spam_actions};
 use chrono::{Duration, Utc};
 use futures::future::join_all;
 use pigeon_core::actions::{FlushReport, flush_outbox};

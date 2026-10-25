@@ -351,7 +351,8 @@ impl MailActions for Imap {
             MailOp::SetRead { read, .. } => (Some("\\Seen"), *read),
             MailOp::SetFlagged { flagged, .. } => (Some("\\Flagged"), *flagged),
             MailOp::MoveTo { .. } => (None, false),
-            MailOp::Trash { .. } | MailOp::Untrash { .. } | MailOp::Relabel { .. } => {
+            // IMAP has no spam report: junk is a move to the \Junk mailbox.
+            MailOp::Trash { .. } | MailOp::Untrash { .. } | MailOp::Relabel { .. } | MailOp::Report { .. } => {
                 return Err(Error::Other("IMAP folders: use a move".into()));
             }
         };

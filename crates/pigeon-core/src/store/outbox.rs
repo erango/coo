@@ -104,6 +104,7 @@ fn op_name(op: &MailOp) -> &'static str {
         MailOp::MoveTo { .. } => "move_to",
         MailOp::Trash { .. } => "trash",
         MailOp::Untrash { .. } => "untrash",
+        MailOp::Report { .. } => "report",
     }
 }
 
@@ -231,7 +232,7 @@ pub(super) fn apply_local(conn: &Connection, account_id: &str, op: &MailOp) -> R
                 }
             }
         }
-        MailOp::MoveTo { ids, folder_id } => {
+        MailOp::MoveTo { ids, folder_id } | MailOp::Report { ids, folder_id, .. } => {
             for id in ids {
                 set_folders(conn, account_id, id, std::slice::from_ref(folder_id))?;
             }

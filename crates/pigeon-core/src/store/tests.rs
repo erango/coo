@@ -337,6 +337,21 @@ fn rollback_and_retry_bookkeeping() {
 }
 
 #[test]
+fn report_moves_locally_and_round_trips_through_the_outbox() {
+    let (mut s, ms, _) = setup();
+    s.replace_folders(&ms.id, &[folder("in", Some(FolderRole::Inbox)), folder("junk", Some(FolderRole::Spam))])
+        .unwrap();
+    s.apply_mail(&ms.id, "in", &[MailChange::Upsert(msg("r", "tr", 1, &["in"]))], "1").unwrap();
+    let op = MailOp::Report { ids: vec!["r".into()], report: SpamReport::Phishing, folder_id: "junk".into() };
+    let id = s.enqueue(&ms.id, &op).unwrap();
+    assert_eq!(state(&s, &ms, "r").folder_ids, ["junk"]);
+    assert!(s.list_messages(&ListQuery::unified(FolderRole::Inbox, 5)).unwrap().iter().all(|m| m.header.id != "r"));
+    assert_eq!(s.due_ops(&ms.id, now_ms()).unwrap().last().unwrap().op, op, "payload survives serde");
+    assert!(s.cancel_pending_op(id).unwrap());
+    assert_eq!(state(&s, &ms, "r").folder_ids, ["in"]);
+}
+
+#[test]
 fn undo_ops_invert_changes() {
     let orig =
         vec![MessageState { id: "a".into(), is_read: false, is_flagged: false, folder_ids: vec!["INBOX".into()] }];

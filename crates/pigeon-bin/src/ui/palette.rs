@@ -92,7 +92,16 @@ fn build(s: &AppState, query: &str) -> Vec<Item> {
         item("Actions", "text", "Smaller text", "⌘-", Action::Zoom(super::zoom::Step::Smaller)),
         item("Actions", "text", "Actual text size", "⌘0", Action::Zoom(super::zoom::Step::Reset)),
     ]);
-    if selected_item(s).is_some() {
+    if let Some(it) = selected_item(s) {
+        let spam = super::spam::for_items(s, std::slice::from_ref(&it)).into_iter().map(|a| match a {
+            MailAction::NotSpam => item("Actions", "inbox", "Not spam", "!", Action::Mail(a)),
+            MailAction::Phishing => Item {
+                meta: "report to your mail provider".into(),
+                ..item("Actions", "shield", "Report phishing", "", Action::Mail(a))
+            },
+            a => Item { meta: "junk".into(), ..item("Actions", "alert", "Mark as spam", "!", Action::Mail(a)) },
+        });
+        actions.splice(0..0, spam);
         actions.splice(
             0..0,
             [

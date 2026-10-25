@@ -23,6 +23,7 @@ pub mod sender_card;
 mod settings;
 mod settings_sections;
 mod sidebar;
+mod spam;
 mod toasts;
 pub mod vlist;
 pub mod zoom;
@@ -43,7 +44,7 @@ pub(crate) const ICONS: &str = include_str!("../../../../design/icons.svg");
 /// restore. Paths from Lucide (ISC license). `i-arrow-left`: the design's
 /// `i-arrow-right`, mirrored (Settings › Back). The agent icons (terminal,
 /// code-window, chat, plug) are for "Connect an AI agent".
-pub(crate) const APP_ICONS: &str = r#"<svg xmlns="http://www.w3.org/2000/svg"><defs><symbol id="i-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol><symbol id="i-maximize" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></symbol><symbol id="i-minimize" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/></symbol><symbol id="i-arrow-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M11 6l-6 6 6 6"/></symbol><symbol id="i-terminal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M7 9.5l3 2.5-3 2.5M12.5 15H17"/></symbol><symbol id="i-code-window" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 8.5h18M6 6.3h.01M8.2 6.3h.01M9.5 12l-2 2 2 2M14.5 12l2 2-2 2"/></symbol><symbol id="i-chat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 4v-4A1.5 1.5 0 0 1 4 14.5z"/><path d="M8.5 9h7M8.5 12h4.5"/></symbol><symbol id="i-plug" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3v5M15 3v5M6.5 8h11v3a5.5 5.5 0 0 1-11 0zM12 16.5V21"/></symbol></defs></svg>"#;
+pub(crate) const APP_ICONS: &str = r#"<svg xmlns="http://www.w3.org/2000/svg"><defs><symbol id="i-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol><symbol id="i-maximize" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></symbol><symbol id="i-minimize" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/></symbol><symbol id="i-arrow-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M11 6l-6 6 6 6"/></symbol><symbol id="i-terminal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M7 9.5l3 2.5-3 2.5M12.5 15H17"/></symbol><symbol id="i-code-window" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 8.5h18M6 6.3h.01M8.2 6.3h.01M9.5 12l-2 2 2 2M14.5 12l2 2-2 2"/></symbol><symbol id="i-chat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 4v-4A1.5 1.5 0 0 1 4 14.5z"/><path d="M8.5 9h7M8.5 12h4.5"/></symbol><symbol id="i-plug" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3v5M15 3v5M6.5 8h11v3a5.5 5.5 0 0 1-11 0zM12 16.5V21"/></symbol><symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 2.8v5.4c0 4.4-2.9 8-7 9.8-4.1-1.8-7-5.4-7-9.8V5.8z"/><path d="M12 8.5v4M12 15.8h.01"/></symbol></defs></svg>"#;
 const DAY_MS: i64 = 86_400_000;
 
 #[component]
@@ -196,6 +197,30 @@ pub fn App() -> Element {
                 }
                 // anim-demo — take the 2nd row out and put it back every 1.6 s,
                 // so screenshots can catch the collapse / slide-in mid-way.
+                // rowmenu:<account_id>|<thread_id>[|<folder_id>] — show that folder
+                // (else the unified inbox), open the thread and its right-click menu
+                "rowmenu" => {
+                    let p: Vec<String> = arg.split('|').map(String::from).collect();
+                    if let [account_id, thread_id, rest @ ..] = &p[..] {
+                        if let Some(folder_id) = rest.first() {
+                            let mut mb = s.mailbox;
+                            mb.set(pigeon_engine::service::Mailbox::Folder {
+                                account_id: account_id.clone(),
+                                folder_id: folder_id.clone(),
+                            });
+                        }
+                        let key = format!("{account_id}|{thread_id}");
+                        let mut sel = s.selected;
+                        sel.set(Some(key.clone()));
+                        send_cmd(Cmd::OpenThread { account_id: account_id.clone(), thread_id: thread_id.clone() });
+                        spawn(async move {
+                            tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+                            if let Some(item) = s.list.peek().iter().find(|i| AppState::key(i) == key).cloned() {
+                                row_menu::open(s, &item, 300.0, 140.0);
+                            }
+                        });
+                    }
+                }
                 "anim-demo" => {
                     let mut list = s.list;
                     spawn(async move {
@@ -481,6 +506,7 @@ fn on_menu(s: AppState, id: &str) {
         crate::menu::ZOOM_IN => zoom::change(s, zoom::Step::Bigger),
         crate::menu::ZOOM_OUT => zoom::change(s, zoom::Step::Smaller),
         crate::menu::ZOOM_RESET => zoom::change(s, zoom::Step::Reset),
+        crate::menu::REPORT_PHISHING => spam::report_phishing(s),
         // Message menu items run the same handler as their keyboard shortcut.
         id => {
             if let Some(key) = crate::menu::key_for(id) {
@@ -763,8 +789,7 @@ fn step(s: AppState, delta: isize) {
 /// leaves the list.
 pub fn act(s: AppState, item: &ListItem, action: MailAction) {
     let header = item.header();
-    let leaves = matches!(action, MailAction::Archive | MailAction::Trash | MailAction::MoveTo(_));
-    if leaves && s.selected.read().as_deref() == Some(AppState::key(item).as_str()) {
+    if action.leaves() && s.selected.read().as_deref() == Some(AppState::key(item).as_str()) {
         let list = s.visible_items();
         let pos = list.iter().position(|i| AppState::key(i) == AppState::key(item));
         let go_next = crate::prefs::get().after_remove != "close";
@@ -789,6 +814,9 @@ pub fn act(s: AppState, item: &ListItem, action: MailAction) {
         MailAction::Unflag => format!("Unflagged “{subject}”"),
         MailAction::MoveTo(_) => format!("Moved “{subject}”"),
         MailAction::AddLabel(_) => format!("Labeled “{subject}”"),
+        MailAction::Spam | MailAction::NotSpam | MailAction::Phishing => {
+            spam::label_for(&s, std::slice::from_ref(item), &action, &format!("“{subject}”")).unwrap_or_default()
+        }
         _ => String::new(),
     };
     let thread_id = match item {
@@ -911,6 +939,8 @@ fn on_key(s: AppState, key: &str) {
         "/" | "meta+f" => search::open(s, ""),
         "v" => move_picker::open(s, false),
         "l" => move_picker::open(s, true),
+        // Gmail's "Report spam" key; "Not spam" in the spam folder.
+        "!" => spam::toggle(s),
         "j" | "ArrowDown" => step(s, 1),
         "k" | "ArrowUp" => step(s, -1),
         _ if !multi::items(&s).is_empty() => {

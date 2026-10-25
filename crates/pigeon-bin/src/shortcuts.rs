@@ -21,6 +21,7 @@ pub const SHORTCUTS: &[(&str, &str, &str, &str)] = &[
     ("Organize", "meta+Backspace", "⌘⌫ · # · X", "Delete"),
     ("Organize", "v", "V", "Move to folder"),
     ("Organize", "l", "L", "Label (Gmail)"),
+    ("Organize", "!", "!", "Mark as spam / not spam"),
     ("Organize", "meta+shift+l", "⇧⌘L · S", "Flag / unflag"),
     ("Organize", "meta+shift+u", "⇧⌘U · U", "Mark read / unread"),
     ("Organize", "z", "Z", "Undo the last action"),
