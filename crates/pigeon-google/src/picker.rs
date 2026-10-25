@@ -4,7 +4,9 @@
 //! (`http://127.0.0.1:<random port>/<random nonce>/`). The page loads
 //! Google's Picker with the account's access token, the API key and the app
 //! id (written into the page itself, never into a URL), and posts the
-//! picked files back to `/<nonce>/picked` (or `/<nonce>/cancel`).
+//! picked files back to `/<nonce>/picked` (or `/<nonce>/cancel`). The page
+//! names the account (nickname and address) and stretches the Picker over
+//! the window.
 
 use std::time::Duration;
 
@@ -26,6 +28,10 @@ pub struct PickerConfig {
     pub api_key: String,
     /// The Cloud project number (see `pigeon_core::drive::app_id`).
     pub app_id: String,
+    /// The account the token is for: named in the page header and handed to
+    /// the Picker as the account to use.
+    pub email: String,
+    pub nickname: Option<String>,
 }
 
 impl std::fmt::Debug for PickerConfig {
@@ -187,10 +193,17 @@ fn render_page(cfg: &PickerConfig) -> String {
         token: &'a str,
         key: &'a str,
         app_id: &'a str,
+        email: &'a str,
+        nickname: Option<&'a str>,
     }
-    let json = serde_json::to_string(&Config { token: &cfg.access_token, key: &cfg.api_key, app_id: &cfg.app_id })
-        .expect("plain strings serialize")
-        .replace('<', "\\u003c");
+    let config = Config {
+        token: &cfg.access_token,
+        key: &cfg.api_key,
+        app_id: &cfg.app_id,
+        email: &cfg.email,
+        nickname: cfg.nickname.as_deref(),
+    };
+    let json = serde_json::to_string(&config).expect("plain strings serialize").replace('<', "\\u003c");
     PAGE.replacen(CONFIG_SLOT, &json, 1)
 }
 
@@ -199,18 +212,35 @@ mod tests {
     use super::*;
 
     fn cfg() -> PickerConfig {
-        PickerConfig { access_token: "ya29.tok</script>".into(), api_key: "AIzaKEY".into(), app_id: "1234".into() }
+        PickerConfig {
+            access_token: "ya29.tok</script>".into(),
+            api_key: "AIzaKEY".into(),
+            app_id: "1234".into(),
+            email: "me@x.com".into(),
+            nickname: Some("Work <b>".into()),
+        }
     }
 
     #[test]
     fn page_carries_the_settings_safely() {
         let page = render_page(&cfg());
         assert!(!page.contains(CONFIG_SLOT));
-        assert!(page.contains(r#"const COO = {"token":"ya29.tok\u003c/script>","key":"AIzaKEY","appId":"1234"};"#));
+        assert!(page.contains(
+            r#"const COO = {"token":"ya29.tok\u003c/script>","key":"AIzaKEY","appId":"1234","email":"me@x.com","nickname":"Work \u003cb>"};"#
+        ));
         assert!(!page.contains("ya29.tok</script>"), "a value can't end the script");
         assert!(page.contains("setAppId(COO.appId)") && page.contains("setOrigin(window.location.origin)"));
         assert!(page.contains("MULTISELECT_ENABLED") && page.contains("https://apis.google.com/js/api.js"));
-        assert!(!format!("{:?}", cfg()).contains("ya29"), "debug output hides the token");
+        assert!(page.contains("setAuthUser(COO.email)") && page.contains(r#"id="account""#), "names the account");
+        assert!(page.contains(".picker-dialog-content iframe"), "the picker fills the window");
+        let debug = format!("{:?}", cfg());
+        assert!(!debug.contains("ya29") && !debug.contains("me@x.com"), "debug output hides the token and address");
+    }
+
+    #[test]
+    fn a_page_without_a_nickname_says_null() {
+        let page = render_page(&PickerConfig { nickname: None, ..cfg() });
+        assert!(page.contains(r#""email":"me@x.com","nickname":null}"#));
     }
 
     #[test]

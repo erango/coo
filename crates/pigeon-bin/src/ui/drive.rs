@@ -68,14 +68,45 @@ fn google_accounts(s: &AppState) -> Vec<(String, String)> {
 fn start_pick(s: AppState, draft_id: String, account_id: String) {
     let mut waiting = s.drive_waiting;
     waiting.set(Some(draft_id.clone()));
-    send_cmd(Cmd::DrivePick { draft_id, account_id });
+    let nickname = s.nicknames.read().get(&account_id).map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
+    send_cmd(Cmd::DrivePick { draft_id, account_id, nickname });
 }
 
-/// Paperclip menu: files from this Mac (a hidden file input; Dioxus
-/// desktop opens the native picker and reports real paths) or from Google
-/// Drive (picker in the browser).
+/// Add local files to a draft's attachments, skipping ones already there
+/// (and empty paths, which a drop of non-files can produce).
+pub fn add_local_files(atts: &mut Vec<DraftAttachment>, paths: impl IntoIterator<Item = std::path::PathBuf>) {
+    for path in paths {
+        let Some(name) = path.file_name().map(|n| n.to_string_lossy().into_owned()) else { continue };
+        let already = atts
+            .iter()
+            .any(|a| matches!(&a.source, AttachmentSource::File { path: p } if std::path::Path::new(p) == path));
+        if !already {
+            atts.push(DraftAttachment {
+                name,
+                content_type: None,
+                source: AttachmentSource::File { path: path.to_string_lossy().into_owned() },
+            });
+        }
+    }
+}
+
+/// The native open panel, any file type, several at once. Not a hidden
+/// `<input type=file>`: Dioxus turns a missing `accept` into the filter
+/// `*`, which macOS takes as the extension "*" and greys out every file.
+fn pick_local_files(slot: ComposeSlot) {
+    spawn(async move {
+        let Some(files) = rfd::AsyncFileDialog::new().set_title("Attach").pick_files().await else { return };
+        let mut draft = slot.draft;
+        if let Some(d) = draft.write().as_mut() {
+            add_local_files(&mut d.attachments, files.into_iter().map(|f| f.path().to_path_buf()));
+        }
+    });
+}
+
+/// Paperclip menu: files from this Mac (the native open panel) or from
+/// Google Drive (picker in the browser).
 #[component]
-pub fn AttachMenu(id: String, on_files: EventHandler<Vec<dioxus::html::FileData>>) -> Element {
+pub fn AttachMenu() -> Element {
     let s = use_context::<AppState>();
     let slot = use_context::<ComposeSlot>();
     let mut open = use_signal(|| false);
@@ -93,7 +124,8 @@ pub fn AttachMenu(id: String, on_files: EventHandler<Vec<dioxus::html::FileData>
             if is_open {
                 div { class: "attach-menu-scrim", onclick: move |_| open.set(false) }
                 div { class: "menu attach-menu", role: "menu",
-                    label { class: "menu-item", role: "menuitem", r#for: "{id}", onclick: move |_| open.set(false),
+                    div { class: "menu-item", role: "menuitem",
+                        onclick: move |_| { open.set(false); pick_local_files(slot); },
                         Icon { name: "upload", class: "icon--sm" }
                         "From this Mac…"
                     }
@@ -144,8 +176,6 @@ pub fn AttachMenu(id: String, on_files: EventHandler<Vec<dioxus::html::FileData>
                 }
             }
         }
-        input { id: "{id}", r#type: "file", multiple: true, style: "display:none",
-            onchange: move |e| on_files.call(e.files()) }
     }
 }
 
@@ -320,6 +350,24 @@ mod tests {
 
     fn f(mime: &str, size: Option<u64>) -> DriveFile {
         DriveFile { id: "x".into(), name: "x".into(), mime_type: mime.into(), size_bytes: size, url: None }
+    }
+
+    #[test]
+    fn local_files_are_added_once() {
+        let mut atts = Vec::new();
+        add_local_files(&mut atts, ["/tmp/a/Report.pdf".into(), "/tmp/a/notes".into(), "".into()]);
+        add_local_files(&mut atts, ["/tmp/a/Report.pdf".into(), "/tmp/b/Report.pdf".into()]);
+        let got: Vec<_> = atts
+            .iter()
+            .map(|a| match &a.source {
+                AttachmentSource::File { path } => (a.name.as_str(), path.as_str()),
+                _ => unreachable!(),
+            })
+            .collect();
+        assert_eq!(
+            got,
+            [("Report.pdf", "/tmp/a/Report.pdf"), ("notes", "/tmp/a/notes"), ("Report.pdf", "/tmp/b/Report.pdf")]
+        );
     }
 
     #[test]
