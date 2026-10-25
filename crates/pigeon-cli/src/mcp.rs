@@ -158,11 +158,13 @@ fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "mail_action",
-            description: "Change messages on the server: archive, trash, flag/unflag, mark read/unread, or move to \
-                a folder. Ask the user first for anything but read state. Returns an undo_handle for `undo`.",
+            description: "Change messages on the server: archive, trash, flag/unflag, mark read/unread, move to a \
+                folder, mark as spam (reports it to the provider where it can) or not spam (back to the inbox), or \
+                report phishing (Microsoft accounts only). Ask the user first for anything but read state. Returns \
+                an undo_handle for `undo` (undo can't take back a report already sent).",
             schema: s(
                 json!({"account": str_(ACCOUNT), "message_ids": strs("Message ids (same account)."),
-                       "action": ex("What to do.", json!(["archive", "trash", "flag", "unflag", "read", "unread", "move"])),
+                       "action": ex("What to do.", json!(["archive", "trash", "flag", "unflag", "read", "unread", "move", "spam", "not_spam", "phishing"])),
                        "to_folder": str_("Target folder name for move.")}),
                 &["account", "message_ids", "action"],
             ),

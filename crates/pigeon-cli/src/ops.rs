@@ -123,6 +123,9 @@ pub fn parse_action(app: &Pigeon, account: &Account, action: &str, to: Option<&s
         "unflag" | "unstar" => MailAction::Unflag,
         "archive" => MailAction::Archive,
         "trash" | "delete" => MailAction::Trash,
+        "spam" | "junk" => MailAction::Spam,
+        "not_spam" | "not-spam" | "not_junk" => MailAction::NotSpam,
+        "phishing" | "phish" => MailAction::Phishing,
         "move" => MailAction::MoveTo(folder_id(
             app,
             account,
@@ -130,7 +133,7 @@ pub fn parse_action(app: &Pigeon, account: &Account, action: &str, to: Option<&s
         )?),
         other => {
             return Err(Error::Other(format!(
-                "unknown action {other:?} (read, unread, flag, unflag, archive, trash, move)"
+                "unknown action {other:?} (read, unread, flag, unflag, archive, trash, move, spam, not_spam, phishing)"
             )));
         }
     })
