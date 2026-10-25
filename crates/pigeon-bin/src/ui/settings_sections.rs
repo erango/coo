@@ -486,6 +486,21 @@ pub fn Shortcuts() -> Element {
                     }
                 }
             }
+            section { class: "settings-group shortcut-group",
+                h3 { class: "shortcut-group__title", "Formatting" }
+                for (_, _, keys, what) in crate::richtext::SHORTCUTS.iter() {
+                    div { class: "shortcut", key: "{keys}",
+                        span { class: "shortcut__what", "{what}" }
+                        kbd { class: "kbd", "{keys}" }
+                    }
+                }
+                for (keys, what) in crate::richtext::LIST_KEYS.iter() {
+                    div { class: "shortcut", key: "{keys}",
+                        span { class: "shortcut__what", "{what}" }
+                        kbd { class: "kbd", "{keys}" }
+                    }
+                }
+            }
         }
     }
 }

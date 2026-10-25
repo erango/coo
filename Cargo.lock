@@ -4149,6 +4149,7 @@ dependencies = [
  "open",
  "pigeon-core",
  "pigeon-engine",
+ "regex",
  "rfd",
  "serde",
  "serde_json",

@@ -22,6 +22,10 @@ serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
+[dev-dependencies]
+# Checks the composer's list-autoformat pattern (richtext.rs), which runs in JS.
+regex = "1.13"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSImage", "NSResponder", "NSDockTile", "NSRunningApplication", "NSSound", "NSPopover", "NSViewController", "NSView", "NSStackView", "NSTextField", "NSControl", "NSButton", "NSFont", "NSColor", "NSWindow", "NSLayoutConstraint", "NSLayoutAnchor", "NSUserInterfaceLayout", "NSText", "NSGraphics", "NSScreen", "objc2-core-foundation", "NSAttributedString", "NSParagraphStyle"] }

@@ -12,6 +12,7 @@ mod menubar;
 mod notify;
 mod perf;
 mod prefs;
+mod richtext;
 mod shortcuts;
 mod sound;
 mod state;

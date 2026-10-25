@@ -6,6 +6,7 @@
 //! The editor holds only what the user types; the quoted original lives in
 //! `draft.html` and is appended at send time. Every editor block carries
 //! `dir="auto"` (set by the bridge), and Ctrl+Right/Left Shift force RTL/LTR.
+//! Formatting (toolbar, shortcuts, list autoformat) is `crate::richtext`.
 
 use chrono::{DateTime, Datelike, Duration, Local, NaiveTime, TimeZone, Weekday};
 use dioxus::html::HasFileData;
@@ -692,6 +693,7 @@ pub fn InlineReply(draft: Draft) -> Element {
             }
             if let Some(h) = hint { div { class: "cross-account-hint", dir: "auto", "{h}" } }
             div { class: "dropzone", Icon { name: "upload" } "Drop to attach" span { class: "dropzone__meta", "files are added to this reply" } }
+            super::format_bar::FormatBar { editor: id.clone() }
             div { class: "inline-reply__editor", id: "{id}", contenteditable: "true", "data-editor": "true",
                 dir: "auto", "data-placeholder": "Write a reply…  Ctrl+Right Shift for RTL",
                 dangerous_inner_html: "{draft.body_html}",
@@ -788,7 +790,7 @@ fn debug_compose() -> Option<(Vec<Address>, String)> {
 }
 
 /// Debug builds: PIGEON_DEBUG_EXTRAS=1 with the compose hook shows the
-/// composer extras for screenshots (attachment, send-later menu, format bar).
+/// composer extras for screenshots (attachment, send-later menu, formatted text).
 fn debug_extras() -> bool {
     cfg!(debug_assertions) && std::env::var("PIGEON_DEBUG_EXTRAS").is_ok_and(|v| v == "1")
 }
@@ -814,7 +816,7 @@ pub fn Composer(draft: Draft, #[props(default)] docked: bool) -> Element {
                     });
                 }
                 document::eval(&format!(
-                    "setTimeout(()=>window.__pigeonFormatBarDemo&&window.__pigeonFormatBarDemo({id:?}),1200)"
+                    "setTimeout(()=>window.__pigeonFormatDemo&&window.__pigeonFormatDemo({id:?}),1200)"
                 ));
             }
         }
@@ -894,6 +896,7 @@ pub fn Composer(draft: Draft, #[props(default)] docked: bool) -> Element {
                         }
                     }
                 }
+                super::format_bar::FormatBar { editor: id.clone() }
                 div { class: "dropzone", Icon { name: "upload" } "Drop to attach" span { class: "dropzone__meta", "files are added to this message" } }
                 div { class: "composer__body",
                     div { class: "composer__editor", id: "{id}", contenteditable: "true", "data-editor": "true", dir: "auto",
