@@ -4,6 +4,7 @@
 mod about;
 mod bridge;
 mod dock;
+mod emoji;
 mod fonts;
 mod format;
 mod meeting;
@@ -12,6 +13,7 @@ mod menubar;
 mod notify;
 mod perf;
 mod prefs;
+mod richtext;
 mod shortcuts;
 mod sound;
 mod state;

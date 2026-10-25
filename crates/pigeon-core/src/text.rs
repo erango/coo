@@ -162,7 +162,7 @@ pub fn text_to_html(text: &str) -> String {
 
 /// Rough HTML to text for the text/plain alternative and previews.
 pub fn html_to_text(html: &str) -> String {
-    const BREAKS: [&str; 10] = ["br", "/p", "/div", "/li", "/tr", "/h1", "/h2", "/h3", "/blockquote", "/table"];
+    const BREAKS: [&str; 11] = ["br", "/p", "/div", "/li", "/tr", "/h1", "/h2", "/h3", "/blockquote", "/table", "/pre"];
     let mut out = String::with_capacity(html.len() / 2);
     let mut rest = html;
     let mut skip_until: Option<&str> = None;
@@ -206,6 +206,12 @@ pub fn html_to_text(html: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn code_blocks_keep_their_lines_and_indentation() {
+        let html = "<div>Run:</div><pre style=\"white-space:pre-wrap\">fn main() {\n    println!(\"hi\");\n}</pre><div>then <code>cargo run</code></div>";
+        assert_eq!(html_to_text(html), "Run:\nfn main() {\n    println!(\"hi\");\n}\nthen cargo run");
+    }
 
     #[test]
     fn preview_text_drops_preheader_padding() {

@@ -164,7 +164,7 @@ fn ComposeWindow(props: ComposeWindowProps) -> Element {
 
 /// This window's half of the JS bridge: composer keys, autosave, links.
 async fn bridge_loop(s: AppState, slot: ComposeSlot) {
-    let mut eval = document::eval(bridge::JS);
+    let mut eval = document::eval(&bridge::script());
     while let Ok(msg) = eval.recv::<Msg>().await {
         match msg.k.as_str() {
             "key" => match msg.v.as_str() {
