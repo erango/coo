@@ -77,8 +77,9 @@ fn DefaultCalendar() -> Element {
             send_cmd(Cmd::ShowCalendar { from, to });
         }
     });
-    let calendars = s.calendar.read().calendars.clone();
     let accounts = s.accounts.read().clone();
+    let order: Vec<String> = accounts.iter().map(|a| a.account.id.clone()).collect();
+    let calendars = super::event_editor::in_sidebar_order(&s.calendar.read().calendars, &order);
     let chosen = super::event_editor::chosen_calendar(&calendars, &s.default_calendar.read());
     let value = chosen.as_ref().map(|(a, c)| format!("{a}|{c}")).unwrap_or_default();
     let auto = super::event_editor::auto_calendar(&calendars).and_then(|(a, c)| {

@@ -259,6 +259,14 @@ pub fn auto_calendar(calendars: &Calendars) -> Option<(String, String)> {
     writable().find(|(_, c)| c.is_primary).or_else(|| writable().next()).map(|(a, c)| (a.clone(), c.id.clone()))
 }
 
+/// `calendars` with their accounts in sidebar order (`order`: account ids),
+/// so Automatic picks from the top account down, as mail's default does.
+pub fn in_sidebar_order(calendars: &Calendars, order: &[String]) -> Vec<(String, Calendar)> {
+    let mut v = calendars.to_vec();
+    v.sort_by_key(|(a, _)| order.iter().position(|o| o == a).unwrap_or(usize::MAX));
+    v
+}
+
 /// Where a new event goes: the chosen default while it's usable, else
 /// automatic ([`auto_calendar`]). None when no calendar can take events.
 pub fn new_event_calendar(calendars: &Calendars, pref: &str) -> Option<(String, String)> {
@@ -275,7 +283,8 @@ pub fn account_calendar(calendars: &Calendars, account_id: &str, pref: &str) -> 
 /// Open a blank one-hour event on `day` at `minutes`, on the default
 /// calendar for new events ([`new_event_calendar`]).
 pub fn open_new(s: AppState, day: NaiveDate, minutes: u32) {
-    let cals = s.calendar.read().calendars.clone();
+    let order: Vec<String> = s.accounts.peek().iter().map(|a| a.account.id.clone()).collect();
+    let cals = in_sidebar_order(&s.calendar.read().calendars, &order);
     let target = new_event_calendar(&cals, &s.default_calendar.peek());
     open_new_in(s, day, minutes, target);
 }
@@ -697,6 +706,9 @@ mod tests {
         // No writable primary: the first writable; nothing writable: none.
         let no_primary = vec![("m:a".to_string(), cal("ro", true, false)), ("m:a".to_string(), cal("w", false, true))];
         assert_eq!(auto_calendar(&no_primary), Some(("m:a".into(), "w".into())));
+        // Automatic follows the sidebar's account order.
+        let two = [(String::from("b"), cal("b1", true, true)), (String::from("a"), cal("a1", true, true))];
+        assert_eq!(auto_calendar(&in_sidebar_order(&two, &["a".into(), "b".into()])), Some(("a".into(), "a1".into())));
         assert_eq!(new_event_calendar(&no_primary[..1], ""), None);
         // Per account: the default when it's there, else that account's own pick.
         assert_eq!(account_calendar(&cals, "g:b", "g:b|b-side"), Some(("g:b".into(), "b-side".into())));

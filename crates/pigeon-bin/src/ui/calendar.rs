@@ -746,8 +746,9 @@ pub fn CalendarSidebar() -> Element {
         (shown[0], *shown.last().expect("days"))
     };
     let today = Local::now().date_naive();
-    let calendars = s.calendar.read().calendars.clone();
     let accounts = s.accounts.read().clone();
+    let order: Vec<String> = accounts.iter().map(|a| a.account.id.clone()).collect();
+    let calendars = super::event_editor::in_sidebar_order(&s.calendar.read().calendars, &order);
     // Quiet, as for mail: the default for new events shows in a tooltip.
     let pref = s.default_calendar.read().clone();
     let chosen = super::event_editor::chosen_calendar(&calendars, &pref);
