@@ -91,13 +91,35 @@ pub const JS: &str = r#"
     const n = getSelection().anchorNode, el = n && (n.nodeType === 1 ? n : n.parentElement);
     const li = el && el.closest('li');
     const b = li && ed.contains(li) ? li : blockOf(ed);
-    if (b && b.setAttribute) b.setAttribute('dir', dir);
+    if (b && b.setAttribute) { b.setAttribute('dir', dir); delete b.dataset.dirGuess; }
+  }
+  // A new, still empty line (paragraph or list item) starts in the
+  // direction of the one above it, so a Hebrew paragraph's next line opens
+  // on the right; the first letter typed hands it back to dir="auto" (its
+  // own text decides). Digits and punctuation keep the guess.
+  const STRONG = /\p{L}/u;
+  function predictDir(ed) {
+    const n = getSelection().anchorNode, el = n && (n.nodeType === 1 ? n : n.parentElement);
+    if (!el || !ed.contains(el)) return;
+    const li = el.closest('li');
+    const b = li && ed.contains(li) ? li : blockOf(ed);
+    if (!b || !b.getAttribute) return;
+    const text = b.textContent.replace(/[\u200b\ufeff]/g, '');
+    if (b.dataset.dirGuess !== undefined) {
+      if (STRONG.test(text)) { b.setAttribute('dir', 'auto'); delete b.dataset.dirGuess; }
+      return;
+    }
+    const prev = b.previousElementSibling;
+    if (text.trim() !== '' || !prev || b.getAttribute('dir') !== 'auto') return;
+    b.setAttribute('dir', getComputedStyle(prev).direction === 'rtl' ? 'rtl' : 'ltr');
+    b.dataset.dirGuess = '';
   }
   document.addEventListener('input', (e) => {
     const ed = e.target.closest && e.target.closest('[data-editor]');
     if (!ed) return;
     if (ed.firstChild && ed.firstChild.nodeType === 3) blockOf(ed);
     for (const c of ed.children) if (!c.hasAttribute('dir')) c.setAttribute('dir', 'auto');
+    predictDir(ed);
     // Autosave: tell Rust once typing pauses.
     clearTimeout(ed._pgSave);
     if (ed.dataset.sigEditor !== undefined) { // Settings → signature editor
