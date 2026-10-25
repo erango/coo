@@ -1,5 +1,6 @@
 //! Settings: Appearance (mode, color theme, text size) and Accounts (order,
-//! sign out, add). Opens with ⌘, or from ⌘K; Esc closes.
+//! sign out, add). Opens with ⌘, or from ⌘K; while open it takes over the
+//! sidebar (page list, search, Back). Esc, Back or ⌘1/⌘2 leave.
 
 use dioxus::prelude::*;
 use pigeon_core::model::ProviderKind;
@@ -8,7 +9,7 @@ use pigeon_engine::service::{AccountNav, Cmd};
 use super::Icon;
 use super::zoom::{self, Step};
 use crate::send_cmd;
-use crate::state::{AppState, Theme};
+use crate::state::{AppState, Mode, Theme};
 use crate::{prefs, themes};
 
 /// Settings subpages: (title, icon, search keywords).
@@ -56,74 +57,89 @@ pub fn show_page(s: AppState, title: &str) {
     p.set(page.to_string());
 }
 
+/// The sidebar while Settings is open: it takes over the mail/calendar
+/// sidebar, so nothing on screen reads as live mail. Back (or Esc, ⌘1/⌘2)
+/// leaves; the page list sits where the folders were.
 #[component]
-pub fn Settings() -> Element {
+pub fn SettingsSidebar() -> Element {
     let s = use_context::<AppState>();
     let mut open = s.settings_open;
     let mut page = s.settings_page;
     let mut query = use_signal(String::new);
     let current = page.read().clone();
     let shown = matching_pages(&query.read());
+    let back = match *s.mode.read() {
+        Mode::Mail => "Back to Mail",
+        Mode::Calendar => "Back to Calendar",
+    };
     rsx! {
-        main { class: "pane pane--reader",
-            div { class: "settings-layout",
-                nav { class: "settings-nav", "aria-label": "Settings pages",
-                    div { class: "settings-nav__search",
-                        Icon { name: "search", class: "icon--sm" }
-                        input { r#type: "search", placeholder: "Find a setting", value: "{query}", autocomplete: "off",
-                            oninput: move |e| {
-                                let v = e.value();
-                                // Jump to the first page that has it.
-                                if let Some(first) = matching_pages(&v).first() { page.set((*first).to_string()); }
-                                query.set(v);
-                            }
-                        }
-                    }
-                    for (title, icon, _) in PAGES.iter().filter(|(t, _, _)| shown.contains(t)) {
-                        a { class: "nav-item", href: "#", key: "{title}",
-                            "aria-current": if current == *title { "page" } else { "false" },
-                            onclick: move |e| { e.prevent_default(); page.set(title.to_string()); },
-                            Icon { name: icon }
-                            span { class: "nav-item__label", "{title}" }
-                        }
-                    }
-                    if shown.is_empty() {
-                        div { class: "settings__hint", style: "margin:8px 10px", "No settings match." }
+        div { class: "sidebar__controls settings-side",
+            button { class: "settings-back", r#type: "button", title: "{back} (Esc)", onclick: move |_| open.set(false),
+                Icon { name: "arrow-left", class: "icon--sm" }
+                span { class: "spacer", "{back}" }
+                kbd { class: "kbd", "Esc" }
+            }
+            h1 { class: "settings-side__title", "Settings" }
+            label { class: "settings-nav__search",
+                Icon { name: "search", class: "icon--sm" }
+                input { r#type: "search", placeholder: "Find a setting", "aria-label": "Find a setting", value: "{query}", autocomplete: "off",
+                    oninput: move |e| {
+                        let v = e.value();
+                        // Jump to the first page that has it.
+                        if let Some(first) = matching_pages(&v).first() { page.set((*first).to_string()); }
+                        query.set(v);
                     }
                 }
-                div { class: "settings",
-                    div { class: "settings__crumbs",
-                        span { "Settings" }
-                        span { "›" }
-                        span { style: "color:var(--text-2)", "{current}" }
-                        span { class: "spacer" }
-                        button { class: "icon-btn icon-btn--sm", "aria-label": "Close settings (Esc)", onclick: move |_| open.set(false),
-                            Icon { name: "x" }
-                        }
-                    }
-                    match current.as_str() {
-                        "Appearance" => rsx! { Appearance {} },
-                        "Accounts" => rsx! { Accounts {} },
-                        "Composing" => rsx! { super::settings_sections::Composing {} },
-                        "Signatures" => rsx! { super::settings_sections::Signatures {} },
-                        "Calendar" => rsx! { super::settings_sections::CalendarSettings {} },
-                        "Notifications" => rsx! { super::settings_sections::Notifications {} },
-                        "Privacy" => rsx! { super::settings_sections::Privacy {} },
-                        "Keyboard shortcuts" => rsx! { super::settings_sections::Shortcuts {} },
-                        "About & updates" => rsx! { super::settings_sections::AboutUpdates {} },
-                        "AI agents" => rsx! {
-                            div { class: "settings__title", "AI agents" }
-                            div { class: "settings__hint", "Let Claude or another agent search and read your mail and calendar through Coo." }
-                            div {
-                                button { class: "btn btn--secondary", r#type: "button",
-                                    onclick: move |_| { let mut o = s.agent_setup_open; o.set(true); },
-                                    Icon { name: "link", class: "icon--sm" }
-                                    "Connect an AI agent…"
-                                }
+            }
+        }
+        nav { class: "sidebar__nav settings-nav", "aria-label": "Settings pages",
+            for (title, icon, _) in PAGES.iter().filter(|(t, _, _)| shown.contains(t)) {
+                a { class: "nav-item", href: "#", key: "{title}",
+                    "aria-current": if current == *title { "page" } else { "false" },
+                    onclick: move |e| { e.prevent_default(); page.set(title.to_string()); },
+                    Icon { name: icon }
+                    span { class: "nav-item__label", "{title}" }
+                }
+            }
+            if shown.is_empty() {
+                div { class: "settings__hint", style: "margin:8px 10px", "No settings match." }
+            }
+        }
+    }
+}
+
+/// The open Settings page, across the full width beside the sidebar.
+#[component]
+pub fn Settings() -> Element {
+    let s = use_context::<AppState>();
+    let current = s.settings_page.read().clone();
+    rsx! {
+        main { class: "pane pane--reader",
+            div { class: "settings",
+                // Empty title strip: drags the window, hairline once scrolled.
+                div { class: "settings__crumbs" }
+                match current.as_str() {
+                    "Appearance" => rsx! { Appearance {} },
+                    "Accounts" => rsx! { Accounts {} },
+                    "Composing" => rsx! { super::settings_sections::Composing {} },
+                    "Signatures" => rsx! { super::settings_sections::Signatures {} },
+                    "Calendar" => rsx! { super::settings_sections::CalendarSettings {} },
+                    "Notifications" => rsx! { super::settings_sections::Notifications {} },
+                    "Privacy" => rsx! { super::settings_sections::Privacy {} },
+                    "Keyboard shortcuts" => rsx! { super::settings_sections::Shortcuts {} },
+                    "About & updates" => rsx! { super::settings_sections::AboutUpdates {} },
+                    "AI agents" => rsx! {
+                        div { class: "settings__title", "AI agents" }
+                        div { class: "settings__hint", "Let Claude or another agent search and read your mail and calendar through Coo." }
+                        div {
+                            button { class: "btn btn--secondary", r#type: "button",
+                                onclick: move |_| { let mut o = s.agent_setup_open; o.set(true); },
+                                Icon { name: "link", class: "icon--sm" }
+                                "Connect an AI agent…"
                             }
-                        },
-                        _ => rsx! { super::settings_sections::General {} },
-                    }
+                        }
+                    },
+                    _ => rsx! { super::settings_sections::General {} },
                 }
             }
         }

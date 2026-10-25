@@ -92,6 +92,15 @@ pub fn Sidebar() -> Element {
     let mut mode = s.mode;
     let many = s.accounts.read().len() > 4;
 
+    if *s.settings_open.read() {
+        return rsx! {
+            aside { class: "sidebar", "aria-label": "Settings",
+                div { class: "sidebar__top" }
+                super::settings::SettingsSidebar {}
+                SyncFooter {}
+            }
+        };
+    }
     rsx! {
         aside { class: "sidebar",
             div { class: "sidebar__top" }
@@ -125,8 +134,6 @@ fn MailNav(many: bool) -> Element {
     let mut mailbox = s.mailbox;
     let accounts = s.accounts.read().clone();
     let current = mailbox.read().clone();
-    // Settings replaces the mail view: no mailbox reads as current then.
-    let settings_open = *s.settings_open.read();
 
     // Account reordering: index being dragged, and the section hovered.
     let drag = use_signal(|| None::<usize>);
@@ -154,7 +161,7 @@ fn MailNav(many: bool) -> Element {
             for (role, label, icon) in UNIFIED {
                 {
                     let count = if role == FolderRole::Inbox { unified_unread(role) } else { 0 };
-                    let active = !settings_open && current == Mailbox::Unified(role);
+                    let active = current == Mailbox::Unified(role);
                     rsx! {
                         a { class: "nav-item", href: "#",
                             "aria-current": if active { "page" } else { "false" },
@@ -225,8 +232,6 @@ fn AccountSection(
     };
     let letter = format::initials(&name).chars().next().unwrap_or('?');
     let current = mailbox.read().clone();
-    // Settings replaces the mail view: no mailbox reads as current then.
-    let settings_open = *s.settings_open.read();
     let toggle_id = id.clone();
 
     rsx! {
@@ -255,7 +260,7 @@ fn AccountSection(
             for f in visible_folders(nav.account.provider, &nav.folders) {
                 {
                     let target = Mailbox::Folder { account_id: id.clone(), folder_id: f.folder.id.clone() };
-                    let active = !settings_open && current == target;
+                    let active = current == target;
                     let icon = role_icon(f.folder.role, f.folder.kind);
                     let unread = f.unread;
                     let label = f.folder.name.clone();
@@ -354,15 +359,11 @@ fn SyncFooter() -> Element {
                 },
                 Icon { name: "sun", class: "icon--sm" }
             }
-            {
-                let mut open = s.settings_open;
-                let on = *open.read();
-                rsx! {
-                    button { class: "icon-btn icon-btn--sm", "aria-label": "Settings", title: "Settings (⌘,)",
-                        "aria-pressed": if on { "true" } else { "false" },
-                        onclick: move |_| { let v = !*open.read(); open.set(v); },
-                        Icon { name: "gear", class: "icon--sm" }
-                    }
+            // Settings has its own Back button at the top while open.
+            if !*s.settings_open.read() {
+                button { class: "icon-btn icon-btn--sm", "aria-label": "Settings", title: "Settings (⌘,)",
+                    onclick: move |_| { let mut o = s.settings_open; o.set(true); },
+                    Icon { name: "gear", class: "icon--sm" }
                 }
             }
             if let Some(v) = s.update_ready.read().clone() {

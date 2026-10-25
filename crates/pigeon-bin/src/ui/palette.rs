@@ -163,10 +163,15 @@ fn run(mut s: AppState, action: Action) {
         Action::LabelAs => super::move_picker::open(s, true),
         Action::Go(mb) => {
             s.mode.set(Mode::Mail);
+            s.settings_open.set(false);
             s.search.set(None);
             s.mailbox.set(mb);
         }
-        Action::Mode(m) => s.mode.set(m),
+        // Settings owns the sidebar while open: going somewhere leaves it.
+        Action::Mode(m) => {
+            s.settings_open.set(false);
+            s.mode.set(m);
+        }
         Action::Sync => send_cmd(Cmd::SyncNow),
         Action::Settings => s.settings_open.set(true),
         Action::AgentSetup => s.agent_setup_open.set(true),
@@ -174,10 +179,12 @@ fn run(mut s: AppState, action: Action) {
         Action::Threads(t) => s.threaded.set(t),
         Action::Search(q) => {
             s.mode.set(Mode::Mail);
+            s.settings_open.set(false);
             super::search::open(s, &q);
         }
         Action::Open(row) => {
             s.mode.set(Mode::Mail);
+            s.settings_open.set(false);
             super::search::open(s, "");
             super::select(s, &ListItem::Message(*row));
         }

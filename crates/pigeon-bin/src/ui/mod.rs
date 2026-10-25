@@ -37,8 +37,9 @@ use crate::state::{self, AppState, Mode, Theme};
 pub(crate) const ICONS: &str = include_str!("../../../../design/icons.svg");
 /// App-only icons the design sprite lacks. `i-gear`: the design's
 /// `i-settings` is a circle with rays and reads as a sun next to the theme
-/// toggle. Gear path from Lucide (ISC license).
-pub(crate) const APP_ICONS: &str = r#"<svg xmlns="http://www.w3.org/2000/svg"><defs><symbol id="i-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol></defs></svg>"#;
+/// toggle. Gear path from Lucide (ISC license). `i-arrow-left`: the
+/// design's `i-arrow-right`, mirrored (Settings › Back).
+pub(crate) const APP_ICONS: &str = r#"<svg xmlns="http://www.w3.org/2000/svg"><defs><symbol id="i-gear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol><symbol id="i-arrow-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M11 6l-6 6 6 6"/></symbol></defs></svg>"#;
 const DAY_MS: i64 = 86_400_000;
 
 #[component]
@@ -803,10 +804,17 @@ pub fn join_now(s: AppState) {
 }
 
 fn on_key(s: AppState, key: &str) {
-    let (mut mode, draft) = (s.mode, s.draft);
+    let (mut mode, draft, mut settings) = (s.mode, s.draft, s.settings_open);
     match key {
-        "meta+1" => return mode.set(Mode::Mail),
-        "meta+2" => return mode.set(Mode::Calendar),
+        // ⌘1 / ⌘2 also leave Settings, straight to Mail or Calendar.
+        "meta+1" => {
+            settings.set(false);
+            return mode.set(Mode::Mail);
+        }
+        "meta+2" => {
+            settings.set(false);
+            return mode.set(Mode::Calendar);
+        }
         // ⇧⌘N, as in Mail ("Get All New Mail"); ⌘R is Reply.
         "meta+shift+n" => return send_cmd(Cmd::SyncNow),
         // ⇧J: join the meeting that's on now (or starting soon), from anywhere.
@@ -822,10 +830,7 @@ fn on_key(s: AppState, key: &str) {
             return p.set(!v);
         }
         // Open (not toggle): the menu's ⌘, accelerator may fire as well.
-        "meta+," => {
-            let mut o = s.settings_open;
-            return o.set(true);
-        }
+        "meta+," => return settings.set(true),
         "Escape" => {
             // A docked draft set aside behind the "Draft:" chip isn't being edited.
             let composing = draft.read().is_some() && !*s.docked_hidden.read();
@@ -849,8 +854,7 @@ fn on_key(s: AppState, key: &str) {
                 return multi::clear(s);
             }
             if !composing && *s.settings_open.read() {
-                let mut o = s.settings_open;
-                return o.set(false);
+                return settings.set(false);
             }
             if !composing && s.search.read().is_some() {
                 return search::close(s);
