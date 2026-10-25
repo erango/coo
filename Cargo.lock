@@ -4136,7 +4136,7 @@ dependencies = [
 
 [[package]]
 name = "pigeon-bin"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "base64 0.23.1",
  "block2",
@@ -4159,7 +4159,7 @@ dependencies = [
 
 [[package]]
 name = "pigeon-caldav"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "chrono",
  "pigeon-core",
@@ -4172,7 +4172,7 @@ dependencies = [
 
 [[package]]
 name = "pigeon-cli"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "chrono",
  "clap",
@@ -4187,7 +4187,7 @@ dependencies = [
 
 [[package]]
 name = "pigeon-core"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "ammonia",
  "base64 0.23.1",
@@ -4216,7 +4216,7 @@ dependencies = [
 
 [[package]]
 name = "pigeon-engine"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -4236,7 +4236,7 @@ dependencies = [
 
 [[package]]
 name = "pigeon-google"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -4254,7 +4254,7 @@ dependencies = [
 
 [[package]]
 name = "pigeon-graph"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -4270,7 +4270,7 @@ dependencies = [
 
 [[package]]
 name = "pigeon-imap"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "async-imap",
  "base64 0.23.1",
@@ -4287,7 +4287,7 @@ dependencies = [
 
 [[package]]
 name = "pigeon-zoom"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "chrono",
  "pigeon-core",
