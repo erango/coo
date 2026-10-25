@@ -1,8 +1,9 @@
 //! Composer rich text: the formatting commands (toolbar buttons and their
-//! shortcuts) and list autoformat ("1. " or "- " at the start of a line
-//! starts a list). The DOM work is the script below, run with the bridge in
-//! every window; the shortcut table and the list pattern live here as data,
-//! handed to the script, so the tests check what the editor really does.
+//! shortcuts), the emoji picker, and autoformat as you type: lists ("1. ",
+//! "- "), inline code (`x`), code blocks (```), emoticons (":) " → 🙂).
+//! The DOM work is the script below, run with the bridge in every window;
+//! the shortcut table and the patterns live here as data, handed to the
+//! script, so the tests check what the editor really does.
 //!
 //! Formatting goes through `execCommand` so ⌘Z undoes it. Character styles
 //! use tags (`<b>`, `<i>`, `<u>`, `<strike>`), colors and sizes inline
@@ -27,17 +28,23 @@ pub const SHORTCUTS: &[(&str, &str, &str, &str)] = &[
     ("justifyCenter", "meta+e", "⌘E", "Center"),
     ("justifyRight", "meta+r", "⌘R", "Align right"),
     ("quote", "meta+shift+9", "⇧⌘9", "Quote"),
+    ("code", "meta+shift+c", "⇧⌘C", "Inline code"),
+    ("codeBlock", "meta+alt+shift+c", "⌥⇧⌘C", "Code block"),
     ("removeFormat", "meta+\\", "⌘\\", "Clear formatting"),
     ("undo", "meta+z", "⌘Z", "Undo"),
     ("redo", "meta+shift+z", "⇧⌘Z", "Redo"),
 ];
 
-/// Editing keys that aren't commands, for Settings › Keyboard shortcuts.
-pub const LIST_KEYS: &[(&str, &str)] = &[
+/// Typing that formats, for Settings › Keyboard shortcuts.
+pub const TYPING_KEYS: &[(&str, &str)] = &[
     ("1.  or  -  then Space", "Start a numbered or bulleted list"),
     ("↵ on an empty item", "End the list"),
-    ("⌫ right after", "Undo the automatic list"),
     ("Tab · ⇧Tab in a list", "Indent · outdent the item"),
+    ("`code`", "Inline code"),
+    ("``` then ↵", "Code block (↵ on two empty lines leaves it)"),
+    (":)  ;)  <3 … then Space", "Emoji"),
+    ("⌫ right after", "Undo the automatic formatting"),
+    ("⌃⌘Space", "All emoji and symbols (macOS)"),
 ];
 
 /// The tooltip for a toolbar button: "Bold (⌘B)".
@@ -55,11 +62,65 @@ pub fn tip(cmd: &str) -> String {
 /// 3 letter. Written to mean the same in JavaScript and Rust regex syntax.
 pub const AUTO_LIST_RE: &str = "^[ \u{a0}\u{200e}\u{200f}\u{61c}]*(?:([-*•])|([0-9٠-٩۰-۹]{1,3})[.)]|([aA])[.)])$";
 
-/// The script: formatting toolbar, shortcuts, and list autoformat.
+/// Inline code: the text before the caret, when the closing backtick is
+/// typed, ends with an opening backtick (at a word start) and the code. It
+/// can't start or end with a space, so "`  `" and a lone "`" stay. Groups:
+/// 1 what's before the backtick, 2 the code. Same in JS and Rust syntax.
+pub const INLINE_CODE_RE: &str = "(^|[\\s(\\[{\"'])`([^`\\s](?:[^`]*[^`\\s])?)$";
+
+/// A line that starts a code block when Enter is typed: ``` and an
+/// optional language name.
+pub const CODE_FENCE_RE: &str = "^[ \u{a0}]*```[A-Za-z0-9+#-]*[ \u{a0}]*$";
+
+/// Inline styles for code, so recipients' mail shows it as code.
+pub const CODE_STYLE: &str = "font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.9em;\
+     background-color:#f2f3f5;border-radius:4px;padding:1px 4px";
+pub const PRE_STYLE: &str = "font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;\
+     line-height:1.45;white-space:pre-wrap;tab-size:4;text-align:left;background-color:#f6f8fa;\
+     border:1px solid #e1e4e8;border-radius:6px;padding:8px 10px;margin:4px 0";
+
+/// Emoticons typed as a word of their own (line start or after a space)
+/// and followed by a space, Enter or `.,!?` become emoji. Unambiguous ones
+/// only: nothing that turns up in URLs, times ("10:30") or code ("a:b"),
+/// and no "B)", which is also "plan B)" and a list marker.
+pub const EMOTICONS: &[(&str, &str)] = &[
+    (":-)", "🙂"),
+    (":)", "🙂"),
+    (":-D", "😃"),
+    (":D", "😃"),
+    (";-)", "😉"),
+    (";)", "😉"),
+    (":-(", "🙁"),
+    (":(", "🙁"),
+    (":'(", "😢"),
+    (":-P", "😛"),
+    (":P", "😛"),
+    (":-p", "😛"),
+    (":p", "😛"),
+    (":-O", "😮"),
+    (":O", "😮"),
+    (":o", "😮"),
+    ("<3", "❤️"),
+    ("B-)", "😎"),
+    ("8-)", "😎"),
+];
+
+/// Keys that end an emoticon.
+pub const EMOTICON_ENDS: &[&str] = &[" ", "Enter", ".", ",", "!", "?"];
+
+/// The script: formatting toolbar, shortcuts, emoji picker, autoformat.
 pub fn script() -> String {
     let keys: Vec<(&str, &str, &str)> = SHORTCUTS.iter().map(|s| (s.1, s.0, s.2)).collect();
+    let json = |v: &str| serde_json::to_string(v).unwrap_or_default();
     JS.replace("__KEYS__", &serde_json::to_string(&keys).unwrap_or_default())
-        .replace("__AUTO_LIST_RE__", &serde_json::to_string(AUTO_LIST_RE).unwrap_or_default())
+        .replace("__AUTO_LIST_RE__", &json(AUTO_LIST_RE))
+        .replace("__INLINE_CODE_RE__", &json(INLINE_CODE_RE))
+        .replace("__CODE_FENCE_RE__", &json(CODE_FENCE_RE))
+        .replace("__CODE_STYLE__", &json(CODE_STYLE))
+        .replace("__PRE_STYLE__", &json(PRE_STYLE))
+        .replace("__EMOTICONS__", &serde_json::to_string(EMOTICONS).unwrap_or_default())
+        .replace("__EMOTICON_ENDS__", &serde_json::to_string(EMOTICON_ENDS).unwrap_or_default())
+        .replace("__EMOJI__", &crate::emoji::json())
 }
 
 const JS: &str = r##"
@@ -68,6 +129,9 @@ const JS: &str = r##"
   const KEYS = new Map(TABLE.map(([k, c]) => [k, c]));
   const LABEL = Object.fromEntries(TABLE.map(([, c, l]) => [c, l]));
   const AUTO_LIST = new RegExp(__AUTO_LIST_RE__);
+  const INLINE_CODE = new RegExp(__INLINE_CODE_RE__), FENCE = new RegExp(__CODE_FENCE_RE__);
+  const CODE_STYLE = __CODE_STYLE__, PRE_STYLE = __PRE_STYLE__;
+  const EMOTICONS = __EMOTICONS__, EMOTICON_ENDS = new Set(__EMOTICON_ENDS__);
   const editorOf = (n) => { const el = n && (n.nodeType === 1 ? n : n.parentElement); return el && el.closest ? el.closest('[data-editor]') : null; };
   const barFor = (ed) => ed && ed.id ? document.querySelector('.fmt-bar[data-for="' + ed.id + '"]') : null;
   const caretNode = () => { const s = getSelection(); return s.rangeCount ? s.anchorNode : null; };
@@ -77,18 +141,27 @@ const JS: &str = r##"
     const hit = el && el.closest(sel);
     return hit && ed.contains(hit) && hit !== ed ? hit : null;
   };
-  const BLOCK = /^(DIV|P|LI|BLOCKQUOTE|H[1-6])$/;
+  const BLOCK = /^(DIV|P|LI|BLOCKQUOTE|PRE|H[1-6])$/;
   const blockAt = (ed, n) => {
     for (; n && n !== ed; n = n.parentNode) if (n.nodeType === 1 && BLOCK.test(n.tagName)) return n;
     return null;
   };
+  const STRONG = /[A-Za-z\u00c0-\u02af\u0370-\u052f]|[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]/;
   // A block's direction: an explicit dir on it, around it or first inside
   // it, else its first strong character (what dir="auto" does).
   const isRtl = (el) => {
     const set = el.closest('[dir="rtl"],[dir="ltr"]') || el.querySelector('[dir="rtl"],[dir="ltr"]');
     if (set) return set.getAttribute('dir') === 'rtl';
-    const m = el.textContent.match(/[A-Za-z\u00c0-\u02af\u0370-\u052f]|[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]/);
+    const m = el.textContent.match(STRONG);
     return m ? m[0] >= '\u0590' : getComputedStyle(el).direction === 'rtl';
+  };
+  // An item's own direction: its explicit dir, else its first strong
+  // character; null while it has no letters yet.
+  const itemDir = (li) => {
+    const a = li.getAttribute('dir');
+    if (a === 'rtl' || a === 'ltr') return a;
+    const m = li.textContent.match(STRONG);
+    return m ? (m[0] >= '\u0590' ? 'rtl' : 'ltr') : null;
   };
   const exec = (cmd, value, css) => {
     document.execCommand('styleWithCSS', false, !!css);
@@ -136,6 +209,79 @@ const JS: &str = r##"
     if (nq) { nq.setAttribute('data-coo-quote', ''); quoteStyle(nq); }
   }
 
+  // ---- Code: inline <code> and <pre> blocks, always left to right ----
+  // WebKit's insertHTML turns <code> into a styled span, so inline code goes
+  // in through the DOM (Backspace or ⌘Z right after still takes it back).
+  const changed = (ed) => ed.dispatchEvent(new Event('input', { bubbles: true }));
+  function makeCode(t) {
+    const c = document.createElement('code');
+    c.setAttribute('dir', 'ltr'); c.setAttribute('style', CODE_STYLE); c.textContent = t;
+    return c;
+  }
+  // Put `c` in place of range `r`, caret after it (or the code selected).
+  // A zero-width space after the code keeps what's typed next out of it.
+  function placeCode(ed, r, c, select) {
+    r.deleteContents(); r.insertNode(c);
+    const z = document.createTextNode('\u200b'); c.after(z);
+    const after = document.createRange();
+    if (select) after.selectNodeContents(c); else { after.setStart(z, 1); after.collapse(true); }
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(after);
+    changed(ed);
+  }
+  const stylePre = (p) => { if (p) { p.setAttribute('dir', 'ltr'); p.setAttribute('style', PRE_STYLE); } };
+  function toggleCode(ed) {
+    const sel = getSelection();
+    const c = around(ed, 'code');
+    if (c) {
+      const t = document.createTextNode(c.textContent);
+      c.replaceWith(t);
+      const r = document.createRange(); r.selectNodeContents(t); sel.removeAllRanges(); sel.addRange(r);
+      changed(ed);
+      return;
+    }
+    if (sel.rangeCount && !sel.isCollapsed) { const r = sel.getRangeAt(0); placeCode(ed, r, makeCode(r.toString()), true); }
+  }
+  // A block's lines as plain blocks again (a <pre> keeps them as "\n").
+  function unPre(ed, pre) {
+    const blocks = pre.textContent.replace(/\n$/, '').split('\n').map((l) => {
+      const d = document.createElement('div'); d.setAttribute('dir', 'auto');
+      if (l) d.textContent = l; else d.appendChild(document.createElement('br'));
+      return d;
+    });
+    pre.replaceWith(...blocks);
+    caretAt(blocks[blocks.length - 1], false);
+    ed.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  function caretAt(node, start) {
+    const r = document.createRange(); r.selectNodeContents(node); r.collapse(!!start);
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  }
+  function toggleCodeBlock(ed) {
+    const pre = around(ed, 'pre');
+    if (pre) return unPre(ed, pre);
+    exec('formatBlock', 'pre');
+    stylePre(around(ed, 'pre'));
+  }
+  // Leave a code block: a plain line after it, caret there.
+  function leavePre(ed, pre) {
+    const d = document.createElement('div'); d.setAttribute('dir', 'auto'); d.appendChild(document.createElement('br'));
+    pre.after(d); caretAt(d, true);
+    ed.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  // The range of characters [from, to) of `root`'s text.
+  function textRange(root, from, to) {
+    const r = document.createRange();
+    const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let n, at = 0, started = false;
+    while ((n = w.nextNode())) {
+      const end = at + n.data.length;
+      if (!started && from <= end) { r.setStart(n, from - at); started = true; }
+      if (started && to <= end) { r.setEnd(n, to - at); return r; }
+      at = end;
+    }
+    return started ? (r.setEnd(root, root.childNodes.length), r) : null;
+  }
+
   // Font sizes are the legacy 1–7 steps, written as CSS keywords
   // (small, medium, large…). "Normal" is medium: the recipient's own size.
   const SIZES = [['Small', '2'], ['Normal', '3'], ['Large', '4'], ['Larger', '5'], ['Huge', '6']];
@@ -161,6 +307,9 @@ const JS: &str = r##"
       case 'link': return linkPop(ed, btn);
       case 'size': case 'color': case 'highlight': case 'align': return menuPop(ed, cmd, btn);
       case 'quote': toggleQuote(ed); break;
+      case 'code': toggleCode(ed); break;
+      case 'codeBlock': toggleCodeBlock(ed); break;
+      case 'emoji': return emojiPop(ed, btn);
       case 'grow': stepSize(1); break;
       case 'shrink': stepSize(-1); break;
       case 'fontSize': exec('fontSize', value, true); break;
@@ -183,8 +332,9 @@ const JS: &str = r##"
     document.body.appendChild(el);
     const r = btn.getBoundingClientRect(), z = parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
     const w = el.offsetWidth * z;
-    el.style.left = Math.max(8, Math.min(innerWidth - w - 8, r.left)) / z + 'px';
-    el.style.top = (r.bottom + 4) / z + 'px';
+    // Whole pixels, so the popover's text and icons stay sharp.
+    el.style.left = Math.round(Math.max(8, Math.min(innerWidth - w - 8, r.left)) / z) + 'px';
+    el.style.top = Math.round((r.bottom + 4) / z) + 'px';
   }
   const TEXT_COLORS = ['#d93025', '#e8710a', '#b38600', '#188038', '#12857a', '#1a73e8', '#3c4fb8', '#9334e6', '#c2185b', '#80868b', '#5f6368', '#000000'];
   const MARKS = ['#fff475', '#ccff90', '#a7ffeb', '#cbf0f8', '#ffd1dc', '#ffe0b2'];
@@ -261,6 +411,90 @@ const JS: &str = r##"
     openPop(btn, el);
     (text || url).focus();
   }
+  // Emoji: sections plus "Frequently used" (this Mac only), a search box,
+  // arrow keys through the grid, Enter inserts, Esc closes.
+  const [EMOJI, STARTERS] = __EMOJI__;
+  const recent = () => { try { return JSON.parse(localStorage.getItem('coo.emoji') || '{}'); } catch (_) { return {}; } };
+  function used(e) {
+    const r = recent(); r[e] = (r[e] || 0) + 1;
+    try { localStorage.setItem('coo.emoji', JSON.stringify(r)); } catch (_) {}
+  }
+  function frequent() {
+    const r = recent();
+    const top = Object.keys(r).sort((a, b) => r[b] - r[a]).slice(0, 16);
+    for (const s of STARTERS) if (top.length < 16 && !top.includes(s)) top.push(s);
+    return top;
+  }
+  const NAMES = new Map(EMOJI.flatMap(([, l]) => l));
+  function emojiPop(ed, btn) {
+    const sel = getSelection();
+    const range = sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
+    const el = document.createElement('div'); el.className = 'fmt-emoji';
+    const q = document.createElement('input');
+    q.className = 'input input--sm'; q.placeholder = 'Search emoji'; q.dataset.suggestOpen = 'true';
+    q.setAttribute('aria-label', 'Search emoji');
+    const tabs = document.createElement('div'); tabs.className = 'fmt-emoji__tabs'; tabs.setAttribute('role', 'tablist');
+    const grid = document.createElement('div'); grid.className = 'fmt-emoji__grid'; grid.setAttribute('role', 'grid');
+    el.append(q, tabs, grid);
+    const insert = (e) => {
+      closePop(); ed.focus();
+      if (range) { sel.removeAllRanges(); sel.addRange(range); }
+      exec('insertText', e); used(e);
+    };
+    const show = (title, list) => {
+      grid.replaceChildren();
+      const h = document.createElement('div'); h.className = 'menu__label'; h.textContent = title; grid.appendChild(h);
+      if (!list.length) { const n = document.createElement('div'); n.className = 'fmt-emoji__none'; n.textContent = 'No emoji found'; grid.appendChild(n); }
+      for (const e of list) {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'fmt-emoji__cell'; b.textContent = e;
+        b.title = NAMES.get(e) || ''; b.setAttribute('aria-label', b.title || e);
+        b.addEventListener('click', () => insert(e));
+        grid.appendChild(b);
+      }
+    };
+    const sections = [['Frequently used', frequent()], ...EMOJI.map(([n, l]) => [n, l.map((x) => x[0])])];
+    sections.forEach(([n, list], i) => {
+      const t = document.createElement('button');
+      t.type = 'button'; t.className = 'fmt-emoji__tab'; t.setAttribute('role', 'tab'); t.title = n;
+      t.textContent = i === 0 ? '🕘' : list[0];
+      t.addEventListener('click', () => { q.value = ''; select(i); });
+      tabs.appendChild(t);
+    });
+    const select = (i) => {
+      [...tabs.children].forEach((t, j) => t.setAttribute('aria-selected', String(i === j)));
+      show(sections[i][0], sections[i][1]);
+    };
+    q.addEventListener('input', () => {
+      const words = q.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      if (!words.length) return select(0);
+      [...tabs.children].forEach((t) => t.setAttribute('aria-selected', 'false'));
+      const hits = [...NAMES].filter(([, n]) => words.every((w) => n.split(' ').some((x) => x.startsWith(w)))).map((x) => x[0]);
+      show('Results', hits.slice(0, 64));
+    });
+    const cells = () => [...grid.querySelectorAll('.fmt-emoji__cell')];
+    el.addEventListener('keydown', (e) => {
+      const all = cells(), i = all.indexOf(document.activeElement);
+      const cols = 8;
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closePop(); ed.focus(); if (range) { sel.removeAllRanges(); sel.addRange(range); } return; }
+      if (e.target === q) {
+        if (e.key === 'ArrowDown' && all.length) { e.preventDefault(); all[0].focus(); }
+        else if (e.key === 'Enter' && all.length) { e.preventDefault(); insert(all[0].textContent); }
+        return;
+      }
+      if (i < 0) return;
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); insert(all[i].textContent); return; }
+      const to = { ArrowRight: i + 1, ArrowLeft: i - 1, ArrowDown: i + cols, ArrowUp: i - cols }[e.key];
+      if (to !== undefined) {
+        e.preventDefault();
+        if (to < 0) q.focus(); else if (all[Math.min(to, all.length - 1)]) all[Math.min(to, all.length - 1)].focus();
+      }
+    });
+    select(0);
+    openPop(btn, el);
+    q.focus();
+  }
+
   document.addEventListener('mousedown', (e) => { if (pop && !pop.contains(e.target) && !(e.target.closest && e.target.closest('.fmt-bar'))) closePop(); }, true);
   // On window, ahead of the bridge's Escape (which closes the composer).
   addEventListener('keydown', (e) => { if (pop && e.key === 'Escape' && !pop.contains(e.target)) { e.preventDefault(); e.stopPropagation(); closePop(); } }, true);
@@ -352,7 +586,97 @@ const JS: &str = r##"
       list.style.listStyleType = m[3] === 'a' ? 'lower-alpha' : 'upper-alpha';
     }
     if (dir === 'rtl' || dir === 'ltr') li.setAttribute('dir', dir);
-    auto = { li, text: typed + ' ' };
+    auto = { kind: 'list', li, text: typed + ' ' };
+    return true;
+  }
+
+  // ":)" then Space (or Enter, or .,!?) → 🙂. Only a standalone word: at
+  // the line start or after a space, so URLs, times and "a:b" stay.
+  function emoticon(r, key) {
+    const n = r.startContainer;
+    if (n.nodeType !== 3) return false;
+    const typed = n.data.slice(0, r.startOffset);
+    for (const [t, emoji] of EMOTICONS) {
+      if (!typed.endsWith(t)) continue;
+      const rest = typed.slice(0, typed.length - t.length);
+      if (rest !== '' && !/\s$/.test(rest)) continue;
+      const x = document.createRange(); x.setStart(n, rest.length); x.setEnd(n, r.startOffset);
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(x);
+      exec('insertText', emoji);
+      auto = { kind: 'emoticon', text: t, emoji, key };
+      return true;
+    }
+    return false;
+  }
+  // "`code" then ` → <code>code</code>.
+  function inlineCode(ed, r) {
+    const n = r.startContainer;
+    if (n.nodeType !== 3) return false;
+    const m = INLINE_CODE.exec(n.data.slice(0, r.startOffset));
+    if (!m) return false;
+    const x = document.createRange(); x.setStart(n, m.index + m[1].length); x.setEnd(n, r.startOffset);
+    const c = makeCode(m[2]);
+    placeCode(ed, x, c);
+    auto = { kind: 'code', el: c, text: '`' + m[2] + '`' };
+    return true;
+  }
+  // "```" (or "```js") then Enter → a code block.
+  function fence(ed, r) {
+    const block = blockAt(ed, r.startContainer);
+    if (!block || block.tagName === 'LI' || block.closest('li')) return false;
+    const typed = before(block, r);
+    if (typed === null || typed !== block.textContent || !FENCE.test(typed)) return false;
+    const x = document.createRange(); x.selectNodeContents(block);
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(x);
+    exec('delete');
+    exec('formatBlock', 'pre');
+    stylePre(around(ed, 'pre'));
+    return true;
+  }
+  // Keys inside a code block: Enter is a new line; Enter on an empty last
+  // line (or a closing ```) leaves the block; Tab is a tab.
+  function preKey(ed, pre, r, e) {
+    if (e.key === 'Tab') { e.preventDefault(); exec('insertText', '\t'); return; }
+    if (e.key !== 'Enter' || !r.collapsed) return;
+    e.preventDefault();
+    const head = (() => { const x = document.createRange(); x.selectNodeContents(pre); x.setEnd(r.startContainer, r.startOffset); return x.toString(); })();
+    const tail = (() => { const x = document.createRange(); x.selectNodeContents(pre); x.setStart(r.startContainer, r.startOffset); return x.toString(); })();
+    const line = head.slice(head.lastIndexOf('\n') + 1);
+    if (/^\n?$/.test(tail) && (line.trim() === '```' || (line === '' && head.endsWith('\n')))) {
+      const cut = textRange(pre, head.length - line.length - 1, pre.textContent.length);
+      if (cut) { const sel = getSelection(); sel.removeAllRanges(); sel.addRange(cut); exec('delete'); }
+      leavePre(ed, pre);
+      return;
+    }
+    if (head === '' && tail === '') return unPre(ed, pre);
+    exec('insertLineBreak');
+  }
+  function undoAuto(ed, w) {
+    const sel = getSelection();
+    if (w.kind === 'code') {
+      // Through the DOM like the conversion (insertText would keep the
+      // code's look on the backticks).
+      if (!w.el.isConnected) return false;
+      const z = w.el.nextSibling;
+      if (z && z.nodeType === 3 && z.data.startsWith('\u200b')) z.deleteData(0, 1);
+      const t = document.createTextNode(w.text);
+      w.el.replaceWith(t);
+      const x = document.createRange(); x.setStart(t, t.length); x.collapse(true);
+      sel.removeAllRanges(); sel.addRange(x);
+      changed(ed);
+      return true;
+    }
+    if (w.kind !== 'emoticon') return false;
+    if (w.key === 'Enter') exec('delete'); // back up onto the line it ended
+    const r = sel.getRangeAt(0), n = r.startContainer;
+    if (n.nodeType !== 3) return false;
+    const typed = n.data.slice(0, r.startOffset);
+    const last = w.key === 'Enter' ? '' : typed.slice(-1);
+    if (w.key !== 'Enter' && !(last === w.key || (w.key === ' ' && last === '\u00a0'))) return false;
+    if (!typed.slice(0, typed.length - last.length).endsWith(w.emoji)) return false;
+    const x = document.createRange(); x.setStart(n, r.startOffset - last.length - w.emoji.length); x.setEnd(n, r.startOffset);
+    sel.removeAllRanges(); sel.addRange(x);
+    exec('insertText', w.text + (last ? w.key : ''));
     return true;
   }
   document.addEventListener('keydown', (e) => {
@@ -361,12 +685,14 @@ const JS: &str = r##"
     if (e.isComposing) return;
     const was = auto;
     if (!['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) auto = null;
-    // Formatting shortcuts, by physical key.
-    if (e.metaKey && !e.ctrlKey && !e.altKey) {
+    // Formatting shortcuts, by physical key. (⌃⌘Space, the Character
+    // Viewer, has Control down and passes through.)
+    if (e.metaKey && !e.ctrlKey) {
       const c = e.code || '';
       const base = c.startsWith('Key') ? c.slice(3).toLowerCase() : c.startsWith('Digit') ? c.slice(5)
         : ({ BracketLeft: '[', BracketRight: ']', Backslash: '\\', Period: '.', Comma: ',' })[c];
-      const cmd = base && KEYS.get('meta+' + (e.shiftKey ? 'shift+' : '') + base);
+      const cmd = base && KEYS.get('meta+' + (e.altKey ? 'alt+' : '') + (e.shiftKey ? 'shift+' : '') + base);
+      if (cmd === 'undo' && was && was.kind === 'code' && undoAuto(ed, was)) { e.preventDefault(); return; }
       if (cmd) {
         e.preventDefault(); e.stopPropagation();
         const btn = barFor(ed) && barFor(ed).querySelector('[data-fmt="' + (cmd.startsWith('justify') ? 'align' : cmd) + '"]');
@@ -375,8 +701,15 @@ const JS: &str = r##"
       return;
     }
     if (e.metaKey || e.ctrlKey || e.altKey) return;
-    const r = caretRange();
+    let r = caretRange();
     if (!r) return;
+    // Backspace right after an autoformat puts back what was typed.
+    if (e.key === 'Backspace' && was && r.collapsed && was.kind !== 'list' && undoAuto(ed, was)) { e.preventDefault(); refresh(ed); return; }
+    const pre = around(ed, 'pre');
+    if (pre) return preKey(ed, pre, r, e);
+    if (r.collapsed && !around(ed, 'code') && EMOTICON_ENDS.has(e.key) && emoticon(r, e.key)) r = caretRange();
+    if (e.key === '`' && r.collapsed && !around(ed, 'code') && inlineCode(ed, r)) { e.preventDefault(); return; }
+    if (e.key === 'Enter' && !e.shiftKey && r.collapsed && fence(ed, r)) { e.preventDefault(); return; }
     if (e.key === ' ' && r.collapsed) {
       if (autoList(ed, r)) { e.preventDefault(); refresh(ed); }
       return;
@@ -391,7 +724,7 @@ const JS: &str = r##"
       fixIndents(ed); refresh(ed);
     } else if (e.key === 'Backspace' && before(li, r) === '') {
       e.preventDefault();
-      if (was && was.li === li && li.isConnected) {
+      if (was && was.kind === 'list' && was.li === li && li.isConnected) {
         exec(listCmd(li));
         exec('insertText', was.text);
       } else {
@@ -406,11 +739,17 @@ const JS: &str = r##"
   }, true);
   document.addEventListener('mousedown', () => { auto = null; }, true);
   // List items get their own direction, so a Hebrew item in an English
-  // list (or the other way round) reads right.
+  // list (or the other way round) reads right. The list itself (bullet
+  // side, indent) follows its first item: dir="auto" on it would skip
+  // items that have a dir of their own and always come out LTR.
   document.addEventListener('input', (e) => {
     const ed = e.target.closest && e.target.closest('[data-editor]');
     if (!ed) return;
     for (const li of ed.querySelectorAll('li:not([dir])')) li.setAttribute('dir', 'auto');
+    for (const l of ed.querySelectorAll('ul,ol')) {
+      const first = l.querySelector('li'), d = first && itemDir(first);
+      if (d && l.getAttribute('dir') !== d) l.setAttribute('dir', d);
+    }
     scrub(ed);
   }, true);
   // WebKit keeps the look of text it moves (lists, quotes, insertHTML) by
@@ -434,8 +773,8 @@ const JS: &str = r##"
     const ed = document.getElementById(edId); if (!ed) return;
     ed.innerHTML = '<div dir="auto">Thanks — the <b>revised deck</b> looks <span style="color: rgb(26, 115, 232);">great</span>, ' +
       '<span style="background-color: rgb(255, 244, 117);">two notes</span>:</div>' +
-      '<ol dir="auto"><li dir="auto">Move the <i>pricing</i> slide up</li><li dir="auto">Add the <a href="https://example.com">Q3 numbers</a></li></ol>' +
-      '<ul dir="auto"><li dir="auto">שלום, נדבר מחר</li></ul>' +
+      '<ol dir="ltr"><li dir="auto">Move the <i>pricing</i> slide up</li><li dir="auto">Add the <a href="https://example.com">Q3 numbers</a></li></ol>' +
+      '<ul dir="rtl"><li dir="auto">שלום, נדבר מחר</li></ul>' +
       '<blockquote data-coo-quote="" dir="auto" style="margin:0 0 0 0;margin-left:.8ex;border-left:2px solid #ccc;padding-left:1ex;color:#555">Ship it.</blockquote>';
     const t = ed.querySelector('b').firstChild; const r = document.createRange(); r.setStart(t, 3); r.collapse(true);
     ed.focus(); getSelection().removeAllRanges(); getSelection().addRange(r); refresh(ed);
@@ -505,6 +844,61 @@ mod tests {
         }
     }
 
+    /// The script's emoticon rule, in Rust: the emoticon ending the text
+    /// before the caret, standing alone.
+    fn emoticon(typed: &str) -> Option<&'static str> {
+        EMOTICONS.iter().find_map(|(t, e)| {
+            let rest = typed.strip_suffix(t)?;
+            (rest.is_empty() || rest.ends_with(char::is_whitespace)).then_some(*e)
+        })
+    }
+
+    #[test]
+    fn emoticons_become_emoji() {
+        assert_eq!(emoticon(":)"), Some("🙂"));
+        assert_eq!(emoticon("great :-)"), Some("🙂"));
+        assert_eq!(emoticon("ok\u{a0}:D"), Some("😃"));
+        assert_eq!(emoticon("שלום ;)"), Some("😉"));
+        assert_eq!(emoticon("oh :'("), Some("😢"));
+        assert_eq!(emoticon("love <3"), Some("❤️"));
+        assert_eq!(emoticon(":p"), Some("😛"));
+        assert_eq!(emoticon("B-)"), Some("😎"));
+        for t in
+            ["http://", "see http://x.io/:)", "10:30", "a:b", "x:)", "(:)", "plan B)", "B)", ":", "<", "a<3", "::)"]
+        {
+            assert_eq!(emoticon(t), None, "{t:?}");
+        }
+        assert!(EMOTICON_ENDS.contains(&" ") && EMOTICON_ENDS.contains(&"Enter") && !EMOTICON_ENDS.contains(&":"));
+    }
+
+    fn inline_code(typed: &str) -> Option<String> {
+        let re = regex::Regex::new(INLINE_CODE_RE).expect("pattern compiles");
+        re.captures(typed).map(|m| m[2].to_string())
+    }
+
+    #[test]
+    fn backticks_make_inline_code() {
+        assert_eq!(inline_code("`x").as_deref(), Some("x"));
+        assert_eq!(inline_code("run `cargo test").as_deref(), Some("cargo test"));
+        assert_eq!(inline_code("(`a.b").as_deref(), Some("a.b"));
+        assert_eq!(inline_code("הרץ `ls -la").as_deref(), Some("ls -la"));
+        for t in ["`", "``", "` x", "`x ", "a`b", "it`s", "no code", "`a`b"] {
+            assert_eq!(inline_code(t), None, "{t:?}");
+        }
+    }
+
+    #[test]
+    fn fences_start_code_blocks() {
+        let re = regex::Regex::new(CODE_FENCE_RE).expect("pattern compiles");
+        for t in ["```", "```rust", " ```js ", "```c++"] {
+            assert!(re.is_match(t), "{t:?}");
+        }
+        for t in ["``", "x```", "```a b", "````!", "`` `"] {
+            assert!(!re.is_match(t), "{t:?}");
+        }
+        assert!(CODE_STYLE.contains("monospace") && PRE_STYLE.contains("white-space:pre-wrap"));
+    }
+
     #[test]
     fn shortcuts_are_unique_and_documented() {
         let mut combos: Vec<&str> = SHORTCUTS.iter().map(|s| s.1).collect();
@@ -520,6 +914,6 @@ mod tests {
         assert_eq!(tip("bold"), "Bold (⌘B)");
         let js = script();
         assert!(js.contains(r#"["meta+shift+x","strikeThrough","⇧⌘X"]"#), "keys reach the script");
-        assert!(!js.contains("__KEYS__") && !js.contains("__AUTO_LIST_RE__"));
+        assert!(!js.contains("__KEYS__") && !js.contains("__AUTO_LIST_RE__") && !js.contains("__EMOJI__"));
     }
 }

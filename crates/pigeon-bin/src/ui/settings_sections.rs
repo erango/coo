@@ -494,7 +494,7 @@ pub fn Shortcuts() -> Element {
                         kbd { class: "kbd", "{keys}" }
                     }
                 }
-                for (keys, what) in crate::richtext::LIST_KEYS.iter() {
+                for (keys, what) in crate::richtext::TYPING_KEYS.iter() {
                     div { class: "shortcut", key: "{keys}",
                         span { class: "shortcut__what", "{what}" }
                         kbd { class: "kbd", "{keys}" }

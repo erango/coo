@@ -6,7 +6,7 @@
 //! The editor holds only what the user types; the quoted original lives in
 //! `draft.html` and is appended at send time. Every editor block carries
 //! `dir="auto"` (set by the bridge), and Ctrl+Right/Left Shift force RTL/LTR.
-//! Formatting (toolbar, shortcuts, list autoformat) is `crate::richtext`.
+//! Formatting (toolbar, shortcuts, autoformat, emoji) is `crate::richtext`.
 
 use chrono::{DateTime, Datelike, Duration, Local, NaiveTime, TimeZone, Weekday};
 use dioxus::html::HasFileData;
@@ -960,6 +960,35 @@ mod tests {
         // Bodies are quoted-printable or base64; decode the HTML part back.
         assert!(!d.full_html().is_empty() && d.full_html().contains("הנה הפידבקים שלי"));
         assert!(text.contains("Content-Type: text/html"), "{text}");
+    }
+
+    #[test]
+    fn formatting_goes_out_as_typed() {
+        // What the toolbar and autoformat write must reach the recipient:
+        // tags and inline styles, no classes, nothing stripped on the way.
+        let mut d = draft();
+        let typed = concat!(
+            r#"<div dir="auto">Hi <b>Dana</b>, <span style="color: rgb(217, 48, 37);">urgent</span>:</div>"#,
+            r#"<ol dir="ltr"><li dir="auto">run <code dir="ltr" style="font-family:ui-monospace,monospace">cargo test</code></li></ol>"#,
+            r#"<pre dir="ltr" style="white-space:pre-wrap">fn main() {
+    go();
+}</pre><ul dir="rtl"><li dir="auto">שלום</li></ul>"#
+        );
+        d.body_html = compose_html(typed, "", "");
+        let html = d.full_html();
+        for part in [
+            "<b>Dana</b>",
+            "color: rgb(217, 48, 37)",
+            "<ol dir=\"ltr\">",
+            "<code dir=\"ltr\" style=",
+            "white-space:pre-wrap",
+            "<ul dir=\"rtl\">",
+        ] {
+            assert!(html.contains(part), "{part} missing from {html}");
+        }
+        let text = pigeon_core::text::html_to_text(&html);
+        assert!(text.contains("fn main() {\n    go();\n}\nשלום"), "{text}");
+        assert!(pigeon_core::compose::build_mime(&d, &[], 0).is_ok());
     }
 
     #[test]

@@ -9,7 +9,7 @@ use super::Icon;
 use crate::richtext::tip;
 
 /// (command, icon, label). `None` is a separator. `size`, `color`,
-/// `highlight`, `align` and `link` open a popover.
+/// `highlight`, `align`, `link` and `emoji` open a popover.
 const BUTTONS: &[Option<(&str, &str, &str)>] = &[
     Some(("undo", "undo", "Undo")),
     Some(("redo", "redo", "Redo")),
@@ -29,7 +29,10 @@ const BUTTONS: &[Option<(&str, &str, &str)>] = &[
     Some(("align", "align-left", "Alignment")),
     None,
     Some(("quote", "quote", "Quote")),
+    Some(("code", "code", "Inline code")),
+    Some(("codeBlock", "code-block", "Code block")),
     Some(("link", "link", "Link")),
+    Some(("emoji", "emoji", "Emoji")),
     Some(("removeFormat", "fmt-clear", "Clear formatting")),
 ];
 
@@ -41,15 +44,18 @@ pub fn FormatBar(editor: String) -> Element {
                 match b {
                     None => rsx! { span { class: "fmt-bar__sep", key: "{i}" } },
                     Some((cmd, icon, label)) => {
-                        let popup = matches!(*cmd, "size" | "color" | "highlight" | "align" | "link");
+                        let popup = matches!(*cmd, "size" | "color" | "highlight" | "align" | "link" | "emoji");
                         let title = if *cmd == "size" { "Text size (⇧⌘> / ⇧⌘<)".to_string() }
+                            else if *cmd == "emoji" { "Emoji (all of them: ⌃⌘Space)".to_string() }
                             else if matches!(*cmd, "color" | "highlight" | "align") { label.to_string() }
                             else { tip(cmd) };
                         rsx! {
                             button { class: "icon-btn icon-btn--sm", r#type: "button", key: "{i}",
                                 "data-fmt": *cmd, title: "{title}", "aria-label": *label,
                                 "aria-haspopup": popup.then_some("true"),
-                                Icon { name: *icon, class: "icon--sm" }
+                                // 18 px like the reader toolbar's: a 24-unit icon drawn at
+                                // 14 px blurred on 1x displays.
+                                Icon { name: *icon, class: "icon--lg" }
                             }
                         }
                     }

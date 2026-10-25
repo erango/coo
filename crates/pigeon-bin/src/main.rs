@@ -4,6 +4,7 @@
 mod about;
 mod bridge;
 mod dock;
+mod emoji;
 mod fonts;
 mod format;
 mod meeting;
