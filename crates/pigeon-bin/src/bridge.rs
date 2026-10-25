@@ -373,6 +373,15 @@ pub const JS: &str = r#"
         // mail styled with height:100% / 100vh grows with the frame, so a
         // "+2px" fit fed the resize observer forever.
         d.documentElement.style.overflow = 'hidden';
+        // The app's text size is CSS zoom on the root. WebKit lays a
+        // frame's document out at the zoomed width and then scales it
+        // again, so mail ran ~10% past the frame's right edge, and RTL mail
+        // (whose direction reaches the viewport) lost each line's start.
+        // Pin the document to the frame's unzoomed width, at the left.
+        const z = parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
+        const r = d.documentElement.style;
+        r.width = z === 1 ? '' : f.clientWidth + 'px';
+        r.marginRight = z === 1 ? '' : 'auto';
         const h = d.documentElement.scrollHeight;
         if (Math.abs(h - f.getBoundingClientRect().height) > 1) f.style.height = h + 'px';
         f.dataset.fit = '1';
@@ -406,6 +415,8 @@ pub const JS: &str = r#"
     }
     if (!f.dataset.wired) {
       f.dataset.wired = '1';
+      // The pinned width must follow the frame (window and pane resizes).
+      new ResizeObserver(() => f._pgFit && f._pgFit()).observe(f);
       f.addEventListener('load', () => { hook(); fit(); });
     }
   }
