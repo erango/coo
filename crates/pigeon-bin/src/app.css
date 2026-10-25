@@ -183,6 +183,13 @@ input.input--bare { border: 0; outline: none; }
 .row-menu { position: absolute; min-width: 0; }
 .row-menu .menu-item { cursor: default; user-select: none; }
 .row[data-context] { box-shadow: inset 0 0 0 1.5px var(--accent); }
+/* An account header's right-click menu: the header it's for is ringed;
+   the checked "Default for new messages" line isn't clickable. */
+.nav-section[data-context] { box-shadow: inset 0 0 0 1.5px var(--accent); border-radius: var(--radius-sm); }
+.account-menu__label { display: block; line-height: 28px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-menu .menu-item[aria-disabled="true"] { color: var(--text-2); }
+.account-menu .menu-item[aria-disabled="true"]:hover { background: none; }
+.account-menu .menu-item[aria-checked="true"] .icon { color: var(--accent); }
 
 /* A conversation in its own window: the reader alone, toolbar clear of the
    traffic lights. */
@@ -636,6 +643,12 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .account-row__nick::placeholder { color: var(--text-3); font-weight: var(--fw-regular); opacity: 1; }
 .account-row__nick:hover { background: var(--bg-2); }
 .account-row__nick:focus { background: var(--bg-0); box-shadow: inset 0 0 0 1.5px var(--accent); }
+/* "Default" (new messages) or "Make default", in a fixed slot so rows align;
+   a row opened from the sidebar's account menu flashes once. */
+.account-row__default { width: 104px; display: flex; justify-content: flex-end; flex: none; }
+.account-row[data-flash] { background: var(--selection); }
+.account-row { transition: background var(--dur-base, 200ms) var(--ease-standard, ease); }
+.default-from { max-width: 320px; }
 
 
 /* Composer: attach menu (this Mac / Google Drive) and the Drive sheet (ui/drive.rs). */

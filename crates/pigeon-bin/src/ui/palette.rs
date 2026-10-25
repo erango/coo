@@ -167,7 +167,7 @@ fn run(mut s: AppState, action: Action) {
     s.palette_open.set(false);
     match action {
         Action::Join(url) => crate::meeting::join(&url),
-        Action::Compose => send_cmd(Cmd::NewDraft),
+        Action::Compose => super::new_message(s),
         Action::MoveTo => super::move_picker::open(s, false),
         Action::LabelAs => super::move_picker::open(s, true),
         Action::Go(mb) => {

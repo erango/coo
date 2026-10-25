@@ -19,7 +19,7 @@ pub const PAGES: &[(&str, &str, &str)] = &[
     (
         "Accounts",
         "at",
-        "account sign in sign out add microsoft google gmail icloud zoom video calls order nickname name rename",
+        "account sign in sign out add microsoft google gmail icloud zoom video calls order nickname name rename default from sender",
     ),
     ("Composing", "edit", "undo send later reply new message window docked"),
     ("Signatures", "text", "signature signatures sign-off footer html"),
@@ -48,6 +48,22 @@ pub fn matching_pages(query: &str) -> Vec<&'static str> {
         })
         .map(|(title, _, _)| *title)
         .collect()
+}
+
+/// Settings › Accounts with one account's row scrolled into view, briefly
+/// highlighted, its nickname field focused (sidebar account menu).
+pub fn show_account(s: AppState, account_id: &str) {
+    super::open_settings_at(s, "Accounts");
+    let id = serde_json::to_string(account_id).unwrap_or_default();
+    // The page renders after this returns: retry for a moment.
+    document::eval(&format!(
+        "(function f(n){{const r=document.querySelector('[data-account-row='+CSS.escape({id})+']');\
+           if(!r){{ if(n>0) setTimeout(()=>f(n-1),50); return; }}\
+           r.scrollIntoView({{block:'center'}});\
+           const i=r.querySelector('.account-row__nick'); if(i) i.focus({{preventScroll:true}});\
+           r.setAttribute('data-flash',''); setTimeout(()=>r.removeAttribute('data-flash'),1200);\
+         }})(20)"
+    ));
 }
 
 /// Switch Settings to a page (unknown titles fall back to General).
@@ -156,6 +172,8 @@ mod page_tests {
         assert_eq!(matching_pages("signature").first(), Some(&"Signatures"));
         assert_eq!(matching_pages("week").first(), Some(&"Calendar"));
         assert_eq!(matching_pages("dark").first(), Some(&"Appearance"));
+        assert_eq!(matching_pages("default").first(), Some(&"Accounts"));
+        assert_eq!(matching_pages("from").first(), Some(&"Accounts"));
         assert_eq!(matching_pages("").len(), PAGES.len());
         assert!(matching_pages("zzz").is_empty());
     }
@@ -268,7 +286,7 @@ fn Accounts() -> Element {
 
     rsx! {
         div { class: "settings__title", style: "margin-top:12px", "Accounts" }
-        div { class: "settings__hint", "Click an account's name to give it a nickname. Drag accounts in the sidebar to reorder them; this list follows the same order." }
+        div { class: "settings__hint", "Click an account's name to give it a nickname. Drag accounts in the sidebar to reorder them; this list follows the same order. New messages come from the default account; right-click an account in the sidebar for more." }
         AccountList {}
         div { class: "account-detail__actions", style: "margin-top:4px",
             button { class: "btn btn--secondary", r#type: "button", disabled: *signing_in.read(),
@@ -280,7 +298,39 @@ fn Accounts() -> Element {
             if *signing_in.read() && !*icloud.read() { span { class: "settings__hint", style: "margin:0;align-self:center", "Finish signing in in your browser…" } }
         }
         ICloudPanel { open: icloud }
+        if !s.accounts.read().is_empty() {
+            div { class: "settings-group", style: "margin-top:16px", DefaultFromField {} }
+        }
         VideoCalls {}
+    }
+}
+
+/// "Send from": the default account for new messages, or
+/// Automatic (the top account in the sidebar). Replies and forwards keep
+/// coming from the account the mail came to; the composer's From picker
+/// changes one message only. Also on Settings › Composing.
+#[component]
+pub fn DefaultFromField() -> Element {
+    let s = use_context::<AppState>();
+    let accounts = s.accounts.read().clone();
+    let chosen = s.chosen_default().unwrap_or_default();
+    let top = accounts.first().map(|a| s.account_label(&a.account.id, &a.account.email)).unwrap_or_default();
+    rsx! {
+        div { class: "settings-field",
+            span { class: "settings-field__label", title: "The account new messages come from", "Send from" }
+            select { class: "select default-from", "aria-label": "Default account for new messages",
+                onchange: move |e| {
+                    let v = e.value();
+                    s.set_default_account((!v.is_empty()).then_some(v.as_str()));
+                },
+                option { value: "", selected: chosen.is_empty(), "Automatic: {top}" }
+                for a in accounts.iter() {
+                    option { key: "{a.account.id}", value: "{a.account.id}", selected: chosen == a.account.id,
+                        "{s.account_label(&a.account.id, &a.account.email)}" }
+                }
+            }
+            span { class: "settings-field__hint", "For new messages; Automatic is the top account in the sidebar. Replies come from the account the message was sent to." }
+        }
     }
 }
 
@@ -383,9 +433,11 @@ fn AccountRow(
     };
     let s = use_context::<AppState>();
     let nickname = s.nicknames.read().get(&a.id).cloned().unwrap_or_default();
-    let (id1, id2, id3) = (a.id.clone(), a.id.clone(), a.id.clone());
+    let (id1, id2, id3, id4) = (a.id.clone(), a.id.clone(), a.id.clone(), a.id.clone());
+    let is_default = s.default_from().as_deref() == Some(a.id.as_str());
+    let automatic = s.chosen_default().is_none();
     rsx! {
-        div { class: "account-row", "data-hue": "{nav.hue}", "aria-selected": "{confirming}",
+        div { class: "account-row", "data-hue": "{nav.hue}", "aria-selected": "{confirming}", "data-account-row": "{a.id}",
             span { class: "account-row__grip", Icon { name: "grip", class: "icon--sm" } }
             span { class: "dot" }
             div { class: "account-row__text",
@@ -398,6 +450,17 @@ fn AccountRow(
             }
             span { class: "account-row__status", "data-state": if auth { "auth" } else { "ok" },
                 if auth { Icon { name: "lock", class: "icon--xs" } "Sign in again" } else { "Connected" }
+            }
+            span { class: "account-row__default",
+                if is_default {
+                    span { class: "tag",
+                        title: if automatic { "New messages come from here: it's the top account and no default is chosen" } else { "New messages come from this account" },
+                        "Default"
+                    }
+                } else {
+                    button { class: "btn btn--ghost btn--sm", r#type: "button", title: "Send new messages from this account",
+                        onclick: move |_| s.set_default_account(Some(&id4)), "Make default" }
+                }
             }
             button { class: "btn btn--ghost btn--sm", r#type: "button", onclick: move |_| on_ask.call(id1.clone()), "Sign out" }
         }

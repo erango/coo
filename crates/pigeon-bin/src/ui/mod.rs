@@ -1,3 +1,4 @@
+pub mod account_menu;
 mod agent_setup;
 mod avatar;
 pub mod calendar;
@@ -118,7 +119,7 @@ pub fn App() -> Element {
                 // compose-docked[:<to list>] — a new draft docked in the reading pane
                 "compose-docked" => {
                     crate::prefs::update(|p| p.compose_mode = "docked".into());
-                    send_cmd(Cmd::NewDraft);
+                    new_message(s);
                 }
                 "palette" => {
                     let mut p = s.palette_open;
@@ -129,7 +130,7 @@ pub fn App() -> Element {
                     ));
                 }
                 // compose:<to list>[|<partial>] — new draft, chips + autocomplete
-                "compose" => send_cmd(Cmd::NewDraft),
+                "compose" => new_message(s),
                 "search" => search::open(s, arg),
                 // find:<query>|<account_id>|<thread_id> — search, then open a thread from it
                 "find" => {
@@ -225,6 +226,29 @@ pub fn App() -> Element {
                             }
                         });
                     }
+                }
+                // accountmenu[:<n>] — the right-click menu of the n-th account
+                // header in the sidebar (default 0), once accounts have loaded
+                "accountmenu" => {
+                    let n: usize = arg.parse().unwrap_or(0);
+                    spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+                        let id = s.accounts.peek().get(n).map(|a| a.account.id.clone());
+                        if let Some(id) = id {
+                            account_menu::open(s, &id, 60.0, 300.0);
+                        }
+                    });
+                }
+                // settings-account:<n> — Settings › Accounts at the n-th account
+                "settings-account" => {
+                    let n: usize = arg.parse().unwrap_or(0);
+                    spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+                        let id = s.accounts.peek().get(n).map(|a| a.account.id.clone());
+                        if let Some(id) = id {
+                            settings::show_account(s, &id);
+                        }
+                    });
                 }
                 "anim-demo" => {
                     let mut list = s.list;
@@ -481,6 +505,7 @@ pub fn App() -> Element {
             if *s.palette_open.read() { palette::Palette {} }
             if s.move_picker.read().is_some() { move_picker::MovePickerView {} }
             if s.row_menu.read().is_some() { row_menu::RowMenuView {} }
+            if s.account_menu.read().is_some() { account_menu::AccountMenuView {} }
         }
     };
 
@@ -881,6 +906,12 @@ pub fn act(s: AppState, item: &ListItem, action: MailAction) {
     });
 }
 
+/// A new message from the default account (Settings › Accounts; else the
+/// top account in the sidebar).
+pub fn new_message(s: AppState) {
+    send_cmd(Cmd::NewDraft { from_account: s.default_from() });
+}
+
 pub fn reply(item: &ListItem, kind: ReplyKind) {
     send_cmd(Cmd::StartReply { account_id: item.account_id().to_string(), message_id: item.header().id.clone(), kind });
 }
@@ -904,6 +935,9 @@ fn on_key(s: AppState, key: &str) {
     if s.row_menu.read().is_some() {
         return row_menu::on_key(s, key);
     }
+    if s.account_menu.read().is_some() {
+        return account_menu::on_key(s, key);
+    }
     let (mut mode, draft, mut settings) = (s.mode, s.draft, s.settings_open);
     match key {
         // ⌘1 / ⌘2 also leave Settings, straight to Mail or Calendar.
@@ -923,7 +957,7 @@ fn on_key(s: AppState, key: &str) {
         "zoom-out" => return zoom::change(s, zoom::Step::Smaller),
         "zoom-reset" => return zoom::change(s, zoom::Step::Reset),
         "c" if *s.mode.read() == Mode::Calendar => return event_editor::open_new_now(s),
-        "meta+n" | "c" => return send_cmd(Cmd::NewDraft),
+        "meta+n" | "c" => return new_message(s),
         "meta+k" => {
             let mut p = s.palette_open;
             let v = *p.read();

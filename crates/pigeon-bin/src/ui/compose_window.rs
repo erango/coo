@@ -19,11 +19,9 @@ use dioxus::desktop::tao::event::{Event, WindowEvent};
 use dioxus::desktop::{Config, DesktopContext, LogicalSize, WindowBuilder, WindowCloseBehaviour};
 use dioxus::prelude::*;
 use pigeon_core::compose::Draft;
-use pigeon_engine::service::Cmd;
 
 use super::compose::{self, ComposeSlot};
 use crate::bridge::{self, Msg};
-use crate::send_cmd;
 use crate::state::AppState;
 
 struct Open {
@@ -170,7 +168,7 @@ async fn bridge_loop(s: AppState, slot: ComposeSlot) {
             "key" => match msg.v.as_str() {
                 "meta+Enter" => compose::send_current(s, slot),
                 "Escape" => compose::save_and_close(slot),
-                "meta+n" => send_cmd(Cmd::NewDraft),
+                "meta+n" => super::new_message(s),
                 "zoom-in" => super::zoom::change(s, super::zoom::Step::Bigger),
                 "zoom-out" => super::zoom::change(s, super::zoom::Step::Smaller),
                 "zoom-reset" => super::zoom::change(s, super::zoom::Step::Reset),

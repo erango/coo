@@ -233,6 +233,14 @@ fn AccountSection(
     let letter = format::initials(&name).chars().next().unwrap_or('?');
     let current = mailbox.read().clone();
     let toggle_id = id.clone();
+    let menu_id = id.clone();
+    // Quiet: the default for new messages shows only in the name's tooltip.
+    let tip = match (s.default_from().as_deref() == Some(id.as_str()), s.chosen_default().is_some()) {
+        (true, true) => format!("{address} · Default for new messages"),
+        (true, false) => format!("{address} · Default for new messages (top account)"),
+        _ => address.clone(),
+    };
+    let menu_open = s.account_menu.read().as_ref().is_some_and(|m| m.account_id == id);
 
     rsx! {
         div { class: "nav-account", "data-account-drop": "{index}",
@@ -247,12 +255,18 @@ fn AccountSection(
             title: if draggable { "Drag to reorder" } else { "" },
             ondragstart: move |_| drag_w.set(Some(index)),
             ondragend: move |_| { drag_w.set(None); over_w.set(None); },
+            "data-context": menu_open.then_some("true"),
+            oncontextmenu: move |e| {
+                e.prevent_default();
+                let p = e.client_coordinates();
+                super::account_menu::open(s, &menu_id, p.x, p.y);
+            },
             onclick: move |_| {
                 let mut set = collapsed_set.write();
                 if !set.remove(&toggle_id) { set.insert(toggle_id.clone()); }
             },
             if many { span { class: "pip", "{letter}" } } else { span { class: "dot" } }
-            span { dir: "auto", style: "overflow:hidden;text-overflow:ellipsis;white-space:nowrap", title: "{address}", "{name}" }
+            span { dir: "auto", style: "overflow:hidden;text-overflow:ellipsis;white-space:nowrap", title: "{tip}", "{name}" }
             span { class: "nav-section__meta", title: "{meta}", dangerous_inner_html: provider_mark(nav.account.provider, meta) }
             if draggable { Icon { name: "grip", class: "icon--xs nav-section__grip" } }
         }

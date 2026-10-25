@@ -332,7 +332,7 @@ async fn bridge_loop(s: AppState, item: ListItem) {
                         act(s, &item, if unread { MailAction::MarkRead } else { MailAction::MarkUnread })
                     }
                     "Escape" => close_me(),
-                    "meta+n" | "c" => send_cmd(Cmd::NewDraft),
+                    "meta+n" | "c" => super::new_message(s),
                     "zoom-in" => super::zoom::change(s, super::zoom::Step::Bigger),
                     "zoom-out" => super::zoom::change(s, super::zoom::Step::Smaller),
                     "zoom-reset" => super::zoom::change(s, super::zoom::Step::Reset),
