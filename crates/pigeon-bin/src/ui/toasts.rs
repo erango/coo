@@ -1,4 +1,5 @@
 use dioxus::prelude::*;
+use pigeon_engine::MailAction;
 use pigeon_engine::service::{Cmd, Toast};
 
 use super::Icon;
@@ -18,17 +19,30 @@ pub fn Toasts() -> Element {
     }
 }
 
+/// The toast's icon: what went wrong, or the action it confirms.
+fn icon(t: &Toast) -> &'static str {
+    if t.error {
+        return "alert";
+    }
+    match &t.action {
+        Some(MailAction::Archive) => "archive",
+        Some(MailAction::Trash) => "trash",
+        Some(MailAction::Flag | MailAction::Unflag) => "flag",
+        Some(MailAction::MoveTo(_)) => "folder",
+        Some(MailAction::AddLabel(_)) => "tag",
+        Some(MailAction::MarkRead) => "mailopen",
+        Some(MailAction::MarkUnread) => "mail",
+        Some(MailAction::Spam | MailAction::NotSpam) => "alert",
+        Some(MailAction::Phishing) => "shield",
+        None => "check",
+    }
+}
+
 #[component]
 fn ToastItem(toast: Toast) -> Element {
     let s = use_context::<AppState>();
     let mut toasts = s.toasts;
-    let icon: &'static str = if toast.error {
-        "alert"
-    } else if toast.undo.is_some() {
-        "archive"
-    } else {
-        "check"
-    };
+    let icon = icon(&toast);
     let tone = if toast.error { "error" } else { "neutral" };
     let id = toast.id;
     let undo = toast.undo.clone();
@@ -57,5 +71,20 @@ fn ToastItem(toast: Toast) -> Element {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn icons_follow_the_action() {
+        let t = |action| Toast { action, undo: Some(("a".into(), 1)), ..Default::default() };
+        assert_eq!(icon(&t(Some(MailAction::Archive))), "archive");
+        assert_eq!(icon(&t(Some(MailAction::Trash))), "trash");
+        assert_eq!(icon(&t(Some(MailAction::MoveTo("f".into())))), "folder");
+        assert_eq!(icon(&t(None)), "check");
+        assert_eq!(icon(&Toast { error: true, action: Some(MailAction::Trash), ..Default::default() }), "alert");
     }
 }

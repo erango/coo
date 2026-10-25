@@ -232,7 +232,7 @@ pub fn send_at(s: AppState, slot: ComposeSlot, later: Option<i64>) {
     if let Some(message) = problem {
         notice.set(Some(message.clone()));
         if !slot.windowed {
-            s.push_toast(Toast { id: crate::state::next_token(), message, error: true, undo: None, cancel_send: None });
+            s.push_toast(Toast { id: crate::state::next_token(), message, error: true, ..Default::default() });
         }
         return;
     }

@@ -302,6 +302,8 @@ pub struct Toast {
     pub undo: Option<(String, i64)>,
     /// Draft id whose scheduled send this toast can cancel ("Sending… Undo").
     pub cancel_send: Option<String>,
+    /// The mail action an undo toast confirms (picks its icon).
+    pub action: Option<MailAction>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -560,7 +562,14 @@ impl Service {
 
     fn toast(&self, message: impl Into<String>, error: bool, undo: Option<(String, i64)>) {
         let id = self.toast_seq.fetch_add(1, Ordering::Relaxed);
-        self.send(Delta::Toast(Toast { id, message: message.into(), error, undo, cancel_send: None }));
+        self.send(Delta::Toast(Toast { id, message: message.into(), error, undo, ..Default::default() }));
+    }
+
+    /// "Archived …" with Undo, after `action`.
+    fn action_toast(&self, message: impl Into<String>, undo: Option<(String, i64)>, action: &MailAction) {
+        let id = self.toast_seq.fetch_add(1, Ordering::Relaxed);
+        let action = Some(action.clone());
+        self.send(Delta::Toast(Toast { id, message: message.into(), undo, action, ..Default::default() }));
     }
 
     fn fail(&self, context: &str, e: &Error) {
@@ -797,7 +806,7 @@ impl Service {
                 let handle = self.app.act(&account, &ids, from.as_deref(), &action)?;
                 let undoable = !matches!(action, MailAction::MarkRead | MailAction::MarkUnread);
                 if undoable {
-                    self.toast(label, false, Some((account_id, handle)));
+                    self.action_toast(label, Some((account_id, handle)), &action);
                 }
                 self.publish().await;
                 self.flush(account).await;
@@ -829,7 +838,7 @@ impl Service {
                         self.bulk_undo.lock().unwrap().insert(bulk, handles);
                         Some((BULK_UNDO.to_string(), bulk))
                     };
-                    self.toast(label, false, undo);
+                    self.action_toast(label, undo, &action);
                 }
                 self.publish().await;
                 for account in touched {
