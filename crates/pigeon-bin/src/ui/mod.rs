@@ -108,6 +108,12 @@ pub fn App() -> Element {
         }
         spawn(update_loop(s));
         spawn(menubar_loop(s));
+        // The menu bar is installed with the window; line up its shortcuts
+        // once it's there.
+        spawn(async {
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            crate::menu::align_shortcuts();
+        });
         spawn(save_image_loop());
         spawn(state::pump(s));
         spawn(bridge_loop(s));
@@ -147,6 +153,14 @@ pub fn App() -> Element {
                     }
                 }
                 // open:<account_id>|<thread_id>
+                // menu-shot:<Message|View|…>: pop up a menu-bar menu (screenshots)
+                "menu-shot" => {
+                    let name = arg.to_string();
+                    spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                        crate::menu::debug_pop(&name);
+                    });
+                }
                 "open" => {
                     if let Some((account_id, thread_id)) = arg.split_once('|') {
                         let mut sel = s.selected;
@@ -582,7 +596,21 @@ fn on_menu(s: AppState, id: &str) {
         crate::menu::ZOOM_OUT => zoom::change(s, zoom::Step::Smaller),
         crate::menu::ZOOM_RESET => zoom::change(s, zoom::Step::Reset),
         crate::menu::REPORT_PHISHING => spam::report_phishing(s),
-        // Message menu items run the same handler as their keyboard shortcut.
+        crate::menu::OPEN_WINDOW => {
+            let key = s.selected.peek().clone();
+            let item = key.and_then(|k| s.list.peek().iter().find(|i| AppState::key(i) == k).cloned());
+            if let Some(item) = item {
+                reader_window::open(s, item);
+            }
+        }
+        crate::menu::NEW_EVENT => {
+            crate::menubar::show_main();
+            let mut mode = s.mode;
+            mode.set(Mode::Calendar);
+            event_editor::open_new_now(s);
+        }
+        // View, Message and Calendar items run the same handler as their
+        // keyboard shortcut.
         id => {
             if let Some(key) = crate::menu::key_for(id) {
                 on_key(s, key);
