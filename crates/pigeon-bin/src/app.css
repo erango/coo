@@ -736,21 +736,32 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .row__actions .icon-btn:first-child { background: transparent; }
 .row__actions .icon-btn:hover { background: var(--bg-3); }
 
-/* Opening Settings slides its sidebar and page in from the right; leaving
-   slides Mail or Calendar back in from the left (`data-swap`, set for a
-   moment in ui/mod.rs). Opacity and a short nudge only, so nothing
-   reflows; `backwards` drops the transform once it's done. */
-@keyframes coo-swap-in { from { opacity: 0; transform: translateX(14px); } }
-@keyframes coo-swap-out { from { opacity: 0; transform: translateX(-14px); } }
+/* Opening / leaving Settings (`data-swap`, ui/mod.rs): the view fades out
+   with a small nudge (110 ms), swaps while invisible, and the new one fades
+   in from the other side (190 ms); forward = into Settings. Only the
+   sidebar's contents and the panes move, never the window or the sidebar
+   background, and only opacity and a few px of transform. */
+@keyframes coo-leave-fwd { to { opacity: 0; transform: translateX(-6px); } }
+@keyframes coo-leave-back { to { opacity: 0; transform: translateX(6px); } }
+@keyframes coo-enter-fwd { from { opacity: 0; transform: translateX(10px); } }
+@keyframes coo-enter-back { from { opacity: 0; transform: translateX(-10px); } }
 .app[data-swap] > .sidebar > :not(.sidebar__top):not(.sidebar__footer),
-.app[data-swap] > :not(.sidebar):not(.splitter) {
-  animation: coo-swap-in 220ms var(--ease-standard) backwards;
+.app[data-swap] > :not(.sidebar):not(.splitter) { will-change: opacity, transform; }
+.app[data-swap^="leave"] > .sidebar > :not(.sidebar__top):not(.sidebar__footer),
+.app[data-swap^="leave"] > :not(.sidebar):not(.splitter) {
+  animation: coo-leave-fwd 110ms cubic-bezier(0.4, 0, 1, 1) forwards;
 }
-.app[data-swap="out"] > .sidebar > :not(.sidebar__top):not(.sidebar__footer),
-.app[data-swap="out"] > :not(.sidebar):not(.splitter) { animation-name: coo-swap-out; }
-.app[data-swap] > :not(.sidebar):not(.splitter) { animation-delay: 40ms; }
+.app[data-swap="leave-back"] > .sidebar > :not(.sidebar__top):not(.sidebar__footer),
+.app[data-swap="leave-back"] > :not(.sidebar):not(.splitter) { animation-name: coo-leave-back; }
+.app[data-swap^="enter"] > .sidebar > :not(.sidebar__top):not(.sidebar__footer),
+.app[data-swap^="enter"] > :not(.sidebar):not(.splitter) {
+  animation: coo-enter-fwd 190ms var(--ease-standard) backwards;
+}
+.app[data-swap="enter-back"] > .sidebar > :not(.sidebar__top):not(.sidebar__footer),
+.app[data-swap="enter-back"] > :not(.sidebar):not(.splitter) { animation-name: coo-enter-back; }
+.app[data-swap^="enter"] > :not(.sidebar):not(.splitter) { animation-delay: 20ms; }
 @media (prefers-reduced-motion: reduce) {
-  .app[data-swap] > .sidebar > *, .app[data-swap] > * { animation: none; }
+  .app[data-swap] > .sidebar > *, .app[data-swap] > * { animation: none !important; }
 }
 
 /* A setting with options that belong to it (Settings › Calendar › Video

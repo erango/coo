@@ -198,6 +198,9 @@ pub struct AppState {
     /// Color theme family id (see `themes`).
     pub palette: Signal<String>,
     pub settings_open: Signal<bool>,
+    /// What's on screen: follows `settings_open` once the old view has
+    /// faded out (ui/mod.rs), so the swap can animate both ways.
+    pub settings_shown: Signal<bool>,
     /// Settings subpage shown (a `settings::PAGES` title).
     pub settings_page: Signal<String>,
     /// The connected Zoom account (Zoom calls on events), if any.
@@ -282,6 +285,7 @@ impl AppState {
                 if crate::themes::is_known(&p) { p } else { crate::themes::DEFAULT.to_string() }
             }),
             settings_open: Signal::new(false),
+            settings_shown: Signal::new(false),
             settings_page: Signal::new("General".into()),
             zoom: Signal::new(None),
             agent_setup_open: Signal::new(false),

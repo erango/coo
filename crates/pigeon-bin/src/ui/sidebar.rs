@@ -92,7 +92,7 @@ pub fn Sidebar() -> Element {
     let mut mode = s.mode;
     let many = s.accounts.read().len() > 4;
 
-    if *s.settings_open.read() {
+    if *s.settings_shown.read() {
         return rsx! {
             aside { class: "sidebar", "aria-label": "Settings",
                 div { class: "sidebar__top" }
@@ -374,7 +374,7 @@ fn SyncFooter() -> Element {
                 Icon { name: "sun", class: "icon--sm" }
             }
             // Settings has its own Back button at the top while open.
-            if !*s.settings_open.read() {
+            if !*s.settings_shown.read() {
                 button { class: "icon-btn icon-btn--sm", "aria-label": "Settings", title: "Settings (⌘,)",
                     onclick: move |_| { let mut o = s.settings_open; o.set(true); },
                     Icon { name: "gear", class: "icon--sm" }
