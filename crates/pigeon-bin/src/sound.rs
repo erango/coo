@@ -54,8 +54,13 @@ pub fn due(last: Option<std::time::Instant>, now: std::time::Instant) -> bool {
 }
 
 /// A new-mail or reminder alert: like `play`, but at most once per
-/// `ALERT_GAP` for each kind. (Previews in Settings use `play`.)
+/// `ALERT_GAP` for each kind, and never while every screen is off (asleep,
+/// or a closed lid with nothing else attached). Previews in Settings use
+/// `play`.
 pub fn alert(theme: &str, kind: Kind, volume: u8) {
+    if imp::screens_off() {
+        return;
+    }
     static LAST: std::sync::Mutex<[Option<std::time::Instant>; 2]> = std::sync::Mutex::new([None, None]);
     let now = std::time::Instant::now();
     let slot = kind as usize;
@@ -78,6 +83,25 @@ pub fn play(theme: &str, kind: Kind, volume: u8) {
 
 #[cfg(target_os = "macos")]
 mod imp {
+    #[link(name = "CoreGraphics", kind = "framework")]
+    unsafe extern "C" {
+        fn CGGetOnlineDisplayList(max: u32, displays: *mut u32, count: *mut u32) -> i32;
+        fn CGDisplayIsAsleep(display: u32) -> u32;
+    }
+
+    /// No display is awake: all asleep, or none online (lid closed).
+    pub fn screens_off() -> bool {
+        let mut ids = [0u32; 16];
+        let mut count = 0u32;
+        // SAFETY: CoreGraphics fills at most `max` ids and sets `count`.
+        let err = unsafe { CGGetOnlineDisplayList(ids.len() as u32, ids.as_mut_ptr(), &mut count) };
+        if err != 0 {
+            return false;
+        }
+        // SAFETY: plain query on a display id CoreGraphics just returned.
+        ids[..count as usize].iter().all(|&d| unsafe { CGDisplayIsAsleep(d) } != 0)
+    }
+
     use std::cell::RefCell;
 
     use objc2::AllocAnyThread;
@@ -102,6 +126,9 @@ mod imp {
 #[cfg(not(target_os = "macos"))]
 mod imp {
     pub fn play(_bytes: &[u8], _volume: f32) {}
+    pub fn screens_off() -> bool {
+        false
+    }
 }
 
 #[cfg(test)]
