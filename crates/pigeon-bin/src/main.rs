@@ -3,6 +3,7 @@
 
 mod about;
 mod bridge;
+mod ctxmenu;
 mod dock;
 mod emoji;
 mod fonts;
@@ -135,6 +136,7 @@ fn main() {
 
     dock::set_app_icon();
     notify::init();
+    ctxmenu::install();
 
     dioxus::LaunchBuilder::desktop()
         .with_cfg(

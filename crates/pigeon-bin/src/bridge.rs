@@ -267,14 +267,16 @@ pub const JS: &str = r#"
   })();
 
   // ---- Context menu: WebKit's own menu only where it's useful ----
-  // Its default offers Reload / Open Frame in New Window / Inspect, which
-  // make no sense in an app. Keep it for editable fields (paste, spelling)
-  // and selected text (Copy, Look Up); suppress it everywhere else,
-  // including inside mail frames (wired in `wire` below).
+  // Keep it for editable fields (paste, spelling), selected text (Copy,
+  // Look Up), images (Copy Image) and links (Copy Link); suppress it
+  // everywhere else, including inside mail frames (wired in `wire` below).
+  // Items that open windows, download or reload are removed natively
+  // (ctxmenu.rs).
   function contextGuard(e, doc) {
     const sel = doc.getSelection && doc.getSelection();
     const hasText = sel && !sel.isCollapsed && sel.toString().trim() !== '';
-    if (editable(e.target) || hasText) return;
+    const media = e.target.closest && e.target.closest('img, a[href]');
+    if (editable(e.target) || hasText || media) return;
     e.preventDefault();
   }
   document.addEventListener('contextmenu', (e) => contextGuard(e, document));
