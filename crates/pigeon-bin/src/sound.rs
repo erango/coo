@@ -54,9 +54,9 @@ pub fn due(last: Option<std::time::Instant>, now: std::time::Instant) -> bool {
 }
 
 /// A new-mail or reminder alert: like `play`, but at most once per
-/// `ALERT_GAP` for each kind, and never while every screen is off (asleep,
-/// or a closed lid with nothing else attached). Previews in Settings use
-/// `play`.
+/// `ALERT_GAP` for each kind, and never while the screen is locked or every
+/// screen is off (asleep, or a closed lid with nothing else attached).
+/// Previews in Settings use `play`.
 pub fn alert(theme: &str, kind: Kind, volume: u8) {
     if imp::screens_off() {
         return;
@@ -87,10 +87,36 @@ mod imp {
     unsafe extern "C" {
         fn CGGetOnlineDisplayList(max: u32, displays: *mut u32, count: *mut u32) -> i32;
         fn CGDisplayIsAsleep(display: u32) -> u32;
+        fn CGSessionCopyCurrentDictionary() -> *mut objc2::runtime::AnyObject;
     }
 
-    /// No display is awake: all asleep, or none online (lid closed).
+    /// The login session's screen is locked (or the session info is gone,
+    /// e.g. at the login window).
+    fn screen_locked() -> bool {
+        use objc2::msg_send;
+        use objc2::rc::Retained;
+        use objc2::runtime::AnyObject;
+        use objc2_foundation::NSString;
+        // SAFETY: CGSessionCopyCurrentDictionary returns a +1 CFDictionary
+        // (toll-free bridged to NSDictionary) or NULL; objectForKey: and
+        // boolValue with their documented signatures.
+        unsafe {
+            let Some(dict) = Retained::from_raw(CGSessionCopyCurrentDictionary()) else { return false };
+            let key = NSString::from_str("CGSSessionScreenIsLocked");
+            let v: *mut AnyObject = msg_send![&*dict, objectForKey: &*key];
+            !v.is_null() && {
+                let locked: bool = msg_send![v, boolValue];
+                locked
+            }
+        }
+    }
+
+    /// Nobody's looking: the screen is locked, or no display is awake (all
+    /// asleep, or none online with the lid closed).
     pub fn screens_off() -> bool {
+        if screen_locked() {
+            return true;
+        }
         let mut ids = [0u32; 16];
         let mut count = 0u32;
         // SAFETY: CoreGraphics fills at most `max` ids and sets `count`.
