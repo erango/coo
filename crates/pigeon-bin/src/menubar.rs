@@ -47,7 +47,10 @@ struct Tray {
 
 thread_local! {
     static TRAY: RefCell<Option<Tray>> = const { RefCell::new(None) };
-    static MAIN: RefCell<Option<DesktopContext>> = const { RefCell::new(None) };
+    // Never dropped: the main window lives as long as the process, and
+    // dropping its handle in thread-local teardown at exit (after the
+    // event loop's executor is gone) panicked, which aborts the process.
+    static MAIN: RefCell<Option<std::mem::ManuallyDrop<DesktopContext>>> = const { RefCell::new(None) };
 }
 
 static ACTIONS: std::sync::OnceLock<tokio::sync::mpsc::UnboundedSender<Action>> = std::sync::OnceLock::new();
@@ -82,7 +85,7 @@ pub fn install(main: DesktopContext) {
             *slot = Some(rx);
         }
     }
-    MAIN.with(|m| *m.borrow_mut() = Some(main));
+    MAIN.with(|m| *m.borrow_mut() = Some(std::mem::ManuallyDrop::new(main)));
     if TRAY.with(|t| t.borrow().is_some()) {
         return;
     }
