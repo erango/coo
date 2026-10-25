@@ -356,8 +356,22 @@ pub fn App() -> Element {
             multi.set(Vec::new());
         }
         last_mailbox.set(Some(mailbox.clone()));
+        let key = state::mailbox_key(&mailbox);
+        if crate::prefs::get().last_mailbox != key {
+            crate::prefs::update(|p| p.last_mailbox = key);
+        }
         crate::perf::mark_show_sent();
         send_cmd(Cmd::ShowMailbox { mailbox, threaded });
+    });
+
+    // The mailbox restored from last time is gone (account removed, folder
+    // deleted): fall back to the unified inbox once accounts have loaded.
+    use_effect(move || {
+        let accounts = s.accounts.read();
+        if *s.loaded.read() && !accounts.is_empty() && !state::mailbox_exists(&s.mailbox.peek(), &accounts) {
+            let mut mb = s.mailbox;
+            mb.set(pigeon_engine::service::Mailbox::Unified(pigeon_core::model::FolderRole::Inbox));
+        }
     });
 
     // Timing: log when a new list has rendered (debug level).

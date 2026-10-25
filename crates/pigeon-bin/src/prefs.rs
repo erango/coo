@@ -31,6 +31,9 @@ pub struct Prefs {
     pub account_nicknames: std::collections::BTreeMap<String, String>,
     /// Unread inbox count on the Dock icon.
     pub dock_badge: bool,
+    /// The mailbox open when Coo last ran (`state::mailbox_key`); empty for
+    /// the unified inbox.
+    pub last_mailbox: String,
     /// How long before an event the reminder fires.
     pub event_reminder_minutes: u32,
     /// Account ids that never notify.
@@ -97,6 +100,7 @@ impl Default for Prefs {
             notify_events: true,
             account_nicknames: Default::default(),
             dock_badge: true,
+            last_mailbox: String::new(),
             event_reminder_minutes: 10,
             notify_accounts_muted: Vec::new(),
             remote_images_always: false,

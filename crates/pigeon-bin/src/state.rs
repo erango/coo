@@ -233,7 +233,9 @@ impl AppState {
             palette_hits: Signal::new(Vec::new()),
             loaded: Signal::new(false),
             accounts: Signal::new(Vec::new()),
-            mailbox: Signal::new(Mailbox::Unified(FolderRole::Inbox)),
+            mailbox: Signal::new(
+                parse_mailbox(&crate::prefs::get().last_mailbox).unwrap_or(Mailbox::Unified(FolderRole::Inbox)),
+            ),
             threaded: Signal::new(true),
             list: Signal::new(Vec::new()),
             selected: Signal::new(None),
@@ -643,6 +645,54 @@ pub fn move_item<T>(v: &mut Vec<T>, from: usize, to: usize) {
     let item = v.remove(from);
     let to = to.min(v.len());
     v.insert(to, item);
+}
+
+/// A mailbox as one string for prefs: `unified:<role>` or
+/// `folder:<account_id>|<folder_id>`.
+pub fn mailbox_key(m: &Mailbox) -> String {
+    match m {
+        Mailbox::Unified(role) => {
+            let role = serde_json::to_value(role).ok().and_then(|v| v.as_str().map(str::to_owned)).unwrap_or_default();
+            format!("unified:{role}")
+        }
+        Mailbox::Folder { account_id, folder_id } => format!("folder:{account_id}|{folder_id}"),
+    }
+}
+
+pub fn parse_mailbox(key: &str) -> Option<Mailbox> {
+    if let Some(role) = key.strip_prefix("unified:") {
+        return serde_json::from_value(serde_json::Value::String(role.to_string())).ok().map(Mailbox::Unified);
+    }
+    let (account_id, folder_id) = key.strip_prefix("folder:")?.split_once('|')?;
+    Some(Mailbox::Folder { account_id: account_id.to_string(), folder_id: folder_id.to_string() })
+}
+
+/// The restored mailbox still exists: its account and folder are there.
+pub fn mailbox_exists(m: &Mailbox, accounts: &[AccountNav]) -> bool {
+    match m {
+        Mailbox::Unified(_) => true,
+        Mailbox::Folder { account_id, folder_id } => {
+            accounts.iter().any(|a| a.account.id == *account_id && a.folders.iter().any(|f| f.folder.id == *folder_id))
+        }
+    }
+}
+
+#[cfg(test)]
+mod mailbox_key_tests {
+    use super::*;
+
+    #[test]
+    fn mailbox_keys_round_trip() {
+        for m in [
+            Mailbox::Unified(FolderRole::Inbox),
+            Mailbox::Unified(FolderRole::Sent),
+            Mailbox::Folder { account_id: "google:a@x.com".into(), folder_id: "Label_7|odd".into() },
+        ] {
+            assert_eq!(parse_mailbox(&mailbox_key(&m)), Some(m));
+        }
+        assert_eq!(parse_mailbox(""), None);
+        assert_eq!(parse_mailbox("unified:nope"), None);
+    }
 }
 
 #[cfg(test)]
