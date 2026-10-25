@@ -126,9 +126,11 @@ pub fn RecipientInput(
     let (commit_input, commit_key, commit_blur, commit_pick) = (commit.clone(), commit.clone(), commit.clone(), commit);
     let (v_key, v_remove) = (value.clone(), value.clone());
     let picks = suggestions.clone();
+    let field = id.clone();
 
     rsx! {
-        div { class: "recipients", style: "position:relative",
+        // A click anywhere in the row (between or after chips) types there.
+        div { class: "recipients", style: "position:relative", onclick: move |_| crate::bridge::focus(&field),
             for (i, a) in value.iter().enumerate() {
                 {
                     let invalid = !is_valid(&a.email);

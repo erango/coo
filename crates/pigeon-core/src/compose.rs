@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::{Address, MessageHeader, StoredBody};
+use crate::model::{Address, MessageHeader, StoredAttachment, StoredBody};
 use crate::text::{escape_html, html_to_text, text_to_html};
 use crate::{Error, Result, auth};
 
@@ -49,11 +49,20 @@ pub enum AttachmentSource {
     File {
         path: String,
     },
-    /// Carried over from a forwarded message; downloaded at send time.
+    /// Carried over from the message being forwarded or replied to;
+    /// fetched from that account's server at send time.
     Message {
         account_id: String,
         message_id: String,
         attachment_id: String,
+        /// An image the quoted original shows inline (`cid:` in its HTML):
+        /// it goes out as an inline part under the same Content-ID and has
+        /// no chip in the composer.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        content_id: Option<String>,
+        /// For the composer's chip only.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        size: Option<u64>,
     },
     /// A file picked from Google Drive, fetched with that Google account's
     /// sign-in at send time (straight into the message, never to disk).
@@ -73,6 +82,47 @@ impl AttachmentSource {
     pub fn is_drive(&self) -> bool {
         matches!(self, AttachmentSource::Drive { .. })
     }
+
+    /// The Content-ID of an inline image carried over with a quote.
+    pub fn inline_cid(&self) -> Option<&str> {
+        match self {
+            AttachmentSource::Message { content_id, .. } => content_id.as_deref(),
+            _ => None,
+        }
+    }
+}
+
+/// The original's attachments a reply or forward carries, fetched at send
+/// time. Inline images the quoted HTML shows (`cid:`) always go along, so
+/// the quote isn't left with broken images. A forward also carries every
+/// other file, including parts marked inline that the HTML never shows
+/// (Apple Mail sends ordinary attachments that way).
+pub fn carried_attachments(
+    account_id: &str,
+    message_id: &str,
+    quoted_html: &str,
+    attachments: &[StoredAttachment],
+    forward: bool,
+) -> Vec<DraftAttachment> {
+    let lower = quoted_html.to_ascii_lowercase();
+    let shown = |cid: &str| lower.contains(&format!("cid:{}", cid.to_ascii_lowercase()));
+    attachments
+        .iter()
+        .filter_map(|a| {
+            let cid = a.meta.content_id.as_deref().filter(|c| a.meta.is_inline && !c.is_empty() && shown(c));
+            (cid.is_some() || forward).then(|| DraftAttachment {
+                name: a.meta.name.clone(),
+                content_type: a.meta.content_type.clone(),
+                source: AttachmentSource::Message {
+                    account_id: account_id.to_string(),
+                    message_id: message_id.to_string(),
+                    attachment_id: a.meta.id.clone(),
+                    content_id: cid.map(String::from),
+                    size: a.meta.size,
+                },
+            })
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -247,6 +297,7 @@ pub fn reply_draft(
                 escape_html(&quote_header(original)),
                 original_html(body)
             );
+            d.attachments = carried_attachments(account_id, &original.id, &d.html, &body.attachments, false);
         }
         ReplyKind::Forward => {
             d.subject = prefixed("Fwd:", &original.subject);
@@ -259,20 +310,7 @@ pub fn reply_draft(
                 list(&original.to),
                 original_html(body)
             );
-            d.attachments = body
-                .attachments
-                .iter()
-                .filter(|a| !a.meta.is_inline)
-                .map(|a| DraftAttachment {
-                    name: a.meta.name.clone(),
-                    content_type: a.meta.content_type.clone(),
-                    source: AttachmentSource::Message {
-                        account_id: account_id.to_string(),
-                        message_id: original.id.clone(),
-                        attachment_id: a.meta.id.clone(),
-                    },
-                })
-                .collect();
+            d.attachments = carried_attachments(account_id, &original.id, &d.html, &body.attachments, true);
         }
     }
     d
@@ -306,9 +344,11 @@ pub fn build_mime(draft: &Draft, attachments: &[Vec<u8>], now_secs: i64) -> Resu
         .from(addr(&draft.from.address))
         .subject(draft.subject.clone())
         .date(now_secs)
-        .message_id(message_id.clone())
-        .html_body(html)
-        .text_body(html_to_text(&draft.full_html()));
+        .message_id(message_id.clone());
+    let text = html_to_text(&draft.full_html());
+    let inline = draft.attachments.iter().any(|a| a.source.inline_cid().is_some());
+    mb =
+        if inline { mb.body(related_body(html, text, draft, attachments)) } else { mb.html_body(html).text_body(text) };
     if !draft.to.is_empty() {
         mb = mb.to(list(&draft.to));
     }
@@ -328,12 +368,52 @@ pub fn build_mime(draft: &Draft, attachments: &[Vec<u8>], now_secs: i64) -> Resu
             mb = mb.references(r.references.iter().map(|id| strip_brackets(id).to_string()).collect::<Vec<_>>());
         }
     }
-    for (a, bytes) in draft.attachments.iter().zip(attachments) {
-        let ct = a.content_type.clone().unwrap_or_else(|| "application/octet-stream".into());
-        mb = mb.attachment(ct, a.name.clone(), bytes.clone());
+    if !inline {
+        for (a, bytes) in draft.attachments.iter().zip(attachments) {
+            mb = mb.attachment(content_type(a), a.name.clone(), bytes.clone());
+        }
     }
     let mime = mb.write_to_vec()?;
     Ok((format!("<{message_id}>"), mime))
+}
+
+fn content_type(a: &DraftAttachment) -> String {
+    a.content_type.clone().unwrap_or_else(|| "application/octet-stream".into())
+}
+
+/// The body when the quote shows inline images: the text/HTML alternatives
+/// and those images in `multipart/related` (so `cid:` resolves), then the
+/// files in `multipart/mixed`.
+fn related_body<'x>(
+    html: String,
+    text: String,
+    draft: &Draft,
+    attachments: &[Vec<u8>],
+) -> mail_builder::mime::MimePart<'x> {
+    use mail_builder::mime::{BodyPart, MimePart};
+
+    let alternative = MimePart::new(
+        "multipart/alternative",
+        vec![
+            MimePart::new("text/plain", BodyPart::Text(text.into())),
+            MimePart::new("text/html", BodyPart::Text(html.into())),
+        ],
+    );
+    let mut related = vec![alternative];
+    let mut files = Vec::new();
+    for (a, bytes) in draft.attachments.iter().zip(attachments) {
+        let part = MimePart::new(content_type(a), BodyPart::Binary(bytes.clone().into()));
+        match a.source.inline_cid() {
+            Some(cid) => related.push(part.inline().cid(cid.to_string())),
+            None => files.push(part.attachment(a.name.clone())),
+        }
+    }
+    let related = MimePart::new("multipart/related", related);
+    if files.is_empty() {
+        return related;
+    }
+    files.insert(0, related);
+    MimePart::new("multipart/mixed", files)
 }
 
 #[cfg(test)]
@@ -396,17 +476,35 @@ mod tests {
 
     fn body() -> StoredBody {
         StoredBody {
-            html: Some("<p>Hi</p>".into()),
+            html: Some("<p>Hi</p><img src=\"cid:Logo@X\">".into()),
             references: vec!["<root@cust.com>".into()],
             attachments: vec![
                 StoredAttachment {
-                    meta: AttachmentMeta { id: "a1".into(), name: "inv.pdf".into(), ..Default::default() },
+                    meta: AttachmentMeta {
+                        id: "a1".into(),
+                        name: "inv.pdf".into(),
+                        size: Some(2048),
+                        ..Default::default()
+                    },
                     local_path: None,
                 },
                 StoredAttachment {
                     meta: AttachmentMeta {
                         id: "a2".into(),
-                        name: "logo".into(),
+                        name: "logo.png".into(),
+                        content_type: Some("image/png".into()),
+                        content_id: Some("logo@x".into()),
+                        is_inline: true,
+                        ..Default::default()
+                    },
+                    local_path: None,
+                },
+                // Apple Mail style: a file sent inline that the HTML never shows.
+                StoredAttachment {
+                    meta: AttachmentMeta {
+                        id: "a3".into(),
+                        name: "scan.pdf".into(),
+                        content_id: Some("scan@x".into()),
                         is_inline: true,
                         ..Default::default()
                     },
@@ -492,7 +590,7 @@ mod tests {
         assert!(d.crosses_accounts());
         assert_eq!(d.thread_hint(), None, "provider thread ids don't cross accounts");
 
-        let (msgid, mime) = build_mime(&d, &[], 1_700_000_000).unwrap();
+        let (msgid, mime) = build_mime(&d, &[b"PNG".to_vec()], 1_700_000_000).unwrap();
         let mime = String::from_utf8(mime).unwrap();
         assert!(msgid.ends_with("@work.com>"));
         assert!(mime.contains("In-Reply-To: <orig@cust.com>"), "{mime}");
@@ -514,10 +612,85 @@ mod tests {
         );
         assert_eq!(d.subject, "Fwd: Order שלום");
         assert!(d.to.is_empty());
-        assert_eq!(d.attachments.len(), 1, "inline parts are not re-attached");
+        let names: Vec<(&str, Option<&str>)> =
+            d.attachments.iter().map(|a| (a.name.as_str(), a.source.inline_cid())).collect();
+        assert_eq!(names, [("inv.pdf", None), ("logo.png", Some("logo@x")), ("scan.pdf", None)]);
+        assert_eq!(
+            d.attachments[0].source,
+            AttachmentSource::Message {
+                account_id: "google:main".into(),
+                message_id: "m1".into(),
+                attachment_id: "a1".into(),
+                content_id: None,
+                size: Some(2048),
+            }
+        );
         assert_eq!(d.thread_hint(), None);
         assert_eq!(prefixed("Fwd:", "FW: x"), "FW: x");
         assert_eq!(prefixed("Re:", "RE: x"), "RE: x");
+    }
+
+    #[test]
+    fn replies_carry_only_the_images_the_quote_shows() {
+        let d = reply_draft(
+            ReplyKind::Reply,
+            "google:main",
+            &original(),
+            &body(),
+            sender("google:main", "x@gmail.com"),
+            &[],
+            0,
+        );
+        assert_eq!(d.attachments.len(), 1);
+        assert_eq!(
+            (d.attachments[0].name.as_str(), d.attachments[0].source.inline_cid()),
+            ("logo.png", Some("logo@x"))
+        );
+        // Nothing quoted that shows an image: nothing carried.
+        assert!(carried_attachments("a", "m", "<p>plain</p>", &body().attachments, false).is_empty());
+    }
+
+    #[test]
+    fn inline_images_go_out_as_related_parts() {
+        use mail_parser::MimeHeaders;
+        let mut d = reply_draft(
+            ReplyKind::Forward,
+            "google:main",
+            &original(),
+            &body(),
+            sender("google:main", "x@gmail.com"),
+            &[],
+            0,
+        );
+        d.to.push(Address::new(None, "you@y.com"));
+        let bytes = vec![b"%PDF".to_vec(), b"PNG".to_vec(), b"%PDF scan".to_vec()];
+        let (_, mime) = build_mime(&d, &bytes, 0).unwrap();
+        let raw = String::from_utf8_lossy(&mime);
+        assert!(raw.contains("multipart/mixed") && raw.contains("multipart/related"), "{raw}");
+        assert!(raw.contains("Content-ID: <logo@x>"), "{raw}");
+
+        let m = mail_parser::MessageParser::default().parse(&mime).unwrap();
+        assert!(m.body_html(0).unwrap().contains("cid:Logo@X"));
+        let parts: Vec<(Option<&str>, Option<&str>, bool)> = m
+            .attachments()
+            .map(|p| {
+                let inline = p.content_disposition().is_some_and(|c| c.c_type.eq_ignore_ascii_case("inline"));
+                (p.attachment_name(), p.content_id(), inline)
+            })
+            .collect();
+        assert_eq!(
+            parts,
+            [(None, Some("logo@x"), true), (Some("inv.pdf"), None, false), (Some("scan.pdf"), None, false)]
+        );
+    }
+
+    #[test]
+    fn message_sources_from_older_drafts_still_parse() {
+        let old: AttachmentSource =
+            serde_json::from_str(r#"{"kind":"message","account_id":"a","message_id":"m","attachment_id":"1"}"#)
+                .unwrap();
+        assert_eq!(old.inline_cid(), None);
+        assert!(!serde_json::to_string(&old).unwrap().contains("content_id"));
     }
 
     #[test]

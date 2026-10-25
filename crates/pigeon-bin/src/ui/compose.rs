@@ -463,6 +463,7 @@ fn file_size(a: &DraftAttachment) -> String {
         AttachmentSource::File { path } => {
             std::fs::metadata(path).map(|m| crate::format::size(m.len())).unwrap_or_default()
         }
+        AttachmentSource::Message { size: Some(n), .. } => crate::format::size(*n),
         AttachmentSource::Message { .. } => "forwarded".into(),
         AttachmentSource::Drive { size: Some(n), .. } => crate::format::size(*n),
         AttachmentSource::Drive { .. } => "Google Drive".into(),
@@ -473,13 +474,18 @@ fn file_size(a: &DraftAttachment) -> String {
 fn Attachments() -> Element {
     let slot = use_context::<ComposeSlot>();
     let mut draft = slot.draft;
-    let atts = draft.read().as_ref().map(|d| d.attachments.clone()).unwrap_or_default();
+    // Images the quote shows inline travel with it, without a chip.
+    let atts: Vec<(usize, DraftAttachment)> = draft
+        .read()
+        .as_ref()
+        .map(|d| d.attachments.iter().cloned().enumerate().filter(|(_, a)| a.source.inline_cid().is_none()).collect())
+        .unwrap_or_default();
     if atts.is_empty() {
         return rsx! {};
     }
     rsx! {
         div { class: "composer__attachments",
-            for (i, a) in atts.into_iter().enumerate() {
+            for (i, a) in atts.into_iter() {
                 div { class: "attachment", key: "{i}-{a.name}",
                     {
                         let (kind, icon) = super::drive::file_kind(a.content_type.as_deref().unwrap_or_default(), &a.name);
@@ -569,6 +575,39 @@ fn SignaturePreview() -> Element {
     rsx! { div { class: "composer__signature", dir: "auto", dangerous_inner_html: "{body}" } }
 }
 
+/// The quoted original of a reply/forward, folded behind "•••": click to
+/// read it, again to fold it. It isn't editable (it goes out as quoted), so
+/// it renders in a mail frame like the reader's.
+#[component]
+fn QuotedOriginal(html: String) -> Element {
+    let s = use_context::<AppState>();
+    let mut open = use_signal(|| false);
+    if html.is_empty() {
+        return rsx! {};
+    }
+    let shown = *open.read();
+    let frame = shown.then(|| {
+        let adapted = !super::mailframe::is_complex(&html);
+        let remote = crate::prefs::get().remote_images_always;
+        (adapted, super::mailframe::srcdoc(&html, &s.palette.read(), s.dark(), adapted, remote))
+    });
+    rsx! {
+        button { class: "inline-reply__quoted", r#type: "button", "aria-expanded": "{shown}",
+            title: if shown { "Hide the quoted text" } else { "Show the quoted text" },
+            onclick: move |_| open.set(!shown),
+            "•••"
+        }
+        if let Some((adapted, doc)) = frame {
+            div { class: "composer-quote",
+                iframe { class: "mail-frame", "data-render": if adapted { "adapted" } else { "paper" },
+                    "sandbox": "allow-same-origin allow-popups allow-popups-to-escape-sandbox",
+                    srcdoc: "{doc}"
+                }
+            }
+        }
+    }
+}
+
 /// Drop target: files dragged over the composer show the design's drop zone.
 fn drop_handlers(
     slot: ComposeSlot,
@@ -595,11 +634,15 @@ pub fn InlineReply(draft: Draft) -> Element {
     use_senders(s);
     let state = slot.draft;
     let mut show_cc = use_signal(|| !draft.cc.is_empty());
+    let mut maxed = use_signal(|| false);
     let id = editor_id(&draft);
+    let to_id = format!("reply-to-{}", draft.id);
     use_hook({
         let id = id.clone();
+        // A forward starts with nobody to send to: start there.
+        let first = if draft.to.is_empty() { to_id.clone() } else { id.clone() };
         move || {
-            bridge::focus(&id);
+            bridge::focus(&first);
             // Bring the whole reply into view so it can't be missed.
             document::eval(
                 "requestAnimationFrame(()=>{const r=document.querySelector('.inline-reply--open');\
@@ -612,16 +655,28 @@ pub fn InlineReply(draft: Draft) -> Element {
     let dragging = use_signal(|| false);
     let (over, leave, drop) = drop_handlers(slot, dragging);
 
+    let max = *maxed.read();
+    let (size_icon, size_label) =
+        if max { ("minimize", "Restore size") } else { ("maximize", "Fill the reading pane") };
+    let class =
+        if max { "inline-reply inline-reply--open inline-reply--max" } else { "inline-reply inline-reply--open" };
+
     rsx! {
-        div { class: "inline-reply inline-reply--open", "data-dragging": dragging.read().then_some("true"),
+        div { class: "{class}",
+            "data-dragging": dragging.read().then_some("true"),
             ondragover: move |e| over.call(e), ondragleave: move |e| leave.call(e), ondrop: move |e| drop.call(e),
             div { class: "inline-reply__head", style: "height:auto;min-height:44px",
                 FromPicker {}
                 span { class: "t-3", style: "font-size:12.5px", "to" }
-                RecipientInput { id: "reply-to-{current.id}", value: current.to.clone(),
+                RecipientInput { id: to_id.clone(), value: current.to.clone(), placeholder: "Name or address",
                     on_change: move |l| set_field(slot, Field::To, l) }
                 if !*show_cc.read() {
                     button { class: "btn btn--ghost btn--sm", r#type: "button", onclick: move |_| show_cc.set(true), "Cc" }
+                }
+                button { class: "icon-btn icon-btn--sm",
+                    "aria-label": size_label, title: size_label,
+                    onclick: move |_| maxed.set(!max),
+                    Icon { name: size_icon }
                 }
                 button { class: "icon-btn icon-btn--sm", "aria-label": "Discard draft",
                     onclick: move |_| discard(slot),
@@ -642,9 +697,7 @@ pub fn InlineReply(draft: Draft) -> Element {
                 dangerous_inner_html: "{draft.body_html}",
             }
             div { style: "padding:0 16px", SignaturePreview {} }
-            if !current.html.is_empty() {
-                button { class: "inline-reply__quoted", r#type: "button", title: "Quoted text is included", "•••" }
-            }
+            QuotedOriginal { html: current.html.clone() }
             Attachments {}
             super::drive::DriveWaiting {}
             super::drive::DriveSheet { editor: id.clone() }
@@ -846,6 +899,9 @@ pub fn Composer(draft: Draft, #[props(default)] docked: bool) -> Element {
                     div { class: "composer__editor", id: "{id}", contenteditable: "true", "data-editor": "true", dir: "auto",
                         dangerous_inner_html: "{draft.body_html}" }
                     SignaturePreview {}
+                    if !current.html.is_empty() {
+                        div { class: "composer__quote", QuotedOriginal { html: current.html.clone() } }
+                    }
                 }
                 Attachments {}
                 super::drive::DriveWaiting {}
