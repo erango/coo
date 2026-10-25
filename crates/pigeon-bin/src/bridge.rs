@@ -229,6 +229,15 @@ pub const JS: &str = r#"
   }
   document.addEventListener('contextmenu', (e) => contextGuard(e, document));
 
+  // ---- Tooltips: icon buttons show their label ("Archive (E)") on hover
+  // unless they set a title of their own; follows label changes. ----
+  document.addEventListener('mouseover', (e) => {
+    const b = e.target.closest && e.target.closest('button[aria-label]');
+    if (!b || (b.hasAttribute('title') && !b.dataset.autoTitle)) return;
+    const label = b.getAttribute('aria-label');
+    if (b.title !== label) { b.title = label; b.dataset.autoTitle = '1'; }
+  }, true);
+
   // ---- Settings: hairline under the sticky header once scrolled ----
   document.addEventListener('scroll', (e) => {
     const el = e.target;

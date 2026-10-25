@@ -717,3 +717,8 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .pane--list .pane-header__sub { flex: 0 1 auto; max-width: 45%; }
 .pane--list .pane-header > .spacer { flex: 1 0 0; min-width: 0; }
 @container (max-width: 380px) { .pane--list .pane-header__sub { display: none; } }
+
+/* Row hover actions: the design paints the first one (Archive) as if
+   hovered; only the button under the pointer should light up. */
+.row__actions .icon-btn:first-child { background: transparent; }
+.row__actions .icon-btn:hover { background: var(--bg-3); }

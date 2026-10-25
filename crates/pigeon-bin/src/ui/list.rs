@@ -420,6 +420,8 @@ pub fn Row(item: ListItem, many: bool, #[props(default)] motion: Option<&'static
     // Ringed while its right-click menu is open.
     let menu_on = s.row_menu.read().as_ref().is_some_and(|m| !m.bulk && AppState::key(&m.item) == key);
     let flagged = h.is_flagged;
+    let flag_label = if flagged { "Unflag (S)" } else { "Flag (S)" };
+    let read_label = if unread { "Mark read (U)" } else { "Mark unread (U)" };
     // Inline invite only when the body is already loaded (never fetch for the list).
     let invite_key = (item.account_id().to_string(), h.id.clone());
     let row_invite = s
@@ -483,14 +485,14 @@ pub fn Row(item: ListItem, many: bool, #[props(default)] motion: Option<&'static
                         onclick: move |e| { e.stop_propagation(); act(s, &i3, MailAction::Trash) },
                         Icon { name: "trash" }
                     }
-                    button { class: "icon-btn icon-btn--sm", "aria-label": "Flag (S)",
+                    button { class: "icon-btn icon-btn--sm", "aria-label": flag_label,
                         onclick: move |e| {
                             e.stop_propagation();
                             act(s, &i4, if flagged { MailAction::Unflag } else { MailAction::Flag })
                         },
                         Icon { name: "flag" }
                     }
-                    button { class: "icon-btn icon-btn--sm", "aria-label": if unread { "Mark read (U)" } else { "Mark unread (U)" },
+                    button { class: "icon-btn icon-btn--sm", "aria-label": read_label,
                         onclick: move |e| {
                             e.stop_propagation();
                             act(s, &i5, if unread { MailAction::MarkRead } else { MailAction::MarkUnread })
