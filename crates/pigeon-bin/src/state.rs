@@ -206,6 +206,9 @@ pub struct AppState {
     pub agent_setup_open: Signal<bool>,
     /// A downloaded update waiting for a restart (its version).
     pub update_ready: Signal<Option<String>>,
+    /// The updater's latest status, and whether the Check for Updates dialog is open.
+    pub update_status: Signal<crate::updater::Status>,
+    pub update_dialog: Signal<bool>,
     pub os_dark: Signal<bool>,
     pub signing_in: Signal<bool>,
     pub collapsed_accounts: Signal<HashSet<String>>,
@@ -277,6 +280,8 @@ impl AppState {
             zoom: Signal::new(None),
             agent_setup_open: Signal::new(false),
             update_ready: Signal::new(None),
+            update_status: Signal::new(crate::updater::Status::Idle),
+            update_dialog: Signal::new(false),
             os_dark: Signal::new(true),
             signing_in: Signal::new(false),
             collapsed_accounts: Signal::new(HashSet::new()),

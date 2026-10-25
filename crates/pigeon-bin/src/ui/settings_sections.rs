@@ -567,7 +567,7 @@ pub fn AboutUpdates() -> Element {
                         onclick: move |_| super::restart_to_update(), "Restart to update to {v}" }
                 } else {
                     button { class: "btn btn--secondary btn--sm", r#type: "button", disabled: !available,
-                        onclick: move |_| crate::updater::check_now(), "Check for updates" }
+                        onclick: move |_| super::check_for_updates(s), "Check for updates" }
                 }
             }
             if available {

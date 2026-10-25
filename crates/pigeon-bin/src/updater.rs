@@ -269,6 +269,33 @@ mod imp {
         });
     }
 
+    /// The user asked (menu, Settings) with automatic updates on: look now,
+    /// skipping the hourly debounce, and report through the status (Coo's
+    /// update dialog shows it). Sparkle's own UI stayed silent when a
+    /// background session was already running.
+    pub fn check_user() {
+        let _ = with(|c| {
+            let Some(u) = updater(c) else { return };
+            match events::get() {
+                Some(Status::Ready(_)) => return,
+                Some(Status::Downloading(_)) => return,
+                _ => {}
+            }
+            LAST_CHECK.with(|c| c.set(Some(SystemTime::now())));
+            CHECKING.with(|c| c.set(true));
+            events::set(Status::Checking);
+            // SAFETY: SPUUpdater BOOL property getter.
+            let busy: Bool = unsafe { msg_send![&*u, sessionInProgress] };
+            // A running session reports through the delegate like ours would.
+            if !busy.as_bool() {
+                // SAFETY: -[SPUUpdater checkForUpdatesInBackground]
+                unsafe {
+                    let _: () = msg_send![&*u, checkForUpdatesInBackground];
+                }
+            }
+        });
+    }
+
     /// Latest check by anyone: ours, or Sparkle's own schedule.
     fn last_check(u: &AnyObject) -> Option<SystemTime> {
         // SAFETY: -[SPUUpdater lastUpdateCheckDate] -> NSDate * (nullable).
@@ -368,6 +395,7 @@ mod imp {
         false
     }
     pub fn check_now() {}
+    pub fn check_user() {}
     pub fn check_background(_force: bool) {}
     pub fn install_now() -> bool {
         false
@@ -383,7 +411,8 @@ mod imp {
 }
 
 pub use imp::{
-    automatic, available, check_background, check_now, fake_ready, install_now, set_automatic, start, version,
+    automatic, available, check_background, check_now, check_user, fake_ready, install_now, set_automatic, start,
+    version,
 };
 
 #[cfg(test)]

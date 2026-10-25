@@ -616,3 +616,14 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .drive-sheet__warn { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius-sm); background: var(--error-soft); color: var(--error); font-size: 12px; }
 .drive-sheet__foot { display: flex; align-items: center; gap: 8px; padding-top: 2px; }
 .drive-sheet__share { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-2); }
+
+/* Check for Updates dialog: the design's .dialog over a scrim, with a
+   status icon that spins while checking. */
+.update-scrim { position: fixed; inset: 0; z-index: 60; background: var(--scrim); display: flex; justify-content: center; align-items: flex-start; padding: 120px 16px; }
+.update-dialog { width: min(380px, 100%); animation: pg-pop-in var(--dur-base) var(--ease-standard); }
+.update-dialog__head { display: flex; align-items: center; gap: 10px; }
+.update-dialog__icon { width: 28px; height: 28px; flex: none; display: grid; place-items: center; border-radius: 8px; background: var(--bg-2); color: var(--text-2); }
+.update-dialog[data-tone="ok"] .update-dialog__icon { color: var(--accent); }
+.update-dialog[data-tone="error"] .update-dialog__icon { color: var(--error); }
+.update-dialog__icon[data-icon="sync"] .icon { animation: pg-spin 1.2s linear infinite; }
+.update-dialog__notes { margin-right: auto; }

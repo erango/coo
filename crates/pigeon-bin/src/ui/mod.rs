@@ -24,6 +24,7 @@ mod settings;
 mod settings_sections;
 mod sidebar;
 mod toasts;
+mod update_dialog;
 pub mod vlist;
 pub mod zoom;
 
@@ -256,6 +257,22 @@ pub fn App() -> Element {
                 "check-updates" => crate::updater::check_now(),
                 // update-ready:<version>: pretend an update downloaded (the pill, menus)
                 "update-ready" => crate::updater::fake_ready(if arg.is_empty() { "9.9.9" } else { arg }),
+                // update-dialog:<checking|uptodate|downloading|ready|failed>: the Check
+                // for Updates dialog in that state (screenshots)
+                "update-dialog" => {
+                    use crate::updater::Status;
+                    let st = match arg {
+                        "uptodate" => Status::UpToDate,
+                        "downloading" => Status::Downloading("0.1.8".into()),
+                        "ready" => Status::Ready("0.1.8".into()),
+                        "failed" => Status::Failed,
+                        _ => Status::Checking,
+                    };
+                    let mut status = s.update_status;
+                    status.set(st);
+                    let mut open = s.update_dialog;
+                    open.set(true);
+                }
                 // install-update: run the immediate-install path once an update is ready
                 // install-update[:<secs>]: once an update is ready, wait <secs>, then install
                 "install-update" => {
@@ -427,6 +444,7 @@ pub fn App() -> Element {
         div { style: "display:none", dangerous_inner_html: APP_ICONS }
         {body}
         if *s.agent_setup_open.read() { agent_setup::AgentSetup {} }
+        if *s.update_dialog.read() { update_dialog::UpdateDialog {} }
     }
 }
 
@@ -471,13 +489,7 @@ fn on_menu(s: AppState, id: &str) {
         }
         crate::menu::ABOUT => crate::about::show(),
         crate::menu::RESTART_TO_UPDATE => restart_to_update(),
-        crate::menu::CHECK_UPDATES => {
-            if crate::updater::available() {
-                crate::updater::check_now();
-            } else {
-                s.local_toast("Updates are off in development builds", false);
-            }
-        }
+        crate::menu::CHECK_UPDATES => check_for_updates(s),
         crate::menu::ZOOM_IN => zoom::change(s, zoom::Step::Bigger),
         crate::menu::ZOOM_OUT => zoom::change(s, zoom::Step::Smaller),
         crate::menu::ZOOM_RESET => zoom::change(s, zoom::Step::Reset),
@@ -496,6 +508,21 @@ pub fn open_settings_at(s: AppState, section: &str) {
     let mut o = s.settings_open;
     o.set(true);
     settings::show_page(s, section);
+}
+
+/// Check for Updates (menu, Settings): check now and show the outcome in
+/// Coo's update dialog, which follows the check live.
+pub fn check_for_updates(s: AppState) {
+    if crate::updater::available() && !crate::updater::automatic() {
+        // Manual updates: Sparkle's own windows walk through download and install.
+        return crate::updater::check_now();
+    }
+    crate::menubar::show_main();
+    crate::updater::check_user();
+    let mut status = s.update_status;
+    status.set(crate::updater::status());
+    let mut open = s.update_dialog;
+    open.set(true);
 }
 
 /// Install the downloaded update and relaunch into it.
@@ -529,6 +556,8 @@ async fn update_loop(s: AppState) {
                 if ready.is_some() && ready_since.is_none() {
                     ready_since = Some(std::time::SystemTime::now());
                 }
+                let mut status = s.update_status;
+                status.set(next.clone());
                 crate::menu::set_restart(ready.as_deref());
                 crate::menubar::set_restart(ready.as_deref());
                 let mut r = s.update_ready;
@@ -863,6 +892,10 @@ fn on_key(s: AppState, key: &str) {
             }
             if *s.agent_setup_open.read() {
                 let mut o = s.agent_setup_open;
+                return o.set(false);
+            }
+            if *s.update_dialog.read() {
+                let mut o = s.update_dialog;
                 return o.set(false);
             }
             if *s.palette_open.read() {
