@@ -464,6 +464,8 @@ fn search_query_combines_operators() {
     assert_eq!(ids("from:sender a"), ["a"], "from matches name");
     assert_eq!(ids("from:b@example"), ["b"]);
     assert_eq!(ids("in:inbox invoice"), ["b", "a"]);
+    assert_eq!(ids("in:proj"), ["c"], "folder by name, any case");
+    assert!(ids("in:nowhere").is_empty());
     assert_eq!(ids("account:gmail invoice"), ["b"]);
     assert_eq!(ids("after:1970-01-01 before:1970-01-01"), Vec::<String>::new());
     assert!(ids("").is_empty());

@@ -63,6 +63,19 @@ pub struct SearchState {
     pub token: u64,
     pub items: Vec<MessageRow>,
     pub server: ServerSearch,
+    /// Last caret the search box reported: (its text then, byte offset).
+    /// Only meaningful while that text is still the query.
+    pub caret: Option<(String, usize)>,
+}
+
+impl SearchState {
+    /// The caret as a byte offset into the query (its end when unknown).
+    pub fn caret(&self) -> usize {
+        match &self.caret {
+            Some((text, at)) if *text == self.query => *at,
+            _ => self.query.len(),
+        }
+    }
 }
 
 /// The Move/Label picker while open.

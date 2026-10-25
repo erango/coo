@@ -18,6 +18,7 @@ pub mod paths;
 pub mod photos;
 pub mod provider;
 pub mod search;
+pub mod search_complete;
 pub mod store;
 pub mod sync;
 pub mod text;

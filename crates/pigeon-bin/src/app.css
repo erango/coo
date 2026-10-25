@@ -768,3 +768,24 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
    call): the control, its sub-options, then the hint, in one column. */
 .settings-sub { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
 .settings-sub__option { display: flex; align-items: center; gap: 10px; font-size: var(--fs-ui); color: var(--text-2); cursor: pointer; }
+
+/* Search autocomplete: operators and their values under the search bar
+   (the composer's .suggest, compact rows for operators/values). */
+.search-bar { position: relative; }
+.suggest--search { left: 0; top: calc(100% + 4px); width: min(420px, 100%); }
+.suggest__item--op { height: 30px; gap: 12px; cursor: default; }
+.suggest--search .suggest__item { cursor: default; }
+.suggest__op { font: 12.5px var(--font-mono); color: var(--text-1); white-space: nowrap; }
+.suggest__detail { min-width: 0; font-size: var(--fs-caption); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.suggest__empty { height: 30px; display: flex; align-items: center; padding: 0 10px; font-size: var(--fs-caption); color: var(--text-3); }
+
+/* Empty search box: a few queries to try, and what each operator does. */
+.search-tips { margin: 14px 12px; padding: 12px 14px; border-radius: var(--radius-lg); background: var(--bg-1); display: flex; flex-direction: column; gap: 10px; }
+.search-tips__row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.search-tips__label { font-size: var(--fs-caption); color: var(--text-3); margin-right: 2px; }
+.search-tips__example { height: 24px; padding: 0 8px; border: 0; border-radius: var(--radius-sm); background: var(--bg-2); color: var(--text-2); font: 12px var(--font-mono); cursor: pointer; }
+.search-tips__example:hover { color: var(--text-1); background: var(--accent-soft); }
+.search-tips__ops { display: flex; flex-direction: column; gap: 2px; }
+.search-tips__op { height: 26px; display: flex; align-items: center; gap: 10px; padding: 0 6px; margin: 0 -6px; border: 0; border-radius: var(--radius-sm); background: transparent; text-align: left; cursor: pointer; min-width: 0; }
+.search-tips__op:hover { background: var(--bg-2); }
+.search-tips__op .suggest__op { width: 120px; flex: none; color: var(--text-2); }

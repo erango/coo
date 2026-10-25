@@ -2,28 +2,58 @@
 //! come from the local index as you type; when nothing matches locally the
 //! servers are searched automatically (after a pause in typing), and
 //! "Search servers" fetches older matches on demand.
+//!
+//! Autocomplete: typing the start of an operator (`f`, `is`…) offers the
+//! operators it could be; after `op:`, its values (contacts for from:/to:,
+//! folders, accounts, dates). ↑↓ move the highlight, Tab inserts the
+//! highlighted (or first) suggestion, Enter inserts only a highlighted one
+//! and otherwise just closes the list (results are already live), Esc closes
+//! the list, then search. Between words the operator list opens on ↓. An
+//! empty box shows tips instead of results.
 
 use std::time::Duration;
 
 use dioxus::prelude::*;
-use pigeon_engine::service::{Cmd, ListItem, ServerSearch};
+use pigeon_core::model::Address;
+use pigeon_core::search_complete::{self as complete, Completion, OPERATORS, Op, Suggestion, Target};
+use pigeon_engine::service::{Cmd, ListItem, ServerSearch, hue_for};
 
 use super::Icon;
+use crate::format;
 use crate::send_cmd;
 use crate::state::{AppState, SearchState, next_token};
 
 const DEBOUNCE: Duration = Duration::from_millis(120);
 const LIMIT: u32 = 200;
+const CONTACT_DEBOUNCE: Duration = Duration::from_millis(90);
+const CONTACT_LIMIT: u32 = 6;
+/// Folder/account lists get long with many accounts: typing narrows them.
+const MAX_VALUES: usize = 8;
 
 /// Open (or focus) the search pane, optionally pre-filled.
 pub fn open(s: AppState, query: &str) {
     let mut search = s.search;
     let token = next_token();
-    search.set(Some(SearchState { query: query.to_string(), token, items: Vec::new(), server: ServerSearch::Idle }));
+    search.set(Some(SearchState {
+        query: query.to_string(),
+        token,
+        items: Vec::new(),
+        server: ServerSearch::Idle,
+        caret: Some((query.to_string(), query.len())),
+    }));
     if !query.trim().is_empty() {
         send_cmd(Cmd::Search { query: query.to_string(), token, limit: LIMIT });
     }
-    crate::bridge::focus("search-input");
+    // Caret at the end, also for a pre-filled query (WebKit leaves it at 0).
+    crate::bridge::set_input("search-input", query, complete::byte_to_utf16(query, query.len()));
+}
+
+/// Debug: open pre-filled, with a `|` marking the caret.
+pub fn open_at(s: AppState, marked: &str) {
+    let caret = marked.find('|').unwrap_or(marked.len());
+    let query = marked.replacen('|', "", 1);
+    open(s, &query);
+    set_query_at(s, query, caret);
 }
 
 pub fn close(s: AppState) {
@@ -52,6 +82,26 @@ fn set_query(s: AppState, query: String) {
     });
 }
 
+/// Replace the query and put the caret at `caret` (bytes), as a pick does.
+fn set_query_at(s: AppState, query: String, caret: usize) {
+    let mut search = s.search;
+    if let Some(st) = search.write().as_mut() {
+        st.caret = Some((query.clone(), caret));
+    }
+    crate::bridge::set_input("search-input", &query, complete::byte_to_utf16(&query, caret));
+    set_query(s, query);
+}
+
+/// The search box reported its caret: `[text, UTF-16 offset]` as JSON.
+pub fn on_caret(s: AppState, v: &str) {
+    let Ok((text, units)) = serde_json::from_str::<(String, usize)>(v) else { return };
+    let at = complete::utf16_to_byte(&text, units);
+    let mut search = s.search;
+    if let Some(st) = search.write().as_mut() {
+        st.caret = Some((text, at));
+    }
+}
+
 /// How long typing must pause before an empty local result goes to the
 /// servers: each server search costs API quota on every account.
 const AUTO_SERVER_DELAY: Duration = Duration::from_millis(700);
@@ -69,6 +119,7 @@ pub fn auto_server_search(s: AppState, token: u64) {
                 || !st.items.is_empty()
                 || st.server != ServerSearch::Idle
                 || st.query.trim().is_empty()
+                || complete::has_pending_operator(&st.query)
             {
                 return;
             }
@@ -91,9 +142,109 @@ fn toggle(s: AppState, op: &str) {
     set_query(s, next);
 }
 
+/// A row in the suggestion list.
+#[derive(Clone, PartialEq)]
+struct Item {
+    s: Suggestion,
+    /// A person (from:/to:), shown with an avatar.
+    person: bool,
+}
+
+/// What to offer for `c`, or a note when there's nothing to pick yet.
+/// `contacts` is the latest contact answer for this box, if current.
+fn suggestions(
+    s: &AppState,
+    query: &str,
+    c: &Completion,
+    contacts: Option<&[Address]>,
+) -> (Vec<Item>, Option<&'static str>) {
+    let plain = |v: Vec<Suggestion>| v.into_iter().map(|s| Item { s, person: false }).collect::<Vec<_>>();
+    match &c.target {
+        Target::Operator(p) => (plain(complete::operators(p)), None),
+        Target::Value(Op::From | Op::To, p) => {
+            let p = p.trim();
+            if p.is_empty() {
+                return (Vec::new(), Some("Type a name or address"));
+            }
+            let people = contacts
+                .unwrap_or_default()
+                .iter()
+                .filter(|a| !a.email.eq_ignore_ascii_case(p))
+                .map(|a| Item {
+                    s: Suggestion {
+                        insert: a.email.clone(),
+                        label: a.name.clone().unwrap_or_else(|| a.email.clone()),
+                        detail: a.email.clone(),
+                    },
+                    person: true,
+                })
+                .collect();
+            (people, None)
+        }
+        Target::Value(Op::In, p) => {
+            let accounts = s.accounts.read();
+            let account = pigeon_core::search::parse(query).account;
+            let folders = accounts.iter().flat_map(|a| a.folders.iter().map(|f| (a.account.id.as_str(), &f.folder)));
+            let mut v = plain(complete::folder_values(folders, account.as_deref(), p));
+            v.truncate(MAX_VALUES);
+            (v, None)
+        }
+        Target::Value(Op::Account, p) => {
+            let accounts: Vec<(String, String)> = s
+                .accounts
+                .read()
+                .iter()
+                .map(|a| (a.account.email.clone(), s.account_label(&a.account.id, &a.account.email)))
+                .collect();
+            let mut v = plain(complete::account_values(&accounts, p));
+            v.truncate(MAX_VALUES);
+            (v, None)
+        }
+        Target::Value(op, p) => (plain(complete::fixed_values(*op, p, chrono::Local::now().date_naive())), None),
+    }
+}
+
 #[component]
 pub fn SearchPane() -> Element {
     let s = use_context::<AppState>();
+    // The (query, caret) the list was closed at (Esc, Enter, blur): it
+    // stays closed until either changes.
+    let mut dismissed = use_signal(|| None::<(String, usize)>);
+    // Between words the operator list opens only on ↓, at this spot.
+    let mut asked_ops = use_signal(|| None::<(String, usize)>);
+    let mut highlight = use_signal(|| None::<usize>);
+    let mut contact_token = use_signal(|| 0u64);
+    let mut contact_query = use_signal(String::new);
+    let here = use_memo(move || s.search.read().as_ref().map(|st| (st.query.clone(), st.caret())));
+    // A new spot starts with nothing highlighted.
+    use_effect(move || {
+        here.read();
+        highlight.set(None);
+    });
+    // from:/to: values: the composer's contact suggestions.
+    use_effect(move || {
+        let Some((q, caret)) = here() else { return };
+        let p = match complete::at(&q, caret) {
+            Some(Completion { target: Target::Value(Op::From | Op::To, p), .. }) => p.trim().to_string(),
+            _ => String::new(),
+        };
+        if p == *contact_query.peek() {
+            return;
+        }
+        contact_query.set(p.clone());
+        if p.is_empty() {
+            return;
+        }
+        let token = next_token();
+        contact_token.set(token);
+        spawn(async move {
+            tokio::time::sleep(CONTACT_DEBOUNCE).await;
+            if *contact_token.peek() == token {
+                send_cmd(Cmd::SuggestContacts { query: p, token, limit: CONTACT_LIMIT });
+            }
+        });
+    });
+
     let Some(st) = s.search.read().clone() else { return rsx! {} };
     let accounts = s.accounts.read().clone();
     let many = accounts.len() > 4;
@@ -107,16 +258,124 @@ pub fn SearchPane() -> Element {
     // (An `if` directly in a component prop trips the rsx macro.)
     let server_icon: &'static str = if st.server == ServerSearch::Loading { "sync" } else { "cloud" };
 
+    // Autocomplete at the caret.
+    let spot = (st.query.clone(), st.caret());
+    let completion = complete::at(&spot.0, spot.1)
+        .filter(|_| dismissed.read().as_ref() != Some(&spot))
+        .filter(|c| c.target != Target::Operator(String::new()) || asked_ops.read().as_ref() == Some(&spot));
+    let (items, note) = match &completion {
+        Some(c) => {
+            let contacts = s.contacts.read();
+            let current = (contacts.0 == *contact_token.read()).then_some(contacts.1.as_slice());
+            suggestions(&s, &st.query, c, current)
+        }
+        None => (Vec::new(), None),
+    };
+    let n = items.len();
+    let showing = n > 0 || note.is_some();
+    let at: Option<usize> = (*highlight.read()).map(|h| h.min(n.saturating_sub(1)));
+    let pick = {
+        let (query, completion, items) = (st.query.clone(), completion.clone(), items.clone());
+        move |i: usize| {
+            let (Some(c), Some(item)) = (&completion, items.get(i)) else { return };
+            let (text, caret) = complete::apply(&query, c, &item.s.insert);
+            set_query_at(s, text, caret);
+        }
+    };
+    let (spot_key, spot_blur) = (spot.clone(), spot);
+    let week_ago = (chrono::Local::now().date_naive() - chrono::Days::new(7)).format("%Y-%m-%d").to_string();
+    let examples =
+        ["from:dana has:attachment".to_string(), "is:unread in:inbox".into(), format!("after:{week_ago} is:flagged")];
+
     rsx! {
         div { class: "search-head",
             div { class: "search-bar",
                 Icon { name: "search" }
+                // No autocorrect or inline suggestions: macOS commits a pending
+                // one when a suggestion is clicked, undoing the pick.
                 input { id: "search-input", dir: "auto", value: "{st.query}", autocomplete: "off",
-                    placeholder: "Search mail · from: to: has:attachment is:unread in: before: after:",
+                    "autocorrect": "off", autocapitalize: "off", spellcheck: "false", "writingsuggestions": "false",
+                    placeholder: "Search mail",
+                    role: "combobox", "aria-expanded": "{showing}", "aria-autocomplete": "list",
+                    "data-suggest-open": showing.then_some("true"),
                     oninput: move |e| set_query(s, e.value()),
+                    onfocus: move |_| dismissed.set(None),
+                    onblur: move |_| dismissed.set(Some(spot_blur.clone())),
+                    onkeydown: {
+                        let pick = pick.clone();
+                        move |e: KeyboardEvent| match e.key() {
+                            Key::ArrowDown if n > 0 => {
+                                e.prevent_default();
+                                highlight.set(Some(at.map_or(0, |h| (h + 1).min(n - 1))));
+                            }
+                            Key::ArrowDown if !showing => {
+                                e.prevent_default();
+                                dismissed.set(None);
+                                asked_ops.set(Some(spot_key.clone()));
+                            }
+                            Key::ArrowUp if n > 0 => {
+                                e.prevent_default();
+                                // Up from the first row goes back to the text.
+                                highlight.set(at.and_then(|h| h.checked_sub(1)));
+                            }
+                            Key::Tab if n > 0 => {
+                                e.prevent_default();
+                                pick(at.unwrap_or(0));
+                            }
+                            Key::Enter if at.is_some() => {
+                                e.prevent_default();
+                                pick(at.unwrap_or(0));
+                            }
+                            Key::Enter | Key::Escape if showing => {
+                                e.prevent_default();
+                                dismissed.set(Some(spot_key.clone()));
+                            }
+                            _ => {}
+                        }
+                    },
                 }
                 if has_query { span { class: "search-bar__stats", if count == 1 { "1 result" } else { "{count} results" } } }
                 button { class: "icon-btn icon-btn--sm", "aria-label": "Close search (Esc)", onclick: move |_| close(s), Icon { name: "x" } }
+                if showing {
+                    div { class: "suggest suggest--search", role: "listbox",
+                        if let Some(note) = note { div { class: "suggest__empty", "{note}" } }
+                        for (i, item) in items.into_iter().enumerate() {
+                            {
+                                let pick = pick.clone();
+                                let selected = at == Some(i);
+                                let hue = hue_for(&item.s.insert);
+                                rsx! {
+                                    div { class: if item.person { "suggest__item" } else { "suggest__item suggest__item--op" },
+                                        key: "{item.s.insert}", role: "option", "aria-selected": "{selected}",
+                                        onmouseenter: move |_| highlight.set(Some(i)),
+                                        // mousedown, not click: keep focus in the box.
+                                        onmousedown: move |e| {
+                                            e.prevent_default();
+                                            pick(i);
+                                        },
+                                        if item.person {
+                                            span { class: "avatar avatar--28", "data-hue": "{hue}", "{format::initials(&item.s.label)}" }
+                                            div { style: "min-width:0;display:flex;flex-direction:column",
+                                                span { class: "suggest__name", dir: "auto", "{item.s.label}" }
+                                                span { class: "suggest__addr", "{item.s.detail}" }
+                                            }
+                                        } else {
+                                            span { class: "suggest__op", dir: "auto", "{item.s.label}" }
+                                            span { class: "suggest__detail", dir: "auto", "{item.s.detail}" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if n > 0 {
+                            div { class: "suggest__hints",
+                                span { kbd { class: "kbd", "↑↓" } " select" }
+                                span { kbd { class: "kbd", "tab" } " insert" }
+                                span { kbd { class: "kbd", "esc" } " close" }
+                            }
+                        }
+                    }
+                }
             }
             div { class: "search-filters",
                 for (op, label) in chips {
@@ -141,6 +400,37 @@ pub fn SearchPane() -> Element {
         div { class: "list", role: "listbox",
             for row in st.items.iter() {
                 super::list::Row { key: "{row.account_id}|{row.header.id}", item: ListItem::Message(row.clone()), many }
+            }
+            // An empty box: what the operators are, and a few to try.
+            if !has_query {
+                div { class: "search-tips",
+                    div { class: "search-tips__row",
+                        span { class: "search-tips__label", "Try" }
+                        for ex in examples {
+                            {
+                                let q = format!("{ex} ");
+                                rsx! {
+                                    button { class: "search-tips__example", r#type: "button", key: "{ex}",
+                                        onclick: move |_| set_query_at(s, q.clone(), q.len()),
+                                        "{ex}"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    div { class: "search-tips__ops",
+                        for (op, detail) in OPERATORS {
+                            button { class: "search-tips__op", r#type: "button", key: "{op}",
+                                onclick: move |_| {
+                                    let q = if op.ends_with(':') { op.to_string() } else { format!("{op} ") };
+                                    set_query_at(s, q.clone(), q.len());
+                                },
+                                span { class: "suggest__op", "{op}" }
+                                span { class: "suggest__detail", "{detail}" }
+                            }
+                        }
+                    }
+                }
             }
             if has_query {
                 div { class: "server-more", "data-state": match st.server { ServerSearch::Loading => "loading", _ => "idle" },

@@ -16,6 +16,9 @@ pub struct SearchQuery {
     pub unread: Option<bool>,
     pub flagged: bool,
     pub role: Option<FolderRole>,
+    /// `in:<name>` for a folder/label that isn't a standard one (matched by
+    /// name, case-insensitively).
+    pub folder: Option<String>,
     /// Matches account ids/addresses containing this.
     pub account: Option<String>,
     /// Epoch ms, exclusive upper bound.
@@ -93,13 +96,13 @@ pub fn parse(input: &str) -> SearchQuery {
                 }
                 _ => false,
             },
-            "in" => match FolderRole::parse(&v).or(if v == "deleted" { Some(FolderRole::Trash) } else { None }) {
-                Some(r) => {
-                    q.role = Some(r);
-                    true
+            "in" => {
+                match FolderRole::parse(&v).or(if v == "deleted" { Some(FolderRole::Trash) } else { None }) {
+                    Some(r) => q.role = Some(r),
+                    None => q.folder = Some(val.to_string()),
                 }
-                None => false,
-            },
+                true
+            }
             "account" => {
                 q.account = Some(v);
                 true
@@ -115,7 +118,8 @@ pub fn parse(input: &str) -> SearchQuery {
     q
 }
 
-fn quote(v: &str) -> String {
+/// A value as an operator takes it: quoted when it has spaces.
+pub fn quote(v: &str) -> String {
     let v = v.replace('"', "");
     if v.contains(char::is_whitespace) { format!("\"{v}\"") } else { v }
 }
@@ -144,6 +148,9 @@ pub fn to_gmail(q: &SearchQuery) -> String {
     }
     if let Some(r) = q.role {
         parts.push(format!("in:{}", if r == FolderRole::Starred { "starred" } else { r.as_str() }));
+    }
+    if let Some(f) = &q.folder {
+        parts.push(format!("label:{}", quote(f)));
     }
     if let Some(b) = q.before {
         parts.push(format!("before:{}", ymd(b, "/")));
@@ -193,8 +200,8 @@ mod tests {
 
     #[test]
     fn unknown_operators_are_text() {
-        let q = parse("re:hello is:weird https://x.com in:nowhere before:garbage");
-        assert_eq!(q.text, ["re:hello", "is:weird", "https://x.com", "in:nowhere", "before:garbage"]);
+        let q = parse("re:hello is:weird https://x.com before:garbage");
+        assert_eq!(q.text, ["re:hello", "is:weird", "https://x.com", "before:garbage"]);
         assert!(parse("   ").is_empty());
     }
 
@@ -203,5 +210,16 @@ mod tests {
         let q = parse(r#"deck from:"Priya Raman" has:attachment is:flagged before:2026-10-01"#);
         assert_eq!(to_gmail(&q), r#"deck from:"Priya Raman" has:attachment is:starred before:2026/10/01"#);
         assert_eq!(to_graph(&q), r#"deck from:"Priya Raman" hasattachments:true received<2026-10-01"#);
+    }
+
+    #[test]
+    fn in_takes_folder_names() {
+        let q = parse(r#"in:"Q4 Planning" in:Travel"#);
+        assert_eq!((q.role, q.folder.as_deref()), (None, Some("Travel")));
+        let q = parse(r#"in:"Q4 Planning""#);
+        assert_eq!(q.folder.as_deref(), Some("Q4 Planning"));
+        assert!(q.text.is_empty());
+        assert_eq!(to_gmail(&q), r#"label:"Q4 Planning""#);
+        assert_eq!(parse("in:Inbox").role, Some(FolderRole::Inbox));
     }
 }
