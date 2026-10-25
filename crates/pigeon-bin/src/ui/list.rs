@@ -416,6 +416,9 @@ pub fn Row(item: ListItem, many: bool, #[props(default)] motion: Option<&'static
     let time = format::row_time(h.received_at, chrono::Local::now());
     let subject = if h.subject.is_empty() { "(no subject)".to_string() } else { h.subject.clone() };
     let (i1, i2, i3, i4, i5) = (item.clone(), item.clone(), item.clone(), item.clone(), item.clone());
+    let (i6, i7) = (item.clone(), item.clone());
+    // Ringed while its right-click menu is open.
+    let menu_on = s.row_menu.read().as_ref().is_some_and(|m| !m.bulk && AppState::key(&m.item) == key);
     let flagged = h.is_flagged;
     // Inline invite only when the body is already loaded (never fetch for the list).
     let invite_key = (item.account_id().to_string(), h.id.clone());
@@ -438,7 +441,21 @@ pub fn Row(item: ListItem, many: bool, #[props(default)] motion: Option<&'static
             "data-stale": s.sync.read().needs_sign_in.iter().any(|a| a == item.account_id()).then_some("true"),
             "aria-selected": "{selected}",
             "data-focused": open.then_some("true"),
+            "data-context": menu_on.then_some("true"),
             onclick: move |e| super::multi::click(s, &i1, super::multi::How::of(&e)),
+            // Its own window (the first click has opened it here already).
+            ondoubleclick: move |e| {
+                if super::multi::How::of(&e) == super::multi::How::Plain && motion != Some("leaving") {
+                    super::reader_window::open(s, i6.clone());
+                }
+            },
+            oncontextmenu: move |e| {
+                e.prevent_default();
+                if motion != Some("leaving") {
+                    let p = e.client_coordinates();
+                    super::row_menu::open(s, &i7, p.x, p.y);
+                }
+            },
             div { class: "row__line",
                 if many { span { class: "pip", "{letter}" } } else { span { class: "dot" } }
                 match h.from.clone().filter(|_| !h.is_draft) {
@@ -456,7 +473,8 @@ pub fn Row(item: ListItem, many: bool, #[props(default)] motion: Option<&'static
                     if h.has_attachments { Icon { name: "clip" } }
                     time { class: "row__time", "{time}" }
                 }
-                span { class: "row__actions",
+                // A quick second click on a button isn't a double-click on the row.
+                span { class: "row__actions", ondoubleclick: move |e| e.stop_propagation(),
                     button { class: "icon-btn icon-btn--sm", "aria-label": "Archive (E)",
                         onclick: move |e| { e.stop_propagation(); act(s, &i2, MailAction::Archive) },
                         Icon { name: "archive" }

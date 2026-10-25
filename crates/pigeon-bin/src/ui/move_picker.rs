@@ -19,9 +19,15 @@ pub fn open(s: AppState, label: bool) {
         return s.local_toast("Select messages from one account to move them together", true);
     }
     let Some(item) = many.first().cloned().or_else(|| selected_item(&s)) else { return };
+    open_for(s, item, label);
+}
+
+/// Open the picker for `item` (the list's right-click menu), whatever is
+/// open. An item inside a multi-selection moves the whole selection.
+pub fn open_for(s: AppState, item: ListItem, label: bool) {
     let provider = s.accounts.read().iter().find(|a| a.account.id == item.account_id()).map(|a| a.account.provider);
     if label && provider != Some(ProviderKind::Google) {
-        return open(s, false);
+        return open_for(s, item, false);
     }
     let mut p = s.move_picker;
     p.set(Some(MovePicker { item, label }));
@@ -137,8 +143,13 @@ pub fn MovePickerView() -> Element {
         let mut pk = picker;
         pk.set(None);
         let action = if p.label { MailAction::AddLabel(folder_id) } else { MailAction::MoveTo(folder_id) };
+        // The selection moves together, unless the picker is for a row outside it.
         let many = super::multi::items(&s);
-        if many.is_empty() { act(s, &item, action) } else { super::multi::act_many(s, &many, action) }
+        if many.iter().any(|i| AppState::key(i) == AppState::key(&item)) {
+            super::multi::act_many(s, &many, action)
+        } else {
+            act(s, &item, action)
+        }
     };
     let title = if p.label { "Label as…" } else { "Move to…" };
 

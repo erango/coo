@@ -15,7 +15,9 @@ mod multi;
 mod onboarding;
 mod palette;
 mod reader;
+pub mod reader_window;
 mod recipients;
+pub mod row_menu;
 pub mod search;
 pub mod sender_card;
 mod settings;
@@ -66,10 +68,11 @@ pub fn App() -> Element {
                     // Dioxus hides the window right after this handler.
                     spawn(async {
                         tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-                        crate::menubar::did_hide(compose_window::any_open());
+                        crate::menubar::did_hide(compose_window::any_open() || reader_window::any_open());
                     });
                 } else {
                     compose_window::close_all();
+                    reader_window::close_all();
                 }
             }
             Event::Reopen { .. } => {
@@ -157,6 +160,7 @@ pub fn App() -> Element {
                             sender: true,
                             x: 770.0,
                             y: 200.0,
+                            window: None,
                         }));
                     }
                 }
@@ -399,6 +403,7 @@ pub fn App() -> Element {
             if s.editor.read().is_some() { event_editor::EventEditor {} }
             if *s.palette_open.read() { palette::Palette {} }
             if s.move_picker.read().is_some() { move_picker::MovePickerView {} }
+            if s.row_menu.read().is_some() { row_menu::RowMenuView {} }
         }
     };
 
@@ -803,6 +808,10 @@ pub fn join_now(s: AppState) {
 }
 
 fn on_key(s: AppState, key: &str) {
+    // An open right-click menu takes every key, like a native one.
+    if s.row_menu.read().is_some() {
+        return row_menu::on_key(s, key);
+    }
     let (mut mode, draft) = (s.mode, s.draft);
     match key {
         "meta+1" => return mode.set(Mode::Mail),

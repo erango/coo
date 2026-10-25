@@ -111,6 +111,11 @@ pub struct DrivePicked {
 #[derive(Clone, Copy)]
 pub struct AppState {
     pub move_picker: Signal<Option<MovePicker>>,
+    /// A list row's right-click menu while open.
+    pub row_menu: Signal<Option<crate::ui::row_menu::RowMenu>>,
+    /// A reply started from a message window, as (account id, message id):
+    /// its draft opens in a compose window, not inline in the main reader.
+    pub reply_to_window: Signal<Option<(String, String)>>,
     /// The Coo window has keyboard focus.
     pub window_focused: Signal<bool>,
     /// Outgoing messages (sending / failed / scheduled), newest first.
@@ -212,6 +217,8 @@ impl AppState {
     pub fn new() -> Self {
         AppState {
             move_picker: Signal::new(None),
+            row_menu: Signal::new(None),
+            reply_to_window: Signal::new(None),
             window_focused: Signal::new(true),
             outgoing: Signal::new(Vec::new()),
             icloud_form: Signal::new(false),
@@ -537,6 +544,12 @@ fn apply(s: &mut AppState, delta: Delta) {
                 if s.reopening.peek().as_deref() == Some(d.id.as_str()) {
                     s.reopening.set(None);
                     d.body_html = crate::ui::compose::strip_signature(&d.body_html);
+                }
+                // Started from a message window: write it in its own window.
+                if crate::ui::reader_window::wants_window(s.reply_to_window.peek().as_ref(), &d) {
+                    s.reply_to_window.set(None);
+                    crate::ui::compose_window::open(*s, d);
+                    return;
                 }
                 // A new draft replaces a set-aside docked one (already saved).
                 s.docked_hidden.set(false);

@@ -141,9 +141,12 @@ fn SubjectLine(subject: String) -> Element {
     }
 }
 
+/// A conversation: the main reader's, or a message window's (`windowed`:
+/// no inline reply, replies open in a compose window).
 #[component]
-fn Thread(view: ReaderView) -> Element {
+pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Element {
     let s = use_context::<AppState>();
+    let window_want = try_use_context::<Signal<super::reader_window::Want>>();
     // The newest message is always open, plus the one the user picked.
     let latest_id = latest_message_id(&view.messages).unwrap_or_default();
     let mut expanded = use_signal(|| HashSet::from([view.focus.clone(), latest_id.clone()]));
@@ -180,7 +183,7 @@ fn Thread(view: ReaderView) -> Element {
     let matches = match_count(&s, &view.account_id, &open_ids, &terms);
     let draft = s.draft.read().clone();
     let inline_draft = draft
-        .filter(|_| !super::compose::reply_window_mode())
+        .filter(|_| !windowed && !super::compose::reply_window_mode())
         .filter(|d| d.reply.as_ref().is_some_and(|r| r.account_id == view.account_id && r.thread_id == view.thread_id));
 
     rsx! {
@@ -245,7 +248,11 @@ fn Thread(view: ReaderView) -> Element {
                             a { class: "conversation-link__action", href: "#",
                                 onclick: move |e| {
                                     e.prevent_default();
-                                    send_cmd(Cmd::OpenThread { account_id: account_id.clone(), thread_id: thread_id.clone() });
+                                    let (account_id, thread_id) = (account_id.clone(), thread_id.clone());
+                                    match window_want {
+                                        Some(want) => super::reader_window::show_whole(want, account_id, thread_id),
+                                        None => send_cmd(Cmd::OpenThread { account_id, thread_id }),
+                                    }
                                 },
                                 "View whole conversation"
                             }
@@ -262,7 +269,12 @@ fn Thread(view: ReaderView) -> Element {
                     let account_id = view.account_id.clone();
                     let to = view.messages.last().and_then(|m| m.from.as_ref()).map(|a| a.display().to_string()).unwrap_or_default();
                     let start = move |kind: ReplyKind| {
-                        send_cmd(Cmd::StartReply { account_id: account_id.clone(), message_id: last.clone(), kind })
+                        let (account_id, message_id) = (account_id.clone(), last.clone());
+                        if windowed {
+                            super::reader_window::reply_here(s, account_id, message_id, kind)
+                        } else {
+                            send_cmd(Cmd::StartReply { account_id, message_id, kind })
+                        }
                     };
                     rsx! {
                         div { class: "reply-bar",

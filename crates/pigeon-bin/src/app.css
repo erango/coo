@@ -130,6 +130,17 @@ input.input--bare { border: 0; outline: none; }
 .move-picker__input { margin: 0 4px 6px; }
 .move-picker__list { overflow-y: auto; min-height: 0; display: flex; flex-direction: column; }
 
+/* A list row's right-click menu, at the pointer; the row it's for is ringed. */
+.row-menu-scrim { position: fixed; inset: 0; z-index: 45; }
+.row-menu { position: absolute; min-width: 0; }
+.row-menu .menu-item { cursor: default; user-select: none; }
+.row[data-context] { box-shadow: inset 0 0 0 1.5px var(--accent); }
+
+/* A conversation in its own window: the reader alone, toolbar clear of the
+   traffic lights. */
+.reader-window .pane--reader { flex: 1; }
+.reader-window .reader-toolbar { padding-left: calc(var(--titlebar-traffic, 16px) + 8px); }
+
 /* Calendar Day / Month glue: all-day chips span --days columns (the design
    assumes 7); month cells mark today and overflow; drag affordances. */
 .week .allday-chip { left: calc(var(--day) / var(--days, 7) * 100% + 3px); width: calc(var(--span, 1) / var(--days, 7) * 100% - 6px); }
