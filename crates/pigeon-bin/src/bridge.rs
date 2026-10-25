@@ -129,6 +129,34 @@ pub const JS: &str = r#"
     ed._pgSave = setTimeout(() => send('draft-input', ed.id), 1500);
   }, true);
 
+  // ---- Composer: a click in the message area but outside the editor
+  // (below the text, beside it, the margins, the signature) puts the caret
+  // at the nearest spot: the click clamped into the text, so below the
+  // last line lands on that line, at the closest horizontal position. ----
+  const NOT_THE_BODY = 'button, a, input, textarea, select, label, [contenteditable="true"], .fmt-bar, ' +
+    '.inline-reply__head, .inline-reply__footer, .composer__footer, .composer__quote, .inline-reply__quoted, ' +
+    '.quote-box, .composer__attachments, .attachment, .drive-sheet, .drive-waiting, .cross-account-hint, .popover, .menu';
+  document.addEventListener('mousedown', (e) => {
+    if (e.button !== 0 || !e.target.closest) return;
+    const area = e.target.closest('.composer__body, .inline-reply--open');
+    if (!area || e.target.closest(NOT_THE_BODY)) return;
+    const ed = area.querySelector('[data-editor]');
+    if (!ed) return;
+    e.preventDefault();
+    ed.focus();
+    const all = document.createRange(); all.selectNodeContents(ed);
+    const lines = all.getClientRects();
+    const box = ed.getBoundingClientRect();
+    const last = lines.length ? lines[lines.length - 1] : null;
+    const top = lines.length ? lines[0].top : box.top;
+    const bottom = last ? last.bottom : box.top + 4;
+    const y = Math.min(Math.max(e.clientY, top + 2), bottom - 2);
+    const x = Math.min(Math.max(e.clientX, box.left + 2), box.right - 2);
+    let r = document.caretRangeFromPoint && document.caretRangeFromPoint(x, y);
+    if (!r || !ed.contains(r.startContainer)) { r = document.createRange(); r.selectNodeContents(ed); r.collapse(false); }
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  }, true);
+
   // ---- Composer: remember each editor's caret, so things inserted from
   // outside (Google Drive links) land where the user was typing ----
   document.addEventListener('selectionchange', () => {
