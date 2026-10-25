@@ -516,9 +516,10 @@ fn apply(s: &mut AppState, delta: Delta) {
         match delta {
             Delta::NewMail(rows) => {
                 let prefs = crate::prefs::get();
-                // One soft sound per batch, even with the window in front.
+                // One soft sound per burst (all accounts' batches), even with
+                // the window in front.
                 if prefs.notify_new_mail && rows.iter().any(|r| !prefs.notify_accounts_muted.contains(&r.account_id)) {
-                    crate::sound::play(&prefs.sound_theme, crate::sound::Kind::Mail, prefs.sound_volume);
+                    crate::sound::alert(&prefs.sound_theme, crate::sound::Kind::Mail, prefs.sound_volume);
                 }
                 let show = match prefs.mail_alert.as_str() {
                     "sound" => false,

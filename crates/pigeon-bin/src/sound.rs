@@ -44,6 +44,30 @@ fn wav(theme: &str, kind: Kind) -> Option<&'static [u8]> {
     })
 }
 
+/// Alerts of one kind closer together than this play once: accounts sync
+/// side by side, so a burst of new mail arrives as several batches.
+pub const ALERT_GAP: std::time::Duration = std::time::Duration::from_secs(4);
+
+/// Whether an alert at `now` should sound, given the last one of its kind.
+pub fn due(last: Option<std::time::Instant>, now: std::time::Instant) -> bool {
+    last.is_none_or(|t| now.saturating_duration_since(t) >= ALERT_GAP)
+}
+
+/// A new-mail or reminder alert: like `play`, but at most once per
+/// `ALERT_GAP` for each kind. (Previews in Settings use `play`.)
+pub fn alert(theme: &str, kind: Kind, volume: u8) {
+    static LAST: std::sync::Mutex<[Option<std::time::Instant>; 2]> = std::sync::Mutex::new([None, None]);
+    let now = std::time::Instant::now();
+    let slot = kind as usize;
+    let Ok(mut last) = LAST.lock() else { return };
+    if !due(last[slot], now) {
+        return;
+    }
+    last[slot] = Some(now);
+    drop(last);
+    play(theme, kind, volume);
+}
+
 /// Play `kind` from `theme` at `volume` (0–100). Unknown themes and "none"
 /// are silent.
 pub fn play(theme: &str, kind: Kind, volume: u8) {
@@ -83,6 +107,14 @@ mod imp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_burst_of_alerts_sounds_once() {
+        let t0 = std::time::Instant::now();
+        assert!(due(None, t0));
+        assert!(!due(Some(t0), t0 + std::time::Duration::from_millis(1500)), "the next account's batch");
+        assert!(due(Some(t0), t0 + ALERT_GAP));
+    }
 
     #[test]
     fn every_theme_has_both_small_mono_wavs() {

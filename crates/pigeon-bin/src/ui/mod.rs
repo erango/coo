@@ -546,7 +546,7 @@ async fn reminder_loop(s: AppState) {
         let prefs = crate::prefs::get();
         let due = crate::notify::due_reminders(&events, now, &prefs, &reminded);
         if !due.is_empty() {
-            crate::sound::play(&prefs.sound_theme, crate::sound::Kind::Meeting, prefs.sound_volume);
+            crate::sound::alert(&prefs.sound_theme, crate::sound::Kind::Meeting, prefs.sound_volume);
         }
         for e in due {
             crate::notify::post(&crate::notify::event_note(e, now));
