@@ -154,7 +154,11 @@ pub fn RecipientInput(
                     }
                 }
             }
+            // No autocorrect or inline suggestions: macOS commits a pending one
+            // when a suggestion is clicked, and its input event put the typed
+            // text back after the pick.
             input { class: "input--bare", id: "{id}", dir: "auto", autocomplete: "off", value: "{text}",
+                "autocorrect": "off", autocapitalize: "off", spellcheck: "false", "writingsuggestions": "false",
                 placeholder: if value.is_empty() { placeholder.clone() } else { String::new() },
                 "data-suggest-open": showing.then_some("true"),
                 oninput: move |e| {

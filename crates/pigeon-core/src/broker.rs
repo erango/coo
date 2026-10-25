@@ -243,7 +243,11 @@ async fn serve_one(stream: tokio::net::UnixStream, handler: &dyn Handler) -> std
     let resp = match (allowed, serde_json::from_str::<Request>(&line)) {
         (Err(why), _) => {
             tracing::warn!(reason = %why, "refused a sign-in request from an untrusted program");
-            Response::fail(Failure::Denied, "only Coo's own programs can use your sign-ins")
+            Response::fail(
+                Failure::Denied,
+                "only Coo's own programs can use your sign-ins. If Coo updated since the agent started, restart \
+                 the agent; otherwise reconnect it from Coo's Help › Connect an AI Agent",
+            )
         }
         (Ok(()), Err(e)) => Response::fail(Failure::Failed, format!("bad request: {e}")),
         (Ok(()), Ok(req)) => handler.handle(req).await,

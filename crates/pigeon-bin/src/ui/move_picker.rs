@@ -157,7 +157,7 @@ pub fn MovePickerView() -> Element {
         div { class: "move-scrim", onclick: move |_| picker.set(None),
             div { class: "menu move-picker", role: "dialog", "aria-label": "{title}", onclick: move |e| e.stop_propagation(),
                 div { class: "menu__label", "{title}" }
-                input { id: "move-input", class: "input move-picker__input", dir: "auto", value: "{q}", autocomplete: "off",
+                input { id: "move-input", class: "input move-picker__input", dir: "auto", value: "{q}", autocomplete: "off", "autocorrect": "off", "writingsuggestions": "false", spellcheck: "false",
                     placeholder: if p.label { "Find a label" } else { "Find a folder" },
                     oninput: move |e| { query.set(e.value()); cursor.set(0); },
                     onkeydown: {

@@ -252,7 +252,7 @@ pub fn Palette() -> Element {
                 div { class: "palette__input",
                   label { class: "palette__field", r#for: "palette-input",
                     Icon { name: "search" }
-                    input { id: "palette-input", dir: "auto", value: "{q}", autocomplete: "off", spellcheck: "false",
+                    input { id: "palette-input", dir: "auto", value: "{q}", autocomplete: "off", "autocorrect": "off", "writingsuggestions": "false", spellcheck: "false",
                         "aria-label": "Search mail, people, or type a command",
                         placeholder: "Search mail, people, or type a command…",
                         oninput: on_input,
