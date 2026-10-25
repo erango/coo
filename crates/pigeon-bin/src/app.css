@@ -705,3 +705,15 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
   .inline-reply__head:has(> .recipients) > .recipients { padding-top: 0; }
   .inline-reply__head:has(> .recipients) > span.t-3 { margin-top: 6px; padding-left: 4px; }
 }
+
+/* Message-list header: the title and account shrink with an ellipsis
+   (never wrap), the grouping toggle and New message never leave the pane.
+   A narrow list drops the account line first. */
+.pane--list { container-type: inline-size; }
+.pane--list .pane-header { min-width: 0; }
+.pane--list .pane-header > .segmented, .pane--list .pane-header > .icon-btn { flex: none; }
+.pane--list .pane-header__title, .pane--list .pane-header__sub { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pane--list .pane-header__title { flex: 0 1 auto; }
+.pane--list .pane-header__sub { flex: 0 1 auto; max-width: 45%; }
+.pane--list .pane-header > .spacer { flex: 1 0 0; min-width: 0; }
+@container (max-width: 380px) { .pane--list .pane-header__sub { display: none; } }
