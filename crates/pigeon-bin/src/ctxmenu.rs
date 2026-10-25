@@ -4,7 +4,49 @@
 //!
 //! macOS asks the view `willOpenMenu:withEvent:` just before showing its
 //! menu; WKWebView's implementation is wrapped once at startup to remove
-//! those items by their WebKit identifiers.
+//! those items by their WebKit identifiers. Where WebKit offered Download
+//! Image, Coo's own "Save Image…" takes its place: the page reports the
+//! right-clicked image (`ctx-img`, bridge.rs), and picking the item asks
+//! the UI to save it (`take_actions`).
+
+use std::sync::Mutex;
+
+/// The image last right-clicked, in any window.
+static LAST_IMAGE: Mutex<Option<String>> = Mutex::new(None);
+static ACTIONS: std::sync::OnceLock<tokio::sync::mpsc::UnboundedSender<String>> = std::sync::OnceLock::new();
+static ACTIONS_RX: Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<String>>> = Mutex::new(None);
+
+/// The page's report of the image under a right-click.
+pub fn set_image(url: &str) {
+    if let Ok(mut last) = LAST_IMAGE.lock() {
+        *last = Some(url.to_string());
+    }
+}
+
+/// Image URLs to save, one per "Save Image…" pick (taken once).
+pub fn take_actions() -> Option<tokio::sync::mpsc::UnboundedReceiver<String>> {
+    ACTIONS_RX.lock().ok()?.take()
+}
+
+fn init_actions() {
+    if ACTIONS.get().is_none() {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let _ = ACTIONS.set(tx);
+        if let Ok(mut slot) = ACTIONS_RX.lock() {
+            *slot = Some(rx);
+        }
+    }
+}
+
+fn save_last_image() {
+    let url = LAST_IMAGE.lock().ok().and_then(|l| l.clone());
+    if let (Some(url), Some(tx)) = (url, ACTIONS.get()) {
+        let _ = tx.send(url);
+    }
+}
+
+/// Where WebKit's (non-working) Download Image sits, Save Image… goes.
+pub const SAVE_IMAGE_AT: &str = "WKMenuItemIdentifierDownloadImage";
 
 /// WebKit menu item identifiers that do nothing useful (or nothing) here.
 pub const DROPPED: [&str; 13] = [
@@ -52,12 +94,64 @@ pub fn keep(items: &[(Option<String>, bool)]) -> Vec<bool> {
 mod imp {
     use std::sync::OnceLock;
 
+    use std::cell::OnceCell;
+
     use objc2::ffi;
-    use objc2::msg_send;
-    use objc2::rc::Retained;
-    use objc2::runtime::{AnyClass, AnyObject, Bool, Imp, Sel};
-    use objc2::sel;
+    use objc2::rc::{Allocated, Retained};
+    use objc2::runtime::{AnyClass, AnyObject, Bool, Imp, NSObject, Sel};
+    use objc2::{MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
     use objc2_foundation::NSString;
+
+    define_class!(
+        // The target of Coo's own menu items (menu items hold it weakly).
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "CooContextMenuTarget"]
+        struct Target;
+
+        impl Target {
+            #[unsafe(method(saveImage:))]
+            fn save_image(&self, _sender: &AnyObject) {
+                crate::ctxmenu::save_last_image();
+            }
+        }
+    );
+
+    thread_local! {
+        static TARGET: OnceCell<Retained<Target>> = const { OnceCell::new() };
+    }
+
+    fn target() -> Option<Retained<Target>> {
+        let mtm = MainThreadMarker::new()?;
+        Some(TARGET.with(|t| {
+            t.get_or_init(|| {
+                let this = Target::alloc(mtm).set_ivars(());
+                // SAFETY: NSObject's init on a freshly allocated instance.
+                unsafe { msg_send![super(this), init] }
+            })
+            .clone()
+        }))
+    }
+
+    /// A "Save Image…" item at `index` of `menu`.
+    ///
+    /// SAFETY: `menu` is a live NSMenu on the main thread.
+    unsafe fn insert_save_image(menu: &AnyObject, index: isize) {
+        let Some(target) = target() else { return };
+        let Some(cls) = AnyClass::get(c"NSMenuItem") else { return };
+        let title = NSString::from_str("Save Image…");
+        let key = NSString::from_str("");
+        // SAFETY: -[NSMenuItem initWithTitle:action:keyEquivalent:], then
+        // setTarget: / insertItem:atIndex: with their documented signatures.
+        unsafe {
+            let alloc: Allocated<AnyObject> = msg_send![cls, alloc];
+            let item: Option<Retained<AnyObject>> =
+                msg_send![alloc, initWithTitle: &*title, action: sel!(saveImage:), keyEquivalent: &*key];
+            let Some(item) = item else { return };
+            let _: () = msg_send![&*item, setTarget: &*target];
+            let _: () = msg_send![menu, insertItem: &*item, atIndex: index];
+        }
+    }
 
     type WillOpen = unsafe extern "C-unwind" fn(*mut AnyObject, Sel, *mut AnyObject, *mut AnyObject);
 
@@ -89,10 +183,16 @@ mod imp {
                     (id.map(|s| s.to_string()), sep.as_bool())
                 })
                 .collect();
+            let save_at = items.iter().position(|(id, _)| id.as_deref() == Some(super::SAVE_IMAGE_AT));
             for (i, keep) in super::keep(&items).into_iter().enumerate().rev() {
                 if !keep {
                     let _: () = msg_send![menu, removeItemAtIndex: i as isize];
                 }
+            }
+            if let Some(at) = save_at {
+                // Removed items before it shift it up.
+                let kept_before = super::keep(&items)[..at].iter().filter(|k| **k).count();
+                insert_save_image(menu, kept_before as isize);
             }
         }
     }
@@ -102,6 +202,7 @@ mod imp {
         if ORIGINAL.get().is_some() {
             return;
         }
+        super::init_actions();
         let Some(cls) = AnyClass::get(c"WKWebView") else { return };
         let sel = sel!(willOpenMenu:withEvent:);
         // SAFETY: Objective-C runtime calls on a real class and selector.

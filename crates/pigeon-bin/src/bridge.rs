@@ -276,6 +276,9 @@ pub const JS: &str = r#"
     const sel = doc.getSelection && doc.getSelection();
     const hasText = sel && !sel.isCollapsed && sel.toString().trim() !== '';
     const media = e.target.closest && e.target.closest('img, a[href]');
+    // The image under the pointer, for the menu's Save Image… (ctxmenu.rs).
+    const img = e.target.closest && e.target.closest('img');
+    if (img && (img.currentSrc || img.src)) send('ctx-img', img.currentSrc || img.src);
     if (editable(e.target) || hasText || media) return;
     e.preventDefault();
   }

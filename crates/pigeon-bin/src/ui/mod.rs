@@ -108,6 +108,7 @@ pub fn App() -> Element {
         }
         spawn(update_loop(s));
         spawn(menubar_loop(s));
+        spawn(save_image_loop());
         spawn(state::pump(s));
         spawn(bridge_loop(s));
         spawn(reminder_loop(s));
@@ -667,6 +668,27 @@ async fn update_loop(s: AppState) {
     }
 }
 
+/// Right-click › Save Image…: ask where, then the engine fetches and writes.
+async fn save_image_loop() {
+    let Some(mut rx) = crate::ctxmenu::take_actions() else { return };
+    while let Some(url) = rx.recv().await {
+        let name = pigeon_core::images::image_file_name(&url);
+        let dialog = rfd::AsyncFileDialog::new().set_title("Save Image").set_file_name(&name);
+        let dialog = match dirs_downloads() {
+            Some(d) => dialog.set_directory(d),
+            None => dialog,
+        };
+        if let Some(file) = dialog.save_file().await {
+            send_cmd(Cmd::SaveImage { url, path: file.path().to_path_buf() });
+        }
+    }
+}
+
+/// ~/Downloads, where the save dialog starts.
+fn dirs_downloads() -> Option<std::path::PathBuf> {
+    std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join("Downloads")).filter(|p| p.is_dir())
+}
+
 /// The status item's popover buttons.
 async fn menubar_loop(s: AppState) {
     let Some(mut rx) = crate::menubar::take_actions() else { return };
@@ -804,6 +826,7 @@ async fn bridge_loop(s: AppState) {
                 let px: u32 = msg.v.parse().unwrap_or(0);
                 crate::prefs::update(|p| p.list_width = if px == 0 { 0 } else { px.clamp(LIST_W_MIN, LIST_W_MAX) });
             }
+            "ctx-img" => crate::ctxmenu::set_image(&msg.v),
             "link" => {
                 let v = msg.v.to_ascii_lowercase();
                 if v.starts_with("http://") || v.starts_with("https://") || v.starts_with("mailto:") {

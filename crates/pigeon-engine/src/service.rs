@@ -166,6 +166,12 @@ pub enum Cmd {
         /// The account's nickname, shown on the picker page with its address.
         nickname: Option<String>,
     },
+    /// Right-click › Save Image…: fetch (or decode, for `data:`) an image
+    /// from a message and write it to `path`.
+    SaveImage {
+        url: String,
+        path: std::path::PathBuf,
+    },
     /// "Anyone with the link can view" for Drive files linked in a message.
     DriveShare {
         account_id: String,
@@ -917,6 +923,17 @@ impl Service {
                 };
                 self.send(Delta::DrivePicked { draft_id, account_id, files });
             }
+            Cmd::SaveImage { url, path } => {
+                let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                match save_image(&url, &path).await {
+                    Ok(()) => self.toast(format!("Saved {name}"), false, None),
+                    Err(e) => {
+                        // No URL in the log: it can carry tracking tokens.
+                        tracing::warn!(error = %e, "could not save an image");
+                        self.toast(format!("Couldn't save the image: {e}"), true, None);
+                    }
+                }
+            }
             Cmd::DriveShare { account_id, file_ids } => {
                 if let Err(e) = self.app.drive_share(&account_id, &file_ids).await {
                     tracing::warn!(error = %e, "could not share Drive files");
@@ -1297,9 +1314,45 @@ pub async fn run(app: Arc<Pigeon>, mut rx: mpsc::UnboundedReceiver<Cmd>, tx: mps
     }
 }
 
+/// The image at `url` (inline `data:` or http/https) written to `path`.
+async fn save_image(url: &str, path: &std::path::Path) -> Result<()> {
+    let bytes = if url.starts_with("data:") {
+        pigeon_core::images::decode_data_url(url).ok_or_else(|| Error::Other("it isn't a readable image".into()))?.1
+    } else if url.starts_with("https://") || url.starts_with("http://") {
+        let resp = pigeon_core::http::client()
+            .get(url)
+            .send()
+            .await
+            .map_err(|_| Error::Other("it couldn't be downloaded".into()))?;
+        if !resp.status().is_success() {
+            return Err(Error::Other(format!("the server answered {}", resp.status().as_u16())));
+        }
+        resp.bytes().await.map_err(|_| Error::Other("the download was cut off".into()))?.to_vec()
+    } else {
+        return Err(Error::Other("it isn't a web or inline image".into()));
+    };
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || std::fs::write(path, bytes))
+        .await
+        .map_err(|e| Error::Other(e.to_string()))?
+        .map_err(|e| Error::Other(format!("the file couldn't be written ({e})")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn saves_inline_images_and_refuses_other_schemes() {
+        let dir = std::env::temp_dir().join(format!("coo-save-image-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("image.png");
+        save_image("data:image/png;base64,iVBORw==", &path).await.unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), [0x89, b'P', b'N', b'G']);
+        assert!(save_image("cid:logo@x", &dir.join("x.png")).await.is_err());
+        assert!(save_image("file:///etc/passwd", &dir.join("y.png")).await.is_err());
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     #[test]
     fn secrets_are_redacted_in_debug() {

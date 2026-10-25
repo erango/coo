@@ -341,6 +341,7 @@ async fn bridge_loop(s: AppState, item: ListItem) {
             }
             // Drag by the toolbar, double-click it to zoom.
             "win" => super::window_action(&msg.v),
+            "ctx-img" => crate::ctxmenu::set_image(&msg.v),
             "link" => {
                 let v = msg.v.to_ascii_lowercase();
                 if v.starts_with("http://") || v.starts_with("https://") || v.starts_with("mailto:") {
