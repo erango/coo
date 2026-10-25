@@ -23,7 +23,11 @@ pub const PAGES: &[(&str, &str, &str)] = &[
     ),
     ("Composing", "edit", "undo send later reply new message window docked"),
     ("Signatures", "text", "signature signatures sign-off footer html"),
-    ("Calendar", "cal", "week start sunday monday weekend video call meet google zoom meeting link location"),
+    (
+        "Calendar",
+        "cal",
+        "week start sunday monday weekend video call meet google zoom meeting link location default calendar new events",
+    ),
     (
         "Notifications",
         "bell",

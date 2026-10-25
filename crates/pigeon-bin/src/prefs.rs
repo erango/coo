@@ -53,6 +53,10 @@ pub struct Prefs {
     pub default_video_call: String,
     /// ...but only when the event has no location when it's saved.
     pub default_video_only_without_location: bool,
+    /// Calendar new events go to, as `account_id|calendar_id`; empty (or a
+    /// calendar that's gone or read-only): automatic
+    /// (`event_editor::new_event_calendar`).
+    pub default_calendar: String,
     /// After archiving, deleting or moving the open message: "next" opens
     /// the next one in the list, "close" just closes it.
     pub after_remove: String,
@@ -117,6 +121,7 @@ impl Default for Prefs {
             week_start: None,
             default_video_call: String::new(),
             default_video_only_without_location: true,
+            default_calendar: String::new(),
             undo_send_seconds: 10,
             after_remove: "next".into(),
             signatures: Default::default(),

@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use chrono::{Local, NaiveDate, NaiveTime, TimeZone};
 use dioxus::prelude::*;
-use pigeon_core::model::{Attendee, Conferencing, EventDraft, EventRow, Response};
+use pigeon_core::model::{Attendee, Calendar, Conferencing, EventDraft, EventRow, Response};
 use pigeon_core::text::parse_address_list;
 use pigeon_engine::service::Cmd;
 
@@ -238,19 +238,66 @@ pub fn strip_blocks(busy: &[(i64, i64)], strip_start: i64, slot: Option<(i64, i6
         .collect()
 }
 
-/// Open a blank one-hour event on `day` at `minutes`, on the first writable
-/// calendar (primary first) the store knows about.
+/// The calendars as the engine lists them: (account id, calendar).
+pub type Calendars = [(String, Calendar)];
+
+/// The default the user picked (prefs `default_calendar`,
+/// `account_id|calendar_id`) as (account id, calendar id), while that
+/// calendar is still there and can take new events.
+pub fn chosen_calendar(calendars: &Calendars, pref: &str) -> Option<(String, String)> {
+    let (a, c) = pref.split_once('|')?;
+    calendars.iter().any(|(id, cal)| id == a && cal.id == c && cal.can_edit).then(|| (a.to_string(), c.to_string()))
+}
+
+/// Automatic: the first writable primary calendar, else the first writable
+/// one, in the engine's order (accounts in the order they were added; each
+/// account's primary first, then by name). Only calendars the provider marks
+/// editable count (`can_edit`: not holidays, subscriptions or calendars
+/// shared read-only).
+pub fn auto_calendar(calendars: &Calendars) -> Option<(String, String)> {
+    let writable = || calendars.iter().filter(|(_, c)| c.can_edit);
+    writable().find(|(_, c)| c.is_primary).or_else(|| writable().next()).map(|(a, c)| (a.clone(), c.id.clone()))
+}
+
+/// Where a new event goes: the chosen default while it's usable, else
+/// automatic ([`auto_calendar`]). None when no calendar can take events.
+pub fn new_event_calendar(calendars: &Calendars, pref: &str) -> Option<(String, String)> {
+    chosen_calendar(calendars, pref).or_else(|| auto_calendar(calendars))
+}
+
+/// "New event" on one account: the default when it's on this account, else
+/// that account's own automatic pick.
+pub fn account_calendar(calendars: &Calendars, account_id: &str, pref: &str) -> Option<(String, String)> {
+    let mine: Vec<(String, Calendar)> = calendars.iter().filter(|(a, _)| a == account_id).cloned().collect();
+    new_event_calendar(&mine, pref)
+}
+
+/// Open a blank one-hour event on `day` at `minutes`, on the default
+/// calendar for new events ([`new_event_calendar`]).
 pub fn open_new(s: AppState, day: NaiveDate, minutes: u32) {
     let cals = s.calendar.read().calendars.clone();
-    let mut writable: Vec<_> = cals.iter().filter(|(_, c)| c.can_edit).collect();
-    writable.sort_by_key(|(_, c)| !c.is_primary);
-    let (account_id, calendar_id) = match writable.first() {
-        Some((a, c)) => (a.clone(), c.id.clone()),
-        None => (s.accounts.read().first().map(|a| a.account.id.clone()).unwrap_or_default(), String::new()),
-    };
+    let target = new_event_calendar(&cals, &s.default_calendar.peek());
+    open_new_in(s, day, minutes, target);
+}
+
+/// Open a blank one-hour event on a given (account id, calendar id); with
+/// none (no writable calendar known yet), the top account's own default.
+pub fn open_new_in(s: AppState, day: NaiveDate, minutes: u32, target: Option<(String, String)>) {
+    let (account_id, calendar_id) = target.unwrap_or_else(|| {
+        (s.accounts.read().first().map(|a| a.account.id.clone()).unwrap_or_default(), String::new())
+    });
     let mut editor = s.editor;
     editor.set(Some(form_for_slot(day, minutes, &account_id, &calendar_id)));
     crate::bridge::focus("event-title");
+}
+
+/// A blank all-day event on `day` (a click on the all-day row).
+pub fn open_all_day(s: AppState, day: NaiveDate) {
+    open_new(s, day, 9 * 60);
+    let mut editor = s.editor;
+    if let Some(f) = editor.write().as_mut() {
+        f.all_day = true;
+    }
 }
 
 /// Open a blank event for a dragged range (local ms).
@@ -267,9 +314,20 @@ pub fn open_range(s: AppState, start: i64, end: i64) {
 
 /// Next round hour today.
 pub fn open_new_now(s: AppState) {
+    let (day, minutes) = next_hour();
+    open_new(s, day, minutes);
+}
+
+/// Next round hour today, in a given calendar (the sidebar's menus).
+pub fn open_new_now_in(s: AppState, target: Option<(String, String)>) {
+    let (day, minutes) = next_hour();
+    open_new_in(s, day, minutes, target);
+}
+
+fn next_hour() -> (NaiveDate, u32) {
     let now = Local::now();
     let minutes = (now.time().format("%H").to_string().parse::<u32>().unwrap_or(9) + 1) * 60;
-    open_new(s, now.date_naive(), minutes.min(23 * 60));
+    (now.date_naive(), minutes.min(23 * 60))
 }
 
 pub fn open_edit(s: AppState, row: &EventRow) {
@@ -613,6 +671,37 @@ mod tests {
         assert_eq!(effective_video(&picked, Conferencing::GoogleMeet, true), Conferencing::Zoom, "a pick always wins");
         let row = EventRow { account_id: "google:a@x.com".into(), event: Default::default() };
         assert!(!form_from_event(&row).video_auto, "edits never add a call by themselves");
+    }
+
+    fn cal(id: &str, primary: bool, can_edit: bool) -> Calendar {
+        Calendar { id: id.into(), name: id.into(), color: None, is_primary: primary, can_edit }
+    }
+
+    #[test]
+    fn new_events_go_to_the_chosen_calendar_while_it_can_take_them() {
+        let cals = vec![
+            ("m:a".to_string(), cal("holidays", false, false)),
+            ("m:a".to_string(), cal("team", false, true)),
+            ("m:a".to_string(), cal("a-main", true, true)),
+            ("g:b".to_string(), cal("b-main", true, true)),
+            ("g:b".to_string(), cal("b-side", false, true)),
+        ];
+        let pick = |pref: &str| new_event_calendar(&cals, pref).map(|(a, c)| format!("{a}|{c}"));
+        assert_eq!(pick("g:b|b-side").as_deref(), Some("g:b|b-side"));
+        // Unset, gone, read-only or malformed: automatic.
+        assert_eq!(pick("").as_deref(), Some("m:a|a-main"), "first primary, in engine order");
+        assert_eq!(pick("g:b|gone").as_deref(), Some("m:a|a-main"));
+        assert_eq!(pick("m:a|holidays").as_deref(), Some("m:a|a-main"));
+        assert_eq!(pick("nonsense").as_deref(), Some("m:a|a-main"));
+        assert_eq!(chosen_calendar(&cals, "m:a|holidays"), None);
+        // No writable primary: the first writable; nothing writable: none.
+        let no_primary = vec![("m:a".to_string(), cal("ro", true, false)), ("m:a".to_string(), cal("w", false, true))];
+        assert_eq!(auto_calendar(&no_primary), Some(("m:a".into(), "w".into())));
+        assert_eq!(new_event_calendar(&no_primary[..1], ""), None);
+        // Per account: the default when it's there, else that account's own pick.
+        assert_eq!(account_calendar(&cals, "g:b", "g:b|b-side"), Some(("g:b".into(), "b-side".into())));
+        assert_eq!(account_calendar(&cals, "g:b", "m:a|team"), Some(("g:b".into(), "b-main".into())));
+        assert_eq!(account_calendar(&cals, "x:none", ""), None);
     }
 
     #[test]
