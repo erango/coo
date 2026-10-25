@@ -94,6 +94,31 @@ pub fn truncate_utf8(s: &mut String, max_bytes: usize) {
     s.truncate(cut);
 }
 
+/// One-line preview text: invisible formatting characters dropped (marketing
+/// mail pads its preheader with zero-width joiners, soft hyphens and the like,
+/// which otherwise overflow the row and leave a stray ellipsis), whitespace
+/// runs collapsed to one space, ends trimmed.
+pub fn preview_text(s: &str) -> String {
+    let invisible = |c: char| {
+        matches!(c,
+            '\u{00AD}' | '\u{034F}' | '\u{061C}' | '\u{115F}' | '\u{1160}' | '\u{17B4}' | '\u{17B5}'
+            | '\u{180E}' | '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{206F}'
+            | '\u{2800}' | '\u{3164}' | '\u{FEFF}' | '\u{FFA0}')
+    };
+    let mut out = String::with_capacity(s.len());
+    for word in s.split(|c: char| c.is_whitespace()) {
+        let word: String = word.chars().filter(|&c| !invisible(c)).collect();
+        if word.is_empty() {
+            continue;
+        }
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(&word);
+    }
+    out
+}
+
 /// Turn free text into a safe FTS5 query: every term becomes a quoted prefix
 /// match, all terms must match.
 pub fn fts_query(input: &str) -> Option<String> {
@@ -181,6 +206,15 @@ pub fn html_to_text(html: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preview_text_drops_preheader_padding() {
+        let zoom = "Download, test, host - your Zoom journey begins. \u{200C}\u{00A0}\u{034F} \u{200C}\u{00A0}\u{FEFF}\u{00AD} \u{2800}";
+        assert_eq!(preview_text(zoom), "Download, test, host - your Zoom journey begins.");
+        assert_eq!(preview_text("  a\n\tb\u{2007}c  "), "a b c");
+        assert_eq!(preview_text("שלום עולם"), "שלום עולם");
+        assert_eq!(preview_text("\u{200B}\u{200B}"), "");
+    }
 
     #[test]
     fn address_list_handles_quotes_and_bare_addresses() {

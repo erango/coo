@@ -1048,7 +1048,7 @@ fn header_from_row(r: &Row) -> rusqlite::Result<MessageHeader> {
         from,
         to: serde_json::from_str(&r.get::<_, String>(7)?).unwrap_or_default(),
         cc: serde_json::from_str(&r.get::<_, String>(8)?).unwrap_or_default(),
-        snippet: r.get(9)?,
+        snippet: crate::text::preview_text(&r.get::<_, String>(9)?),
         received_at: r.get(10)?,
         is_read: r.get(11)?,
         is_flagged: r.get(12)?,

@@ -166,7 +166,7 @@ fn to_change(m: types::Message, folder_id: &str) -> MailChange {
         from: m.from.and_then(|r| r.email_address.to_address()),
         to: m.to_recipients.iter().filter_map(|r| r.email_address.to_address()).collect(),
         cc: m.cc_recipients.iter().filter_map(|r| r.email_address.to_address()).collect(),
-        snippet: m.body_preview.unwrap_or_default(),
+        snippet: pigeon_core::text::preview_text(&m.body_preview.unwrap_or_default()),
         received_at: m.received_date_time.as_deref().and_then(types::parse_rfc3339).unwrap_or(0),
         is_read: m.is_read.unwrap_or(false),
         is_flagged: m.flag.and_then(|f| f.flag_status).is_some_and(|s| s == "flagged"),

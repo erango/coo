@@ -180,8 +180,7 @@ pub fn snippet(raw: &[u8]) -> String {
         .map(|t| t.into_owned())
         .or_else(|| m.body_html(0).map(|h| pigeon_core::text::html_to_text(&h)))
         .unwrap_or_default();
-    let flat: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    flat.chars().take(200).collect()
+    pigeon_core::text::preview_text(&text).chars().take(200).collect()
 }
 
 fn imap_quote(s: &str) -> String {

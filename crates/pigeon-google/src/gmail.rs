@@ -347,7 +347,7 @@ fn to_header(m: RawMessage) -> MessageHeader {
         from: header("From").and_then(|v| parse_address_list(v).into_iter().next()),
         to: header("To").map(parse_address_list).unwrap_or_default(),
         cc: header("Cc").map(parse_address_list).unwrap_or_default(),
-        snippet: decode_entities(&m.snippet),
+        snippet: pigeon_core::text::preview_text(&decode_entities(&m.snippet)),
         received_at: m.internal_date.as_deref().and_then(|d| d.parse().ok()).unwrap_or(0),
         is_read: !has("UNREAD"),
         is_flagged: has("STARRED"),
