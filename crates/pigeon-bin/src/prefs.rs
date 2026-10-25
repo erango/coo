@@ -46,6 +46,10 @@ pub struct Prefs {
     pub crash_reports: bool,
     /// First day of the week, 0 = Sunday … 6 = Saturday; None = follow macOS.
     pub week_start: Option<u8>,
+    /// Video call new events start with: "" none, "meet" or "zoom".
+    pub default_video_call: String,
+    /// ...but only when the event has no location when it's saved.
+    pub default_video_only_without_location: bool,
     /// After archiving, deleting or moving the open message: "next" opens
     /// the next one in the list, "close" just closes it.
     pub after_remove: String,
@@ -107,6 +111,8 @@ impl Default for Prefs {
             remote_images_senders: Vec::new(),
             crash_reports: true,
             week_start: None,
+            default_video_call: String::new(),
+            default_video_only_without_location: true,
             undo_send_seconds: 10,
             after_remove: "next".into(),
             signatures: Default::default(),

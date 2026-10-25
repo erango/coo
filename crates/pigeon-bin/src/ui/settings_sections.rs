@@ -55,6 +55,47 @@ pub fn CalendarSettings() -> Element {
                 }
                 span { class: "settings-field__hint", "Week view, the month grids and navigation use this." }
             }
+            DefaultVideoCall {}
+        }
+    }
+}
+
+/// The video call new events start with (prefs `default_video_call`).
+const VIDEO_CHOICES: [(&str, &str); 3] = [("", "None"), ("meet", "Google Meet"), ("zoom", "Zoom")];
+
+#[component]
+fn DefaultVideoCall() -> Element {
+    let mut p = use_signal(prefs::get);
+    let cur = p.read().clone();
+    rsx! {
+        div { class: "settings-field settings-field--top",
+            span { class: "settings-field__label", "Video call" }
+            div { class: "settings-sub",
+                div { class: "segmented", role: "radiogroup", "aria-label": "Video call for new events",
+                    for (value, label) in VIDEO_CHOICES {
+                        button { role: "radio", key: "{label}",
+                            "aria-checked": "{cur.default_video_call == value}", "aria-selected": "{cur.default_video_call == value}",
+                            onclick: move |_| { prefs::update(|x| x.default_video_call = value.to_string()); p.set(prefs::get()); },
+                            "{label}"
+                        }
+                    }
+                }
+                if !cur.default_video_call.is_empty() {
+                    label { class: "settings-sub__option",
+                        input { class: "switch", r#type: "checkbox", checked: cur.default_video_only_without_location,
+                            onchange: move |_| {
+                                let on = !p.peek().default_video_only_without_location;
+                                prefs::update(|x| x.default_video_only_without_location = on);
+                                p.set(prefs::get());
+                            }
+                        }
+                        "Only when the event has no location"
+                    }
+                }
+                span { class: "settings-field__hint",
+                    "New events start with it, and you can change it per event. The link is made when you save, so a location added before saving counts. Google Meet needs a Google calendar; elsewhere Coo uses Zoom if it's connected."
+                }
+            }
         }
     }
 }

@@ -45,6 +45,9 @@ pub struct EventForm {
     pub has_meet: bool,
     /// The event already has a Zoom link.
     pub has_zoom: bool,
+    /// A new event whose video call hasn't been picked: it follows the
+    /// default from Settings › Calendar (see `effective_video`).
+    pub video_auto: bool,
 }
 
 fn hhmm(minutes: u32) -> String {
@@ -67,6 +70,7 @@ pub fn form_for_slot(day: NaiveDate, minutes: u32, account_id: &str, calendar_id
         date: day.format("%Y-%m-%d").to_string(),
         start: hhmm(minutes),
         end: hhmm(minutes + 60),
+        video_auto: true,
         ..Default::default()
     }
 }
@@ -98,6 +102,7 @@ pub fn form_from_event(row: &EventRow) -> EventForm {
             .is_some_and(|l| l.service == pigeon_core::meeting::Service::Zoom),
         has_meet: pigeon_core::meeting::meeting_link(e)
             .is_some_and(|l| l.service == pigeon_core::meeting::Service::Meet),
+        video_auto: false,
     }
 }
 
@@ -138,6 +143,33 @@ pub fn video_options(account_id: &str, zoom_connected: bool, all_day: bool) -> V
         v.push((Conferencing::Zoom, "Zoom"));
     }
     v
+}
+
+/// The video call new events start with (`pref`: "meet", "zoom" or ""),
+/// among what this calendar can make: that kind, else the other kind, else
+/// none.
+pub fn default_video(pref: &str, opts: &[(Conferencing, &str)]) -> Conferencing {
+    let want = match pref {
+        "meet" => Conferencing::GoogleMeet,
+        "zoom" => Conferencing::Zoom,
+        _ => return Conferencing::None,
+    };
+    let can = |c: Conferencing| opts.iter().any(|(k, _)| *k == c);
+    if can(want) {
+        return want;
+    }
+    opts.iter().map(|(k, _)| *k).find(|k| *k != Conferencing::None).unwrap_or(Conferencing::None)
+}
+
+/// What the picker shows and saving creates: the user's pick or, for a new
+/// event still on the default, `default`, unless it's only for events
+/// without a location and this one has one. The link itself is only made
+/// on save, so a location typed later still counts.
+pub fn effective_video(f: &EventForm, default: Conferencing, only_without_location: bool) -> Conferencing {
+    if !f.video_auto {
+        return f.conferencing;
+    }
+    if only_without_location && !f.location.trim().is_empty() { Conferencing::None } else { default }
 }
 
 /// Validate the form and build what the engine sends.
@@ -310,7 +342,11 @@ pub fn EventEditor() -> Element {
         error.set(None);
     };
     let save = move |_| {
-        let Some(form) = editor.read().clone() else { return };
+        let Some(mut form) = editor.read().clone() else { return };
+        let p = crate::prefs::get();
+        let opts = video_options(&form.account_id, s.zoom.peek().is_some(), form.all_day);
+        let default = default_video(&p.default_video_call, &opts);
+        form.conferencing = effective_video(&form, default, p.default_video_only_without_location);
         match to_draft(&form) {
             Ok(draft) => {
                 match &form.editing {
@@ -417,8 +453,13 @@ pub fn EventEditor() -> Element {
                         let zoom = s.zoom.read().clone();
                         let opts = video_options(&form.account_id, zoom.is_some(), form.all_day);
                         let existing = if form.has_meet { Some("Google Meet link included") } else if form.has_zoom { Some("Zoom link included") } else { None };
-                        let chosen = form.conferencing;
+                        let p = crate::prefs::get();
+                        let default = default_video(&p.default_video_call, &opts);
+                        let chosen = effective_video(&form, default, p.default_video_only_without_location);
+                        // The default was skipped because the event has a location.
+                        let skipped = form.video_auto && default != Conferencing::None && chosen == Conferencing::None;
                         let note = match chosen {
+                            Conferencing::None if skipped => "No video call because the event has a location. Pick one to add it anyway.".to_string(),
                             Conferencing::GoogleMeet => "The link is created when you save and sent with the invitation.".to_string(),
                             Conferencing::Zoom => format!(
                                 "A Zoom meeting is created on {} when you save; the link goes in the location and invitation.",
@@ -438,7 +479,7 @@ pub fn EventEditor() -> Element {
                                                 for (kind, label) in opts {
                                                     button { role: "radio", key: "{label}",
                                                         "aria-checked": "{chosen == kind}", "aria-selected": "{chosen == kind}",
-                                                        onclick: move |_| { if let Some(f) = editor.write().as_mut() { f.conferencing = kind; } },
+                                                        onclick: move |_| { if let Some(f) = editor.write().as_mut() { f.conferencing = kind; f.video_auto = false; } },
                                                         "{label}" }
                                                 }
                                             }
@@ -550,6 +591,29 @@ fn Availability(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_events_follow_the_default_video_call() {
+        let google = video_options("google:a@x.com", true, false);
+        let ms = video_options("microsoft:a@x.com", true, false);
+        let ms_no_zoom = video_options("microsoft:a@x.com", false, false);
+        assert_eq!(default_video("meet", &google), Conferencing::GoogleMeet);
+        assert_eq!(default_video("meet", &ms), Conferencing::Zoom, "no Meet here: Zoom instead");
+        assert_eq!(default_video("meet", &ms_no_zoom), Conferencing::None);
+        assert_eq!(default_video("zoom", &google), Conferencing::Zoom);
+        assert_eq!(default_video("", &google), Conferencing::None);
+
+        let f = form_for_slot(NaiveDate::from_ymd_opt(2026, 10, 23).unwrap(), 600, "google:a@x.com", "");
+        assert!(f.video_auto);
+        assert_eq!(effective_video(&f, Conferencing::GoogleMeet, true), Conferencing::GoogleMeet);
+        let located = EventForm { location: "Room 4".into(), ..f.clone() };
+        assert_eq!(effective_video(&located, Conferencing::GoogleMeet, true), Conferencing::None);
+        assert_eq!(effective_video(&located, Conferencing::GoogleMeet, false), Conferencing::GoogleMeet);
+        let picked = EventForm { video_auto: false, conferencing: Conferencing::Zoom, ..located };
+        assert_eq!(effective_video(&picked, Conferencing::GoogleMeet, true), Conferencing::Zoom, "a pick always wins");
+        let row = EventRow { account_id: "google:a@x.com".into(), event: Default::default() };
+        assert!(!form_from_event(&row).video_auto, "edits never add a call by themselves");
+    }
 
     #[test]
     fn video_options_are_only_what_works() {

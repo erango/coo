@@ -739,3 +739,8 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 @media (prefers-reduced-motion: reduce) {
   .app[data-swap] > .sidebar > *, .app[data-swap] > * { animation: none; }
 }
+
+/* A setting with options that belong to it (Settings › Calendar › Video
+   call): the control, its sub-options, then the hint, in one column. */
+.settings-sub { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.settings-sub__option { display: flex; align-items: center; gap: 10px; font-size: var(--fs-ui); color: var(--text-2); cursor: pointer; }
