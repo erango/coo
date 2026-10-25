@@ -627,3 +627,34 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .update-dialog[data-tone="error"] .update-dialog__icon { color: var(--error); }
 .update-dialog__icon[data-icon="sync"] .icon { animation: pg-spin 1.2s linear infinite; }
 .update-dialog__notes { margin-right: auto; }
+
+/* Inline reply header: From, To chips, Cc and the buttons share a row and
+   never overlap. The chips wrap onto more lines (the input keeps a small
+   minimum so it stays beside a chip when it can); everything else lines up
+   with the first chip line. Narrow panes drop the From address and shrink
+   the From name. */
+.inline-reply { container-type: inline-size; }
+.inline-reply__head { align-items: flex-start; }
+.inline-reply__head > :not(.recipients) { flex: none; align-self: flex-start; margin-top: 6px; }
+.inline-reply__head > .icon-btn { margin-top: 7px; }
+.inline-reply__head > span.t-3 { margin-top: 12px; }
+.inline-reply__head > span:has(> .from-picker) { flex: 0 1 auto; min-width: 0; max-width: 45%; display: flex; }
+.inline-reply__head .from-picker { min-width: 0; max-width: 100%; }
+.inline-reply__head .from-picker > span[dir], .inline-reply__head .from-picker__addr { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inline-reply__head .from-picker > .dot, .inline-reply__head .from-picker > .icon { flex: none; }
+.inline-reply__head .recipients { padding: 7px 0; }
+.inline-reply__head .recipients .input--bare { min-width: 40px; }
+.recipient { flex-shrink: 0; max-width: 100%; }
+.recipient__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.recipient > .avatar, .recipient > .icon-btn { flex: none; }
+@container (max-width: 560px) { .inline-reply__head .from-picker__addr { display: none; } }
+/* Too narrow for one row: From and the buttons on top, "to" + chips on a
+   full-width row below (the ::after is the line break). */
+@container (max-width: 520px) {
+  .inline-reply__head:has(> .recipients) { flex-wrap: wrap; row-gap: 0; }
+  .inline-reply__head:has(> .recipients) > span:has(> .from-picker) { max-width: none; flex: 1 1 0; }
+  .inline-reply__head:has(> .recipients)::after { content: ""; order: 1; flex-basis: 100%; height: 0; }
+  .inline-reply__head:has(> .recipients) > span.t-3, .inline-reply__head:has(> .recipients) > .recipients { order: 2; }
+  .inline-reply__head:has(> .recipients) > .recipients { padding-top: 0; }
+  .inline-reply__head:has(> .recipients) > span.t-3 { margin-top: 6px; padding-left: 4px; }
+}

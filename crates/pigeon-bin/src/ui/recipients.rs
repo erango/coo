@@ -141,7 +141,7 @@ pub fn RecipientInput(
                         span { class: "recipient", key: "{a.email}-{i}", title: "{a.email}", dir: "auto",
                             "aria-invalid": invalid.then_some("true"),
                             if !invalid { span { class: "avatar avatar--20", "data-hue": "{hue}", "{format::initials(&label)}" } }
-                            "{label}"
+                            span { class: "recipient__name", "{label}" }
                             button { class: "icon-btn icon-btn--xs", r#type: "button", "aria-label": "Remove {a.email}",
                                 onclick: move |_| {
                                     let mut next = remove.clone();
