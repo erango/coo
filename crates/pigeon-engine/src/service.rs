@@ -163,6 +163,8 @@ pub enum Cmd {
     DrivePick {
         draft_id: String,
         account_id: String,
+        /// The account's nickname, shown on the picker page with its address.
+        nickname: Option<String>,
     },
     /// "Anyone with the link can view" for Drive files linked in a message.
     DriveShare {
@@ -889,8 +891,8 @@ impl Service {
                 Ok(()) => self.toast("Google Drive connected", false, None),
                 Err(e) => self.toast(e.to_string(), true, None),
             },
-            Cmd::DrivePick { draft_id, account_id } => {
-                let files = match self.drive_pick(&account_id).await {
+            Cmd::DrivePick { draft_id, account_id, nickname } => {
+                let files = match self.drive_pick(&account_id, nickname.as_deref()).await {
                     Ok(files) => files,
                     Err(e) => {
                         // Not `fail`: messages can name the account.
@@ -1098,7 +1100,7 @@ impl Service {
     }
 
     /// Connect Drive if needed, then run the picker. Empty when cancelled.
-    async fn drive_pick(&self, account_id: &str) -> Result<Vec<pigeon_core::drive::DriveFile>> {
+    async fn drive_pick(&self, account_id: &str, nickname: Option<&str>) -> Result<Vec<pigeon_core::drive::DriveFile>> {
         if !crate::drive::drive_available() {
             return Err(Error::Other(crate::drive::NOT_IN_BUILD.into()));
         }
@@ -1106,7 +1108,7 @@ impl Service {
             self.toast("Coo needs permission to open the Drive files you pick. Continue in your browser.", false, None);
             self.connect_drive(account_id).await?;
         }
-        let picked = self.app.drive_pick(account_id, |url| tracing::debug!(url, "Drive picker URL")).await;
+        let picked = self.app.drive_pick(account_id, nickname, |url| tracing::debug!(url, "Drive picker URL")).await;
         match picked {
             Ok(pigeon_google::picker::PickOutcome::Picked(files)) => Ok(files),
             Ok(pigeon_google::picker::PickOutcome::Cancelled) => Ok(Vec::new()),

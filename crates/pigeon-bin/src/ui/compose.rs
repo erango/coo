@@ -450,25 +450,11 @@ fn cross_hint(s: &AppState, d: &Draft) -> Option<String> {
     Some(format!("Replying from {}, received at {received}. Threading headers are kept.", d.from.address.email))
 }
 
-/// Add picked/dropped files to the open draft.
+/// Add dropped files to the open draft.
 fn add_files(slot: ComposeSlot, files: Vec<dioxus::html::FileData>) {
     let mut draft = slot.draft;
     if let Some(d) = draft.write().as_mut() {
-        for f in files {
-            let path = f.path();
-            if path.as_os_str().is_empty()
-                || d.attachments
-                    .iter()
-                    .any(|a| matches!(&a.source, AttachmentSource::File { path: p } if std::path::Path::new(p) == path))
-            {
-                continue;
-            }
-            d.attachments.push(DraftAttachment {
-                name: f.name(),
-                content_type: None,
-                source: AttachmentSource::File { path: path.to_string_lossy().into_owned() },
-            });
-        }
+        super::drive::add_local_files(&mut d.attachments, files.iter().map(|f| f.path()));
     }
 }
 
@@ -663,7 +649,7 @@ pub fn InlineReply(draft: Draft) -> Element {
             super::drive::DriveWaiting {}
             super::drive::DriveSheet { editor: id.clone() }
             div { class: "inline-reply__footer",
-                super::drive::AttachMenu { id: "attach-{current.id}", on_files: move |f| add_files(slot, f) }
+                super::drive::AttachMenu {}
                 span { class: "spacer" }
                 SendButton {}
             }
@@ -865,7 +851,7 @@ pub fn Composer(draft: Draft, #[props(default)] docked: bool) -> Element {
                 super::drive::DriveWaiting {}
                 super::drive::DriveSheet { editor: id.clone() }
                 div { class: "composer__footer",
-                    super::drive::AttachMenu { id: "attach-{current.id}", on_files: move |f| add_files(slot, f) }
+                    super::drive::AttachMenu {}
                     match notice {
                         Some(n) => rsx! { span { class: "t-caption composer__notice", role: "alert", "{n}" } },
                         None => rsx! { span { class: "t-caption", "Ctrl+Right Shift: RTL · Ctrl+Left Shift: LTR" } },

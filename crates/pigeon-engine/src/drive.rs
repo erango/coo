@@ -78,8 +78,13 @@ impl Pigeon {
     }
 
     /// Open the Google Picker in the browser for `account_id` and wait for
-    /// the user's pick.
-    pub async fn drive_pick(&self, account_id: &str, on_url: impl FnOnce(&str)) -> Result<PickOutcome> {
+    /// the user's pick. `nickname` is shown on the page with the address.
+    pub async fn drive_pick(
+        &self,
+        account_id: &str,
+        nickname: Option<&str>,
+        on_url: impl FnOnce(&str),
+    ) -> Result<PickOutcome> {
         let api_key = auth::google_api_key().ok_or_else(|| Error::Other(NOT_IN_BUILD.into()))?;
         let client = OAuthApp::from_env(ProviderKind::Google)?;
         let app_id = app_id(&client.client_id)
@@ -87,7 +92,14 @@ impl Pigeon {
             .to_string();
         let account = self.google_account(account_id)?;
         let access_token = self.token_source(&account)?.access_token().await?;
-        let outcome = picker::pick(&PickerConfig { access_token, api_key, app_id }, on_url).await?;
+        let cfg = PickerConfig {
+            access_token,
+            api_key,
+            app_id,
+            email: account.email.clone(),
+            nickname: nickname.map(str::trim).filter(|n| !n.is_empty()).map(str::to_string),
+        };
+        let outcome = picker::pick(&cfg, on_url).await?;
         let PickOutcome::Picked(mut files) = outcome else { return Ok(PickOutcome::Cancelled) };
         self.fill_links(account_id, &mut files).await;
         Ok(PickOutcome::Picked(files))

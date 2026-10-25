@@ -14,6 +14,8 @@ chrono.workspace = true
 dioxus = { version = "0.7.9", features = ["desktop"] }
 open.workspace = true
 pigeon-core.workspace = true
+# The same file dialog Dioxus uses, opened without its type filter.
+rfd = { version = "0.17.2", default-features = false }
 pigeon-engine.workspace = true
 serde.workspace = true
 serde_json.workspace = true
