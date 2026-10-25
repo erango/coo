@@ -24,7 +24,7 @@ use pigeon_core::bodies::{download_attachment, load_body};
 use pigeon_core::compose::{
     AttachmentSource, Draft, ReplyContext, ReplyKind, Sender, ServerDraft, build_mime, default_sender, reply_draft,
 };
-use pigeon_core::model::{Account, Address, FolderRole, ProviderKind, StoredBody};
+use pigeon_core::model::{Account, FolderRole, ProviderKind, StoredBody};
 use pigeon_core::provider::{DraftSync, MailSearch, MailSender};
 use pigeon_core::store::{Store, undo_ops};
 use pigeon_core::sync::{CalendarStats, MailStats, sync_calendars, sync_mail};
@@ -309,8 +309,7 @@ impl Pigeon {
     pub async fn senders(&self) -> Result<Vec<Sender>> {
         let accounts = self.accounts()?;
         let per_account = join_all(accounts.iter().map(|a| async move {
-            let mut out =
-                vec![Sender { account_id: a.id.clone(), address: Address::new(Some(&a.display_name), &a.email) }];
+            let mut out = vec![Sender::primary(a)];
             let aliases = match self.backend(a) {
                 Ok(b) => match &*b {
                     Backend::Microsoft(p) => p.send_as().await,

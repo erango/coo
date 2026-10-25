@@ -198,7 +198,12 @@ pub enum Cmd {
         message_id: String,
         kind: ReplyKind,
     },
-    NewDraft,
+    /// A blank draft from `from_account`'s own address (the UI passes the
+    /// default account for new messages); `None` or an account that's gone:
+    /// the first sending address.
+    NewDraft {
+        from_account: Option<String>,
+    },
     /// Save locally now; push to the server after a short pause.
     SaveDraft(Draft),
     /// Delete a draft here and on the server.
@@ -958,9 +963,17 @@ impl Service {
                 let draft = self.app.reply(&account, &message_id, kind, None).await?;
                 self.send(Delta::Draft(draft));
             }
-            Cmd::NewDraft => {
-                let senders = self.app.senders().await?;
-                let from = senders.into_iter().next().ok_or_else(|| Error::Other("add an account first".into()))?;
+            Cmd::NewDraft { from_account } => {
+                let from = match from_account.and_then(|id| self.app.account(&id).ok()) {
+                    Some(account) => Sender::primary(&account),
+                    None => self
+                        .app
+                        .senders()
+                        .await?
+                        .into_iter()
+                        .next()
+                        .ok_or_else(|| Error::Other("add an account first".into()))?,
+                };
                 let mut draft = Draft::new(from, now_ms());
                 self.app.save_draft(&mut draft)?;
                 self.send(Delta::Draft(draft));

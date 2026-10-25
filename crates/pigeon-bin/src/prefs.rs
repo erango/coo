@@ -15,6 +15,9 @@ pub const FONT_SCALE_MAX: f32 = 1.5;
 pub struct Prefs {
     /// Account ids in the user's chosen order; unknown/new accounts go last.
     pub account_order: Vec<String>,
+    /// Account id new messages come from; empty: the top account in the
+    /// sidebar (`state::default_from_account`).
+    pub default_from_account: String,
     /// Multiplier on the base font size (⌘+ / ⌘- / ⌘0).
     pub font_scale: f32,
     /// "system" | "light" | "dark".
@@ -92,6 +95,7 @@ impl Default for Prefs {
     fn default() -> Self {
         Prefs {
             account_order: Vec::new(),
+            default_from_account: String::new(),
             font_scale: 1.0,
             theme_mode: "system".into(),
             palette: crate::themes::DEFAULT.into(),

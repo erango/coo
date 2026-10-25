@@ -214,6 +214,12 @@ pub struct AppState {
     pub collapsed_accounts: Signal<HashSet<String>>,
     /// Account nicknames (Settings › Accounts), by account id.
     pub nicknames: Signal<std::collections::BTreeMap<String, String>>,
+    /// The chosen default account for new messages (prefs
+    /// `default_from_account`; empty: the top account). Read it through
+    /// [`AppState::default_from`].
+    pub default_account: Signal<String>,
+    /// An account header's right-click menu while open.
+    pub account_menu: Signal<Option<crate::ui::account_menu::AccountMenu>>,
 }
 
 impl AppState {
@@ -286,6 +292,8 @@ impl AppState {
             signing_in: Signal::new(false),
             collapsed_accounts: Signal::new(HashSet::new()),
             nicknames: Signal::new(crate::prefs::get().account_nicknames),
+            default_account: Signal::new(crate::prefs::get().default_from_account),
+            account_menu: Signal::new(None),
         }
     }
 
@@ -320,6 +328,38 @@ impl AppState {
             .filter(|n| !n.trim().is_empty())
             .cloned()
             .unwrap_or_else(|| email.to_string())
+    }
+
+    /// The account new messages come from (see [`default_from_account`]).
+    pub fn default_from(&self) -> Option<String> {
+        let accounts = self.accounts.read();
+        let pref = self.default_account.read();
+        if !*self.loaded.read() {
+            // Before the first accounts delta (a ⌘N right at launch): trust
+            // the pref, else the saved order's top; the engine checks the
+            // account still exists.
+            if !pref.is_empty() {
+                return Some(pref.clone());
+            }
+            return crate::prefs::get().account_order.into_iter().next();
+        }
+        default_from_account(&pref, accounts.iter().map(|a| a.account.id.as_str()))
+    }
+
+    /// The account the user picked as the default (not the automatic
+    /// fallback), if it's still signed in.
+    pub fn chosen_default(&self) -> Option<String> {
+        let chosen = self.default_account.read().clone();
+        self.accounts.read().iter().any(|a| a.account.id == chosen).then_some(chosen)
+    }
+
+    /// Make `account_id` the default for new messages; `None`: automatic
+    /// (the top account in the sidebar).
+    pub fn set_default_account(&self, account_id: Option<&str>) {
+        let id = account_id.unwrap_or_default().to_string();
+        let mut d = self.default_account;
+        d.set(id.clone());
+        crate::prefs::update(move |p| p.default_from_account = id);
     }
 
     /// Set (or, when blank, clear) an account's nickname.
@@ -500,6 +540,17 @@ fn apply(s: &mut AppState, delta: Delta) {
                 if a.len() > s.accounts.peek().len() {
                     s.signing_in.set(false);
                 }
+                // The default account was signed out: forget it, so new
+                // messages quietly fall back to the top account.
+                let chosen = s.default_account.peek().clone();
+                if forget_default(
+                    &chosen,
+                    s.accounts.peek().iter().map(|n| n.account.id.as_str()),
+                    a.iter().map(|n| n.account.id.as_str()),
+                ) {
+                    s.default_account.set(String::new());
+                    crate::prefs::update(|p| p.default_from_account.clear());
+                }
                 let order = crate::prefs::get().account_order;
                 s.accounts.set(order_by(a, &order, |n| n.account.id.as_str()));
                 s.loaded.set(true);
@@ -642,6 +693,31 @@ pub fn order_by<T>(items: Vec<T>, order: &[String], id: impl Fn(&T) -> &str) -> 
     indexed.into_iter().map(|(_, _, t)| t).collect()
 }
 
+/// The account new messages come from: the chosen default (`pref`, an
+/// account id) while it's still signed in, else the first account in
+/// sidebar order (`account_order` already applied), else none.
+pub fn default_from_account<'a>(pref: &str, sidebar: impl IntoIterator<Item = &'a str>) -> Option<String> {
+    let mut first = None;
+    for id in sidebar {
+        if !pref.is_empty() && id == pref {
+            return Some(id.to_string());
+        }
+        first = first.or(Some(id));
+    }
+    first.map(str::to_string)
+}
+
+/// The chosen default (`pref`) was in the previous account list and isn't in
+/// the new one: it was signed out, so the pref should be cleared. Not on
+/// first load (`before` empty), so a slow start never loses the choice.
+pub fn forget_default<'a, 'b>(
+    pref: &str,
+    mut before: impl Iterator<Item = &'a str>,
+    mut after: impl Iterator<Item = &'b str>,
+) -> bool {
+    !pref.is_empty() && before.any(|id| id == pref) && !after.any(|id| id == pref)
+}
+
 /// Move the item at `from` so it ends up at index `to` (clamped).
 pub fn move_item<T>(v: &mut Vec<T>, from: usize, to: usize) {
     if from >= v.len() {
@@ -697,6 +773,35 @@ mod mailbox_key_tests {
         }
         assert_eq!(parse_mailbox(""), None);
         assert_eq!(parse_mailbox("unified:nope"), None);
+    }
+}
+
+#[cfg(test)]
+mod default_from_tests {
+    use super::*;
+
+    #[test]
+    fn chosen_default_wins_while_signed_in() {
+        assert_eq!(default_from_account("b", ["a", "b", "c"]).as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn unset_or_gone_falls_back_to_the_top_account_in_sidebar_order() {
+        let order = vec!["c".to_string(), "a".to_string()];
+        let sidebar = order_by(vec!["a", "b", "c"], &order, |s| s);
+        assert_eq!(default_from_account("", sidebar.iter().copied()).as_deref(), Some("c"));
+        assert_eq!(default_from_account("gone", sidebar.iter().copied()).as_deref(), Some("c"));
+        assert_eq!(default_from_account("", std::iter::empty()), None);
+        assert_eq!(default_from_account("a", std::iter::empty()), None);
+    }
+
+    #[test]
+    fn forgets_the_default_only_when_it_was_signed_out() {
+        let ids = |v: &'static [&'static str]| v.iter().copied();
+        assert!(forget_default("b", ids(&["a", "b"]), ids(&["a"])));
+        assert!(!forget_default("b", ids(&["a", "b"]), ids(&["b", "a"])), "reordered, still there");
+        assert!(!forget_default("b", ids(&[]), ids(&["a"])), "first load: keep the choice");
+        assert!(!forget_default("", ids(&["a"]), ids(&[])));
     }
 }
 

@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::{Address, MessageHeader, StoredAttachment, StoredBody};
+use crate::model::{Account, Address, MessageHeader, StoredAttachment, StoredBody};
 use crate::text::{escape_html, html_to_text, text_to_html};
 use crate::{Error, Result, auth};
 
@@ -15,6 +15,13 @@ use crate::{Error, Result, auth};
 pub struct Sender {
     pub account_id: String,
     pub address: Address,
+}
+
+impl Sender {
+    /// The account's own address (not an alias), under its display name.
+    pub fn primary(account: &Account) -> Sender {
+        Sender { account_id: account.id.clone(), address: Address::new(Some(&account.display_name), &account.email) }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -423,6 +430,17 @@ mod tests {
 
     fn sender(account: &str, email: &str) -> Sender {
         Sender { account_id: account.into(), address: Address::new(Some("Me"), email) }
+    }
+
+    #[test]
+    fn primary_sender_is_the_accounts_own_address() {
+        let a = Account {
+            id: "google:me@x.io".into(),
+            provider: crate::model::ProviderKind::Google,
+            email: "me@x.io".into(),
+            display_name: "Me".into(),
+        };
+        assert_eq!(Sender::primary(&a), sender("google:me@x.io", "me@x.io"));
     }
 
     /// Hebrew subject, names and mixed RTL/LTR body survive build → parse.

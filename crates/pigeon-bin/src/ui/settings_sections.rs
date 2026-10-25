@@ -142,6 +142,7 @@ pub fn Composing() -> Element {
                     }
                 }
             }
+            super::settings::DefaultFromField {}
             div { class: "settings-field",
                 span { class: "settings-field__label", "Replies" }
                 div { class: "segmented", role: "radiogroup", "aria-label": "Open replies",

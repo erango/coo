@@ -269,7 +269,7 @@ pub fn MailList() -> Element {
                     button { role: "tab", "aria-selected": "{!*threaded.read()}", onclick: move |_| threaded.set(false), "Messages" }
                 }
                 button { class: "icon-btn", r#type: "button", "aria-label": "New message", title: "New message (⌘N)",
-                    onclick: move |_| send_cmd(Cmd::NewDraft),
+                    onclick: move |_| super::new_message(s),
                     Icon { name: "edit" }
                 }
             }
