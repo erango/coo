@@ -141,6 +141,8 @@ pub fn App() -> Element {
                 }
                 // compose:<to list>[|<partial>] — new draft, chips + autocomplete
                 "compose" => new_message(s),
+                // search:<query>, with an optional `|` marking the caret
+                "search" if arg.contains('|') => search::open_at(s, arg),
                 "search" => search::open(s, arg),
                 // find:<query>|<account_id>|<thread_id> — search, then open a thread from it
                 "find" => {
@@ -888,6 +890,7 @@ async fn bridge_loop(s: AppState) {
             // stray keystroke meant for another app act on the demo mailbox.
             "key" if input_ignored() => {}
             "key" => on_key(s, &msg.v),
+            "search-caret" => search::on_caret(s, &msg.v),
             "draft-input" => compose::autosave(s.main_slot(), &msg.v),
             "sig-input" => {
                 if let Ok((email, html)) = serde_json::from_str::<(String, String)>(&msg.v) {

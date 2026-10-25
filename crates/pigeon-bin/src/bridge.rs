@@ -72,6 +72,20 @@ pub const JS: &str = r#"
     if (KEYS.has(key)) { e.preventDefault(); send('key', key); }
   }, true);
 
+  // ---- Search box: report the caret (operator autocomplete) ----
+  let lastCaret = '';
+  const searchCaret = () => {
+    const e = document.activeElement;
+    if (!e || e.id !== 'search-input') return;
+    const v = JSON.stringify([e.value, e.selectionStart ?? e.value.length]);
+    if (v !== lastCaret) { lastCaret = v; send('search-caret', v); }
+  };
+  document.addEventListener('selectionchange', searchCaret);
+  document.addEventListener('input', searchCaret, true);
+  // On focus (also a window coming back) WebKit puts the caret back only
+  // after the event: read it a moment later.
+  for (const t of ['keyup', 'mouseup', 'focus']) document.addEventListener(t, () => setTimeout(searchCaret, 30), true);
+
   // ---- Composer: every block gets dir="auto" unless overridden ----
   function blockOf(ed) {
     let n = getSelection().anchorNode;
@@ -461,6 +475,20 @@ pub fn set_theme(theme: &str) {
 
 pub fn set_palette(palette: &str) {
     document::eval(&format!("document.documentElement.dataset.palette = {palette:?}"));
+}
+
+/// Set a text input's value and caret (a UTF-16 offset) and focus it. The
+/// render that follows sets the same value; put the caret back if it moved.
+/// Like [`focus`], waits a few frames for an input that isn't there yet.
+pub fn set_input(id: &str, value: &str, caret: usize) {
+    let (id, value) = (serde_json::to_string(id).unwrap_or_default(), serde_json::to_string(value).unwrap_or_default());
+    document::eval(&format!(
+        "(() => {{ const v = {value}; let n = 0; const go = () => {{ const e = document.getElementById({id}); \
+         if (!e) {{ if (n++ < 40) setTimeout(go, 25); return; }} \
+         e.value = v; e.focus(); e.setSelectionRange({caret}, {caret}); \
+         const again = () => {{ if (e.value === v && e.selectionStart !== {caret}) e.setSelectionRange({caret}, {caret}); }}; \
+         requestAnimationFrame(again); setTimeout(again, 50); }}; setTimeout(go, 0); }})()"
+    ));
 }
 
 /// Focus an element by id. Called while a component first renders, so the

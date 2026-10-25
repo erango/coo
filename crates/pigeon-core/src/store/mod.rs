@@ -256,6 +256,14 @@ impl Store {
             );
             args.push(Value::Text(r.as_str().into()));
         }
+        if let Some(f) = &q.folder {
+            cond.push(
+                "EXISTS (SELECT 1 FROM message_folders mf JOIN folders fo ON fo.account_id = mf.account_id
+                 AND fo.id = mf.folder_id WHERE mf.message_pk = m.pk AND fo.name = ? COLLATE NOCASE)"
+                    .into(),
+            );
+            args.push(Value::Text(f.clone()));
+        }
         if cond.is_empty() {
             return Ok(Vec::new());
         }
