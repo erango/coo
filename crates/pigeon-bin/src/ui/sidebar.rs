@@ -462,10 +462,12 @@ fn SyncFooter() -> Element {
                     span { "Update ready · Restart" }
                 }
             }
-            div { class: "sync-status", "data-state": "{state}", title: "{text}",
+            // A button once there's nothing in flight: hover reads "Sync now".
+            button { class: "sync-status", r#type: "button", "data-state": "{state}", title: "{text}",
+                disabled: state == "syncing",
                 onclick: move |_| send_cmd(Cmd::SyncNow),
-                Icon { name: icon, class: "icon--sm" }
-                span { style: "overflow:hidden;text-overflow:ellipsis;white-space:nowrap", "{text}" }
+                span { class: "sync-status__now", Icon { name: icon, class: "icon--sm" } span { class: "sync-status__text", "{text}" } }
+                span { class: "sync-status__hover", "aria-hidden": "true", Icon { name: "sync", class: "icon--sm" } span { class: "sync-status__text", "Sync now" } }
             }
         }
     }
