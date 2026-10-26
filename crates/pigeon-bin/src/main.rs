@@ -17,6 +17,7 @@ mod prefs;
 mod richtext;
 mod shortcuts;
 mod sound;
+mod spell;
 mod state;
 mod themes;
 mod ui;
@@ -137,6 +138,7 @@ fn main() {
     dock::set_app_icon();
     notify::init();
     ctxmenu::install();
+    spell::install();
 
     dioxus::LaunchBuilder::desktop()
         .with_cfg(

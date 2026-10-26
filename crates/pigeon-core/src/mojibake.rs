@@ -83,28 +83,46 @@ fn signs(s: &str, map: &HashMap<char, u8>) -> usize {
     n
 }
 
-/// Hebrew letters are D7 90..D7 AA. 0x90 (א) and 0x9D (ם) are undefined in
-/// both Windows charsets, so mail often drops them, leaving a bare lead
-/// byte: mid-word that was almost always א, at the end of a word ם.
-fn lost_hebrew_byte(bytes: &[u8], next: Option<char>) -> Option<u8> {
-    if bytes.last() != Some(&0xD7) {
-        return None;
-    }
-    let word_end = next.is_none_or(|c| c.is_whitespace() || c.is_ascii_punctuation());
-    if !word_end {
-        return Some(0x90);
-    }
-    // Word-final: ם, unless that makes one of the common words ending in א.
-    let mut with_alef = bytes.to_vec();
-    with_alef.push(0x90);
-    let alef_word = std::str::from_utf8(&with_alef)
-        .ok()
-        .and_then(|s| s.rsplit(|c: char| !('\u{5d0}'..='\u{5ea}').contains(&c)).next())
-        .is_some_and(|w| ENDS_IN_ALEF.contains(&w));
-    Some(if alef_word { 0x90 } else { 0x9D })
+/// Hebrew letters are D7 90..D7 AA. Three of them can't survive the trip:
+/// 0x90 (א) and 0x9D (ם) are undefined in both Windows charsets and get
+/// dropped or turned into a space, and 0xA0 (נ) is a non-breaking space
+/// that often becomes a plain one. Each spot where that happened (a bare
+/// D7 lead) is a `Slot`, resolved afterwards from the words around it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Slot {
+    /// Between two letters: א (ם only ends a word; נ's byte would be there).
+    Mid,
+    /// At the end of a word (before punctuation, a line end or the end).
+    End,
+    /// Followed by a space: ם or א ending a word, or א / נ whose byte
+    /// became that space.
+    EndSpace,
 }
 
-/// Frequent words ending in א (otherwise a lost word-final byte is ם).
+/// Placeholder for a slot in the decoded text (private-use, never in mail).
+const SLOT: char = '\u{E000}';
+
+impl Slot {
+    /// (letter, whether it takes the following space), best guess first.
+    fn options(self) -> &'static [(char, bool)] {
+        match self {
+            Slot::Mid => &[('א', false)],
+            Slot::End => &[('ם', false), ('א', false)],
+            Slot::EndSpace => &[('ם', false), ('א', true), ('א', false), ('נ', true)],
+        }
+    }
+}
+
+/// Decides whether a Hebrew word exists (the app sets macOS's spell
+/// checker). Without one, slots take their first option, or א for the
+/// common words below.
+static WORD_JUDGE: OnceLock<fn(&str) -> bool> = OnceLock::new();
+
+pub fn set_word_judge(judge: fn(&str) -> bool) {
+    let _ = WORD_JUDGE.set(judge);
+}
+
+/// Frequent words ending in א, for when there's no spell checker.
 const ENDS_IN_ALEF: &[&str] = &[
     "לא",
     "הוא",
@@ -119,7 +137,6 @@ const ENDS_IN_ALEF: &[&str] = &[
     "יצא",
     "מצא",
     "נמצא",
-    "נמצאת",
     "שוא",
     "דווקא",
     "אלא",
@@ -133,32 +150,41 @@ const ENDS_IN_ALEF: &[&str] = &[
     "כשלא",
     "פלא",
     "חטא",
-    "דוא",
 ];
 
-fn repair_with(s: &str, map: &HashMap<char, u8>) -> (String, usize) {
+fn is_hebrew_letter(c: char) -> bool {
+    ('\u{5d0}'..='\u{5ea}').contains(&c)
+}
+
+fn repair_with(s: &str, map: &HashMap<char, u8>, judge: Option<fn(&str) -> bool>) -> (String, usize) {
+    let hebrew = map.get(&'\u{5f3}') == Some(&0xD7);
     let mut out = String::with_capacity(s.len());
     let mut fixed = 0;
     let mut rest = s;
+    // A lost letter: the bare lead goes, the placeholder's bytes take its place.
+    let slot = |bytes: &mut Vec<u8>, kinds: &mut Vec<Slot>, kind: Slot| {
+        bytes.pop();
+        bytes.extend_from_slice(SLOT.encode_utf8(&mut [0; 3]).as_bytes());
+        kinds.push(kind);
+    };
+    let mut slots: Vec<(usize, Slot)> = Vec::new();
     while let Some(c) = rest.chars().next() {
         if !map.contains_key(&c) {
             out.push(c);
             rest = &rest[c.len_utf8()..];
             continue;
         }
-        // A run of mappable characters (plus 0xA0 stand-ins mid-character).
+        // A run of mappable characters (plus &nbsp; for a 0xA0 mid-character).
         let mut bytes = Vec::new();
+        let mut kinds = Vec::new();
         let mut end = 0;
         loop {
             let r = &rest[end..];
             if let Some(c) = r.chars().next()
                 && let Some(&b) = map.get(&c)
             {
-                // Two lead bytes in a row: the letter between lost its byte.
-                if b == 0xD7
-                    && let Some(lost) = lost_hebrew_byte(&bytes, Some('x'))
-                {
-                    bytes.push(lost);
+                if hebrew && b == 0xD7 && bytes.last() == Some(&0xD7) {
+                    slot(&mut bytes, &mut kinds, Slot::Mid);
                 }
                 bytes.push(b);
                 end += c.len_utf8();
@@ -170,8 +196,9 @@ fn repair_with(s: &str, map: &HashMap<char, u8>) -> (String, usize) {
                     end += "&nbsp;".len();
                     continue;
                 }
-                if let Some(lost) = lost_hebrew_byte(&bytes, r.chars().next()) {
-                    bytes.push(lost);
+                if hebrew && bytes.last() == Some(&0xD7) {
+                    let kind = if r.starts_with(' ') { Slot::EndSpace } else { Slot::End };
+                    slot(&mut bytes, &mut kinds, kind);
                 }
             }
             break;
@@ -179,6 +206,14 @@ fn repair_with(s: &str, map: &HashMap<char, u8>) -> (String, usize) {
         let run = &rest[..end];
         match std::str::from_utf8(&bytes) {
             Ok(good) if good != run => {
+                let mut k = kinds.into_iter();
+                for (i, ch) in good.char_indices() {
+                    if ch == SLOT
+                        && let Some(kind) = k.next()
+                    {
+                        slots.push((out.len() + i, kind));
+                    }
+                }
                 out.push_str(good);
                 fixed += 1;
             }
@@ -186,7 +221,130 @@ fn repair_with(s: &str, map: &HashMap<char, u8>) -> (String, usize) {
         }
         rest = &rest[end..];
     }
-    (out, fixed)
+    if slots.is_empty() {
+        return (out, fixed);
+    }
+    (fill_slots(&out, &slots, judge), fixed)
+}
+
+/// Bounds of the word (Hebrew letters and slots) around `at`.
+fn word_bounds(cs: &[char], at: usize) -> (usize, usize) {
+    let part = |c: char| is_hebrew_letter(c) || c == SLOT;
+    let mut from = at;
+    while from > 0 && part(cs[from - 1]) {
+        from -= 1;
+    }
+    let mut to = (at + 1).min(cs.len());
+    while to < cs.len() && part(cs[to]) {
+        to += 1;
+    }
+    (from, to)
+}
+
+/// More slots than this in one stretch: no search, best guesses only.
+const MAX_CLUSTER: usize = 5;
+
+/// Pick the slots' letters. Slots in the same stretch of words (a lost
+/// letter can merge or split words, so neighbours decide together) try
+/// every combination of their options; the one with the most real words
+/// wins, ties going to the likelier options. Without a judge each slot
+/// takes its first option (א for the common words ending in it).
+fn fill_slots(text: &str, slots: &[(usize, Slot)], judge: Option<fn(&str) -> bool>) -> String {
+    let mut cs: Vec<char> = text.chars().collect();
+    let char_at: HashMap<usize, usize> = text.char_indices().enumerate().map(|(ci, (bi, _))| (bi, ci)).collect();
+    let mut found: Vec<(usize, Slot)> = slots.iter().filter_map(|(b, k)| char_at.get(b).map(|&c| (c, *k))).collect();
+    found.sort_by_key(|(c, _)| *c);
+    // Neighbouring slots: only letters and at most one space between them.
+    let mut clusters: Vec<Vec<(usize, Slot)>> = Vec::new();
+    for s in found {
+        if let Some(last) = clusters.last_mut().and_then(|c| c.last().copied())
+            && cs[last.0 + 1..s.0].iter().all(|&c| is_hebrew_letter(c) || c == ' ')
+            && cs[last.0 + 1..s.0].iter().filter(|&&c| c == ' ').count() <= 1
+        {
+            clusters.last_mut().unwrap().push(s);
+            continue;
+        }
+        clusters.push(vec![s]);
+    }
+    // Right to left, so earlier indices stay valid as text changes length.
+    for cluster in clusters.iter().rev() {
+        let (first, last) = (cluster[0].0, cluster[cluster.len() - 1].0);
+        let from = word_bounds(&cs, first).0;
+        let mut to = word_bounds(&cs, last).1;
+        if cs.get(to) == Some(&' ') {
+            to = word_bounds(&cs, (to + 1).min(cs.len().saturating_sub(1))).1.max(to);
+        }
+        let region = &cs[from..to];
+        let render = |pick: &[usize]| -> Vec<char> {
+            let mut out = Vec::with_capacity(region.len());
+            let mut k = 0;
+            let mut skip_space = false;
+            for (off, &c) in region.iter().enumerate() {
+                if skip_space {
+                    skip_space = false;
+                    if c == ' ' {
+                        continue;
+                    }
+                }
+                if k < cluster.len() && from + off == cluster[k].0 {
+                    let (letter, takes) = cluster[k].1.options()[pick[k]];
+                    out.push(letter);
+                    skip_space = takes;
+                    k += 1;
+                } else {
+                    out.push(c);
+                }
+            }
+            out
+        };
+        let default: Vec<usize> = cluster
+            .iter()
+            .map(|&(at, kind)| {
+                // No judge: the common words ending in א keep it.
+                let (wf, _) = word_bounds(&cs, at);
+                let word: String =
+                    cs[wf..at].iter().map(|&c| if c == SLOT { 'א' } else { c }).chain(std::iter::once('א')).collect();
+                let alef = kind.options().iter().position(|o| *o == ('א', false));
+                match alef {
+                    Some(a) if kind != Slot::Mid && ENDS_IN_ALEF.contains(&word.as_str()) => a,
+                    _ => 0,
+                }
+            })
+            .collect();
+        let pick = match judge {
+            Some(judge) if cluster.len() <= MAX_CLUSTER => {
+                let score = |p: &[usize]| {
+                    let s: String = render(p).into_iter().collect();
+                    s.split(|c: char| !is_hebrew_letter(c)).filter(|w| w.chars().count() > 1 && judge(w)).count()
+                };
+                let sizes: Vec<usize> = cluster.iter().map(|(_, k)| k.options().len()).collect();
+                let mut best = default.clone();
+                let mut best_score = score(&best);
+                let mut p = vec![0; cluster.len()];
+                'all: loop {
+                    let sc = score(&p);
+                    if sc > best_score {
+                        best_score = sc;
+                        best = p.clone();
+                    }
+                    // Next combination (odometer).
+                    for d in (0..p.len()).rev() {
+                        p[d] += 1;
+                        if p[d] < sizes[d] {
+                            continue 'all;
+                        }
+                        p[d] = 0;
+                    }
+                    break;
+                }
+                best
+            }
+            _ => default,
+        };
+        let replaced = render(&pick);
+        cs.splice(from..to, replaced);
+    }
+    cs.into_iter().collect()
 }
 
 /// The repaired text, or None when `s` doesn't look like mojibake (or
@@ -198,7 +356,7 @@ pub fn repair(s: &str) -> Option<String> {
     tables()
         .iter()
         .filter(|map| signs(s, map) >= MIN_SIGNS)
-        .map(|map| repair_with(s, map))
+        .map(|map| repair_with(s, map, WORD_JUDGE.get().copied()))
         .filter(|(_, fixed)| *fixed >= MIN_FIXED)
         .max_by_key(|(_, fixed)| *fixed)
         .map(|(text, _)| text)
@@ -260,6 +418,22 @@ mod tests {
     fn one_stray_pair_is_not_enough() {
         let broken = garble("שלום", WINDOWS_1255);
         assert_eq!(repair(&format!("Hello {broken} there")), None);
+    }
+
+    #[test]
+    fn a_spell_checker_picks_between_alef_mem_and_nun() {
+        // A lost א became a space (the common case the guess got wrong), a
+        // lost ם was dropped at a word's end, and נ's nbsp became a space.
+        const WORDS: &[&str] = &["אני", "מאוד", "שמח", "לשמוע", "שלום", "חברים", "נא", "לענות", "היום"];
+        fn judge(w: &str) -> bool {
+            WORDS.contains(&w)
+        }
+        let original = "שלום חברים, אני מאוד שמח לשמוע. נא לענות היום";
+        let broken = garble(original, WINDOWS_1255)
+            .replace('\u{90}', " ") // א's byte turned into a space
+            .replace('\u{9d}', "") // ם's byte dropped
+            .replace('\u{a0}', " "); // נ's nbsp became a plain space
+        assert_eq!(repair_with(&broken, &tables()[0], Some(judge)).0, original);
     }
 
     #[test]
