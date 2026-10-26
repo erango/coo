@@ -219,17 +219,7 @@ fn AccountSection(
     let collapsed = collapsed_set.read().contains(&id);
     let name = s.account_label(&nav.account.id, &nav.account.email);
     let address = nav.account.email.clone();
-    let meta = match nav.account.provider {
-        ProviderKind::Microsoft => "Microsoft 365",
-        ProviderKind::Google => {
-            if nav.account.email.to_lowercase().ends_with("@gmail.com") {
-                "Gmail"
-            } else {
-                "Google Workspace"
-            }
-        }
-        ProviderKind::ICloud => "iCloud",
-    };
+    let meta = crate::state::provider_name(nav.account.provider, &nav.account.email);
     let letter = format::initials(&name).chars().next().unwrap_or('?');
     let current = mailbox.read().clone();
     let toggle_id = id.clone();

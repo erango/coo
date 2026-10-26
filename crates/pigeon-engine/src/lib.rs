@@ -22,7 +22,8 @@ use pigeon_core::actions::{FlushReport, flush_outbox};
 use pigeon_core::auth::{self, OAuthApp, TokenSource};
 use pigeon_core::bodies::{download_attachment, load_body};
 use pigeon_core::compose::{
-    AttachmentSource, Draft, ReplyContext, ReplyKind, Sender, ServerDraft, build_mime, default_sender, reply_draft,
+    AttachmentSource, Draft, ReplyContext, ReplyKind, Sender, ServerDraft, build_mime, default_sender,
+    icloud_send_addresses, icloud_senders, is_plain_address, reply_draft,
 };
 use pigeon_core::model::{Account, FolderRole, ProviderKind, StoredBody};
 use pigeon_core::provider::{DraftSync, MailSearch, MailSender};
@@ -309,6 +310,17 @@ impl Pigeon {
     pub async fn senders(&self) -> Result<Vec<Sender>> {
         let accounts = self.accounts()?;
         let per_account = join_all(accounts.iter().map(|a| async move {
+            if a.provider == ProviderKind::ICloud {
+                // No API lists iCloud aliases: what local mail shows plus
+                // what the user added (Settings › Accounts).
+                return match self.icloud_addresses(&a.id) {
+                    Ok(known) => icloud_senders(a, &known),
+                    Err(e) => {
+                        tracing::warn!(error = %e, "could not read iCloud send-from addresses");
+                        vec![Sender::primary(a)]
+                    }
+                };
+            }
             let mut out = vec![Sender::primary(a)];
             let aliases = match self.backend(a) {
                 Ok(b) => match &*b {
@@ -330,6 +342,43 @@ impl Pigeon {
         }))
         .await;
         Ok(per_account.into_iter().flatten().collect())
+    }
+
+    /// An iCloud account's known send-from addresses (detected + added by
+    /// hand, minus removed).
+    pub fn icloud_addresses(&self, account_id: &str) -> Result<Vec<String>> {
+        let store = self.store();
+        Ok(icloud_send_addresses(
+            &store.detected_icloud_addresses(account_id)?,
+            &store.send_address_overrides(account_id)?,
+        ))
+    }
+
+    /// Offer (or stop offering) a send-from address for an iCloud account.
+    pub fn set_send_address(&self, account_id: &str, email: &str, offered: bool) -> Result<()> {
+        let account = self.account(account_id)?;
+        if account.provider != ProviderKind::ICloud {
+            return Err(Error::Other("only iCloud accounts list their send-from addresses here".into()));
+        }
+        let email = email.trim();
+        if offered && !is_plain_address(email) {
+            return Err(Error::Other("enter a full address, like name@icloud.com".into()));
+        }
+        let now = pigeon_core::now_ms();
+        if offered {
+            self.store().add_send_address(account_id, email, now)
+        } else {
+            self.store().remove_send_address(account_id, email, now)
+        }
+    }
+
+    /// The address new mail from `account` comes from (iCloud: its first
+    /// iCloud Mail address, not a foreign Apple ID).
+    pub fn primary_sender(&self, account: &Account) -> Result<Sender> {
+        if account.provider == ProviderKind::ICloud {
+            return Ok(icloud_senders(account, &self.icloud_addresses(&account.id)?).swap_remove(0));
+        }
+        Ok(Sender::primary(account))
     }
 
     /// Save locally. The UI's copy may predate the last server sync, so a

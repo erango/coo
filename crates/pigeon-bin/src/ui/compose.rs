@@ -395,6 +395,16 @@ fn FromPicker() -> Element {
     let hue = s.hue(&d.from.account_id);
     let senders = s.senders.read().clone();
     let accounts = s.accounts.read().clone();
+    // The same address on two accounts (an iCloud Apple ID that's a Gmail
+    // address): say which account sends it.
+    let tag_for = |x: &Sender| {
+        senders
+            .iter()
+            .any(|o| o.account_id != x.account_id && o.address.email.eq_ignore_ascii_case(&x.address.email))
+            .then(|| s.account_tag(&x.account_id))
+            .flatten()
+    };
+    let from_tag = tag_for(&d.from);
 
     rsx! {
         span { style: "position:relative",
@@ -403,6 +413,7 @@ fn FromPicker() -> Element {
                 span { class: "dot" }
                 span { dir: "auto", "{d.from.address.name.clone().unwrap_or_default()}" }
                 span { class: "from-picker__addr", "{d.from.address.email}" }
+                if let Some(t) = from_tag { span { class: "from-picker__acct", dir: "auto", "{t}" } }
                 Icon { name: "chev-down", class: "icon--xs" }
             }
             if *open.read() {
@@ -418,6 +429,7 @@ fn FromPicker() -> Element {
                                         let selected = sender == d.from;
                                         let label = sender.address.email.clone();
                                         let name = sender.address.name.clone().unwrap_or_default();
+                                        let tag = tag_for(&sender);
                                         rsx! {
                                             button { class: "from-menu__item", r#type: "button", "data-hue": "{a.hue}",
                                                 "aria-selected": "{selected}",
@@ -428,6 +440,7 @@ fn FromPicker() -> Element {
                                                 span { class: "dot" }
                                                 span { dir: "auto", "{name}" }
                                                 span { class: "from-menu__addr", "{label}" }
+                                                if let Some(t) = tag { span { class: "from-menu__acct", dir: "auto", "{t}" } }
                                             }
                                         }
                                     }

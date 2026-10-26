@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 
 use dioxus::prelude::*;
 use pigeon_core::compose::{Draft, Sender};
-use pigeon_core::model::{Calendar, EventRow, FolderRole, FreeBusy, MessageRow, StoredBody};
+use pigeon_core::model::{Calendar, EventRow, FolderRole, FreeBusy, MessageRow, ProviderKind, StoredBody};
 use pigeon_engine::service::{
     AccountNav, Delta, InviteView, ListItem, Mailbox, ReaderView, ServerSearch, SyncState, Toast,
 };
@@ -341,15 +341,27 @@ impl AppState {
         }
     }
 
-    /// Key for a list item, matching `selected`.
-    /// How an account is named in the UI: its nickname, else its address.
+    /// How an account is named in the UI: its nickname, else its address,
+    /// plus the provider when another account has the same address (an
+    /// iCloud Apple ID that's a Gmail address next to that Gmail account).
     pub fn account_label(&self, account_id: &str, email: &str) -> String {
-        self.nicknames
-            .read()
-            .get(account_id)
-            .filter(|n| !n.trim().is_empty())
-            .cloned()
-            .unwrap_or_else(|| email.to_string())
+        let nickname = self.nicknames.read().get(account_id).cloned();
+        let accounts = self.accounts.read();
+        let provider = accounts.iter().find(|a| a.account.id == account_id).map(|a| a.account.provider);
+        let shared = accounts.iter().any(|a| a.account.id != account_id && a.account.email.eq_ignore_ascii_case(email));
+        account_label(nickname.as_deref(), email, provider.filter(|_| shared))
+    }
+
+    /// A short second label telling accounts apart (send-from pickers): the
+    /// nickname, else the provider. None with a single account.
+    pub fn account_tag(&self, account_id: &str) -> Option<String> {
+        let accounts = self.accounts.read();
+        if accounts.len() < 2 {
+            return None;
+        }
+        let a = accounts.iter().find(|a| a.account.id == account_id)?;
+        let nickname = self.nicknames.read().get(account_id).cloned();
+        Some(account_tag(nickname.as_deref(), a.account.provider, &a.account.email))
     }
 
     /// The account new messages come from (see [`default_from_account`]).
@@ -725,6 +737,36 @@ pub fn order_by<T>(items: Vec<T>, order: &[String], id: impl Fn(&T) -> &str) -> 
     indexed.into_iter().map(|(_, _, t)| t).collect()
 }
 
+/// How a provider is named next to an account: "Gmail" for gmail.com
+/// addresses, "Google Workspace" for other Google accounts.
+pub fn provider_name(provider: ProviderKind, email: &str) -> &'static str {
+    match provider {
+        ProviderKind::Microsoft => "Microsoft 365",
+        ProviderKind::Google if email.to_lowercase().ends_with("@gmail.com") => "Gmail",
+        ProviderKind::Google => "Google Workspace",
+        ProviderKind::ICloud => "iCloud",
+    }
+}
+
+/// An account's name: its nickname, else its address; `ambiguous` (the
+/// provider, when another account shares the address) is appended to a
+/// bare address.
+pub fn account_label(nickname: Option<&str>, email: &str, ambiguous: Option<ProviderKind>) -> String {
+    match (nickname.map(str::trim).filter(|n| !n.is_empty()), ambiguous) {
+        (Some(n), _) => n.to_string(),
+        (None, Some(p)) => format!("{email} · {}", provider_name(p, email)),
+        (None, None) => email.to_string(),
+    }
+}
+
+/// Second label for an account: its nickname, else its provider.
+pub fn account_tag(nickname: Option<&str>, provider: ProviderKind, email: &str) -> String {
+    nickname
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .map_or_else(|| provider_name(provider, email).to_string(), str::to_string)
+}
+
 /// The account new messages come from: the chosen default (`pref`, an
 /// account id) while it's still signed in, else the first account in
 /// sidebar order (`account_order` already applied), else none.
@@ -834,6 +876,19 @@ mod default_from_tests {
         assert!(!forget_default("b", ids(&["a", "b"]), ids(&["b", "a"])), "reordered, still there");
         assert!(!forget_default("b", ids(&[]), ids(&["a"])), "first load: keep the choice");
         assert!(!forget_default("", ids(&["a"]), ids(&[])));
+    }
+
+    #[test]
+    fn accounts_sharing_an_address_are_told_apart() {
+        let g = "me@gmail.com";
+        assert_eq!(account_label(None, g, None), g);
+        assert_eq!(account_label(None, g, Some(ProviderKind::ICloud)), "me@gmail.com · iCloud");
+        assert_eq!(account_label(None, g, Some(ProviderKind::Google)), "me@gmail.com · Gmail");
+        assert_eq!(account_label(Some(" Family "), g, Some(ProviderKind::ICloud)), "Family", "a nickname is enough");
+        assert_eq!(account_label(Some("  "), g, None), g);
+        assert_eq!(account_tag(None, ProviderKind::ICloud, g), "iCloud");
+        assert_eq!(account_tag(None, ProviderKind::Google, "me@work.com"), "Google Workspace");
+        assert_eq!(account_tag(Some("Work"), ProviderKind::Microsoft, "me@work.com"), "Work");
     }
 }
 
