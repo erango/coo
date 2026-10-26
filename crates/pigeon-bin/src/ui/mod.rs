@@ -1,4 +1,5 @@
 pub mod account_menu;
+pub mod add_account;
 mod agent_setup;
 mod avatar;
 mod bug_report;
@@ -142,6 +143,11 @@ pub fn App() -> Element {
                 }
                 // compose:<to list>[|<partial>] — new draft, chips + autocomplete
                 "compose" => new_message(s),
+                // add-account[:<email> | choose|<email> | icloud|<email> | waiting|google|<email>]
+                "add-account" => {
+                    let mut slot = s.add_account;
+                    slot.set(Some(add_account::debug_opening(arg)));
+                }
                 // search:<query>, with an optional `|` marking the caret
                 "search" if arg.contains('|') => search::open_at(s, arg),
                 "search" => search::open(s, arg, search::here(&s)),
@@ -576,6 +582,7 @@ pub fn App() -> Element {
         if *s.agent_setup_open.read() { agent_setup::AgentSetup {} }
         if *s.update_dialog.read() { update_dialog::UpdateDialog {} }
         if *s.bug_report_open.read() { bug_report::BugReportDialog {} }
+        if s.add_account.read().is_some() { add_account::AddAccountSheet {} }
     }
 }
 
@@ -1084,6 +1091,11 @@ fn on_key(s: AppState, key: &str) {
             if *s.update_dialog.read() {
                 let mut o = s.update_dialog;
                 return o.set(false);
+            }
+            if s.add_account.read().is_some() {
+                let (mut o, mut si) = (s.add_account, s.signing_in);
+                si.set(false);
+                return o.set(None);
             }
             if *s.palette_open.read() {
                 let mut p = s.palette_open;

@@ -168,7 +168,18 @@ pub enum Cmd {
         handle: i64,
     },
     SyncNow,
-    Login(ProviderKind),
+    /// Browser (OAuth) sign-in; `login_hint` pre-fills the provider's page
+    /// with the address typed in "Add account".
+    Login {
+        provider: ProviderKind,
+        login_hint: Option<String>,
+    },
+    /// "Add account": who handles mail for `email`. Answered with
+    /// `Delta::ProviderDetected` carrying the same `token`.
+    DetectProvider {
+        email: String,
+        token: u64,
+    },
     /// Connect a Zoom account in the browser (for Zoom calls on events).
     ZoomConnect,
     ZoomDisconnect,
@@ -364,6 +375,16 @@ pub enum Delta {
     LoginFailed {
         provider: ProviderKind,
         error: String,
+    },
+    /// A `Cmd::Login` / `Cmd::LoginPassword` finished: the account is
+    /// saved (new, or signed in again).
+    SignedIn {
+        account_id: String,
+    },
+    /// The answer to `Cmd::DetectProvider`.
+    ProviderDetected {
+        token: u64,
+        result: pigeon_core::provider_detect::Detection,
     },
     /// Unread inbox mail that arrived since the last sync (never on first
     /// sync), newest first. The UI decides whether to notify.
@@ -949,8 +970,15 @@ impl Service {
                 self.flush(account).await;
             }
             Cmd::SyncNow => tokio::spawn(self.clone().sync()).await.map_err(|e| Error::Other(e.to_string()))?,
-            Cmd::Login(provider) => {
-                let account = match self.app.login(provider, |url| tracing::info!(url, "sign-in URL")).await {
+            Cmd::DetectProvider { email, token } => {
+                let result = crate::detect::detect(&email).await;
+                self.send(Delta::ProviderDetected { token, result });
+            }
+            Cmd::Login { provider, login_hint } => {
+                // The URL can carry the hint (an address): telemetry scrubs
+                // both query strings and addresses from breadcrumbs.
+                let login = self.app.login(provider, login_hint.as_deref(), |url| tracing::info!(url, "sign-in URL"));
+                let account = match login.await {
                     Ok(a) => a,
                     Err(e) => {
                         self.send(Delta::LoginFailed { provider, error: e.to_string() });
@@ -963,6 +991,7 @@ impl Service {
                 };
                 self.toast(format!("Signed in as {}", account.email), false, None);
                 self.publish().await;
+                self.send(Delta::SignedIn { account_id: account.id.clone() });
                 tokio::spawn(self.clone().sync());
             }
             Cmd::ZoomConnect => match self.app.zoom_connect(|url| tracing::info!(url, "Zoom sign-in URL")).await {
@@ -1023,6 +1052,7 @@ impl Service {
                 *self.my_addresses.lock().await = None;
                 self.toast(format!("Signed in as {}", account.email), false, None);
                 self.publish().await;
+                self.send(Delta::SignedIn { account_id: account.id.clone() });
                 // The From pickers learn the new account's addresses.
                 if let Ok(senders) = self.app.senders().await {
                     self.send(Delta::Senders(senders));

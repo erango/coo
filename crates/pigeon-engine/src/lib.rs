@@ -9,6 +9,7 @@ mod actions;
 pub mod agent_setup;
 pub mod broker;
 mod calendar;
+pub mod detect;
 pub mod drive;
 pub mod notify;
 pub mod service;
@@ -122,8 +123,14 @@ impl Pigeon {
     }
 
     /// Interactive browser sign-in; adds (or refreshes) the account.
-    pub async fn login(&self, provider: ProviderKind, on_url: impl FnOnce(&str)) -> Result<Account> {
-        let app = OAuthApp::from_env(provider)?;
+    /// `login_hint` pre-fills the provider's sign-in page.
+    pub async fn login(
+        &self,
+        provider: ProviderKind,
+        login_hint: Option<&str>,
+        on_url: impl FnOnce(&str),
+    ) -> Result<Account> {
+        let app = OAuthApp::from_env(provider)?.with_login_hint(login_hint);
         let token = auth::authorize(&app, on_url).await?;
         let refresh =
             token.refresh_token.as_deref().ok_or_else(|| Error::Auth("provider returned no refresh token".into()))?;

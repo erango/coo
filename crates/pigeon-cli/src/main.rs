@@ -50,7 +50,8 @@ enum Cmd {
     /// password, prompted without echo or read from PIGEON_ICLOUD_PASSWORD).
     Login {
         provider: String,
-        /// iCloud address (prompted if omitted).
+        /// iCloud address (prompted if omitted); for Google and Microsoft,
+        /// pre-fills the sign-in page.
         #[arg(long)]
         email: Option<String>,
     },
@@ -477,8 +478,10 @@ async fn run(cli: Cli) -> pigeon_core::Result<()> {
                 let (email, password) = icloud_credentials(email)?;
                 app.login_password(kind, &email, &password).await?
             } else {
-                app.login(kind, |url| eprintln!("Opening the browser to sign in. If it does not open, visit:\n{url}\n"))
-                    .await?
+                app.login(kind, email.as_deref(), |url| {
+                    eprintln!("Opening the browser to sign in. If it does not open, visit:\n{url}\n")
+                })
+                .await?
             };
             emit(json, &AccountOut::from(&account), |a| println!("Signed in as {} ({})", a.email, a.id));
         }

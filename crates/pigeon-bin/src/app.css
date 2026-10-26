@@ -162,14 +162,6 @@ input.input--bare { border: 0; outline: none; }
 .agent-copy.btn--primary[data-state="copied"] { background: var(--success); color: var(--on-accent); }
 .agent-copy[data-state="failed"] { background: var(--error-soft); color: var(--error); filter: none; }
 
-/* iCloud sign-in (app-specific password) */
-.icloud-form { display: flex; flex-direction: column; gap: 18px; }
-.icloud-form__steps { display: flex; flex-direction: column; gap: 18px; padding: 18px; border-radius: var(--radius-lg); background: var(--bg-1); box-shadow: inset 0 0 0 1px var(--line); }
-.icloud-form__step { display: flex; gap: 14px; align-items: flex-start; }
-.icloud-form__num { width: 24px; height: 24px; flex: none; border-radius: 12px; display: flex; align-items: center; justify-content: center; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: var(--fw-semibold); }
-.icloud-form__step-title { font-size: 14px; font-weight: var(--fw-semibold); color: var(--text-1); }
-.icloud-form__step-body { margin-top: 4px; font-size: 13px; line-height: 19px; color: var(--text-2); }
-.icloud-form .banner--error { background: var(--error-soft); color: var(--error); }
 
 /* Settings scrolls as a whole: its sections must never shrink to fit
    (overflow-hidden lists like .account-list would collapse to 0). */
@@ -941,3 +933,55 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .icloud-send__row > .spacer { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .icloud-send__add { display: flex; gap: 8px; align-items: center; max-width: 420px; }
 .icloud-send__add > .input { flex: 1; min-width: 0; }
+
+/* "Add account" sheet (ui/add_account.rs): the design's .dialog over the
+   update scrim; onboarding embeds the same content without the card. */
+.add-account-scrim { padding-top: 96px; overflow-y: auto; }
+.add-account { width: min(440px, 100%); padding: 28px; border-radius: 16px; gap: 18px; animation: pg-pop-in var(--dur-base) var(--ease-standard); font-size: var(--fs-ui); color: var(--text-1); }
+.add-account--embedded { width: 100%; padding: 0; border-radius: 0; animation: none; display: flex; flex-direction: column; gap: 16px; font-size: var(--fs-ui); }
+.add-account__head { display: flex; flex-direction: column; gap: 4px; }
+.add-account__head--row { flex-direction: row; align-items: center; gap: 10px; }
+.add-account__title { margin: 0; font-size: 20px; line-height: 26px; font-weight: var(--fw-semibold); color: var(--text-1); }
+.add-account__sub { margin: 0; font-size: var(--fs-ui); line-height: 19px; color: var(--text-2); }
+.add-account__field { display: flex; flex-direction: column; gap: 6px; font-weight: var(--fw-medium); color: var(--text-1); }
+.add-account__field > .input { height: 40px; padding: 0 12px; font-size: 15px; font-weight: var(--fw-regular); }
+.add-account__password { letter-spacing: 0.06em; }
+.add-account__field-hint { font-size: 12px; line-height: 17px; font-weight: var(--fw-regular); color: var(--text-3); }
+.add-account__primary { height: 40px; font-size: 14px; border-radius: var(--radius-md); }
+.add-account__spin .icon { animation: pg-spin 1.2s linear infinite; }
+.add-account__divider { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-3); }
+.add-account__divider > span { flex: 1; height: 1px; background: var(--line); }
+.add-account__quick { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.add-account__quick > .btn { height: 40px; font-weight: var(--fw-medium); box-shadow: inset 0 0 0 1px var(--line); }
+.provider-logo { display: inline-flex; flex: none; align-items: center; justify-content: center; width: var(--logo, 16px); height: var(--logo, 16px); }
+.provider-logo > svg { width: 100%; height: 100%; }
+.add-account__card { display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 12px; --brand: 66, 133, 244; background: rgba(var(--brand), 0.08); box-shadow: inset 0 0 0 1px rgba(var(--brand), 0.25); }
+.add-account__card[data-provider="microsoft"] { --brand: 0, 164, 239; }
+.add-account__card[data-provider="icloud"] { --brand: 54, 147, 243; }
+.add-account__card-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.add-account__card-name { font-size: 14px; font-weight: var(--fw-semibold); }
+.add-account__card-line { color: var(--text-2); overflow-wrap: anywhere; }
+.add-account__hint { margin: 0; font-size: 12px; line-height: 17px; color: var(--text-3); display: block; }
+.add-account__hint .icon { vertical-align: -2px; }
+.add-account__question { display: flex; flex-direction: column; gap: 4px; }
+.add-account__question-title { font-size: 14px; font-weight: var(--fw-semibold); overflow-wrap: anywhere; }
+.add-account__choices { display: flex; flex-direction: column; gap: 6px; }
+.add-account__choice { height: 52px; gap: 12px; padding: 0 14px; border-radius: 10px; cursor: pointer; color: var(--text-1); font: inherit; }
+.add-account__choice .provider-choice__name { font-size: var(--fs-ui); font-weight: var(--fw-medium); }
+.add-account__choice .provider-choice__sub { font-size: 12px; }
+.add-account__choice:focus-visible, .add-account__quick > .btn:focus-visible, .add-account__back:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.add-account__note { padding: 12px 14px; border-radius: 10px; background: var(--info-soft); color: var(--text-2); font-size: 12px; line-height: 17px; }
+.add-account__note b { color: var(--text-1); font-weight: var(--fw-semibold); }
+.add-account__back { width: 28px; height: 28px; flex: none; display: grid; place-items: center; border: 0; border-radius: 6px; background: var(--bg-2); color: var(--text-2); cursor: pointer; }
+.add-account__back:hover { color: var(--text-1); background: var(--bg-1); box-shadow: inset 0 0 0 1px var(--line); }
+.add-account__id { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px; border-radius: var(--radius-md); background: var(--bg-2); color: var(--text-2); }
+.add-account__id-email { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-1); }
+.add-account__apple-link { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; font-weight: var(--fw-medium); }
+.add-account__steps { margin: -6px 0 0; padding-left: 18px; color: var(--text-2); font-size: 12px; line-height: 18px; }
+.add-account__error { background: var(--error-soft); color: var(--error); }
+.add-account__wait { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; padding: 8px 0; }
+.add-account__wait-icon { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 12px; background: var(--bg-2); color: var(--text-2); }
+.add-account__wait .btn { margin-top: 6px; }
+/* The sidebar's quiet "+ Add account" row after the accounts. */
+.nav-add-account { height: 30px; margin-top: 8px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 0; border-radius: var(--radius-sm); background: transparent; font: inherit; font-size: var(--fs-ui); color: var(--text-3); text-align: left; cursor: pointer; width: 100%; }
+.nav-add-account:hover { background: var(--bg-2); color: var(--text-2); }

@@ -1,6 +1,6 @@
 //! iCloud sign-in: Apple has no third-party OAuth for mail, so the user
-//! makes an app-specific password and pastes it here. Used by onboarding
-//! and Settings › Accounts.
+//! makes an app-specific password and pastes it here. A step of the
+//! "Add account" flow (ui/add_account.rs).
 
 use dioxus::prelude::*;
 use pigeon_core::compose::{is_icloud_mail, is_plain_address};
@@ -8,15 +8,15 @@ use pigeon_core::model::ProviderKind;
 use pigeon_engine::service::{Cmd, Secret};
 
 use super::Icon;
+use super::add_account::Flow;
 use crate::send_cmd;
-use crate::state::AppState;
 
 /// Where app-specific passwords are made (Sign-In and Security →
 /// App-Specific Passwords).
-pub const APPLE_ACCOUNT_URL: &str = "https://account.apple.com";
+pub const APPLE_ACCOUNT_URL: &str = "https://account.apple.com/account/manage";
 
-/// Debug builds: `PIGEON_DEBUG_OPEN=icloud` (onboarding) or `settings:icloud`
-/// opens the form on launch, for screenshots.
+/// Debug builds: `PIGEON_DEBUG_OPEN=icloud` opens onboarding on the iCloud
+/// step, for screenshots (the sheet's own hook is `add-account:icloud|…`).
 pub fn debug_open(want: &str) -> bool {
     cfg!(debug_assertions) && std::env::var("PIGEON_DEBUG_OPEN").is_ok_and(|v| v == want)
 }
@@ -47,107 +47,112 @@ pub fn validate(email: &str, password: &str, mail: &str) -> Option<&'static str>
     None
 }
 
+/// The "Add account" iCloud step: the Apple ID (prefilled from the sheet's
+/// address), the app-specific password, and how to make one.
 #[component]
-pub fn ICloudForm(on_cancel: EventHandler<()>) -> Element {
-    let s = use_context::<AppState>();
-    let mut email = use_signal(String::new);
+pub fn ICloudStep(flow: Flow) -> Element {
+    let mut email = flow.email;
     let mut password = use_signal(String::new);
     let mut mail = use_signal(String::new);
     let mut touched = use_signal(|| false);
-    let mut signing_in = s.signing_in;
-    // Toasts newer than the submit belong to this attempt.
-    let mut after_toast = use_signal(|| None::<u64>);
-    let busy = *signing_in.read();
+    // A full address came from the start step: show it, don't ask again.
+    let mut editing = use_signal(|| !is_plain_address(flow.email.peek().trim()));
+    let busy = *flow.waiting.read() == Some(ProviderKind::ICloud);
     let problem = validate(&email.read(), &password.read(), &mail.read());
     let ask_mail = needs_mail_address(&email.read());
-    let server_error = after_toast
-        .read()
-        .and_then(|after| s.toasts.read().iter().rev().find(|t| t.error && t.id >= after).map(|t| t.message.clone()));
+    let error = flow.error.read().clone();
 
-    let mut submit = move |_| {
+    let submit = move || {
         touched.set(true);
-        if validate(&email.read(), &password.read(), &mail.read()).is_some() || *signing_in.read() {
+        if validate(&email.peek(), &password.peek(), &mail.peek()).is_some() || flow.waiting.peek().is_some() {
             return;
         }
-        let next_id = s.toasts.read().iter().map(|t| t.id + 1).max().unwrap_or(0);
-        after_toast.set(Some(next_id));
-        signing_in.set(true);
+        let mut err = flow.error;
+        err.set(None);
+        flow.begin_attempt(ProviderKind::ICloud);
+        let apple_id = email.peek().trim().to_string();
         send_cmd(Cmd::LoginPassword {
             provider: ProviderKind::ICloud,
-            email: email.read().trim().to_string(),
-            password: Secret(password.read().clone()),
-            mail_address: needs_mail_address(&email.read())
-                .then(|| mail.read().trim().to_string())
+            mail_address: needs_mail_address(&apple_id)
+                .then(|| mail.peek().trim().to_string())
                 .filter(|m| !m.is_empty()),
+            email: apple_id,
+            password: Secret(password.peek().clone()),
         });
     };
+    let mut submit_enter = submit;
 
     rsx! {
-        div { class: "icloud-form",
-            div { class: "icloud-form__steps",
-                div { class: "icloud-form__step",
-                    span { class: "icloud-form__num", "1" }
-                    div {
-                        div { class: "icloud-form__step-title", "Create an app-specific password" }
-                        div { class: "icloud-form__step-body",
-                            "Apple doesn't let other apps use your Apple Account password. At account.apple.com, open "
-                            b { "Sign-In and Security → App-Specific Passwords" }
-                            ", create one named “Coo”, and copy it."
-                        }
-                        button { class: "btn btn--secondary btn--sm", r#type: "button", style: "margin-top:8px",
-                            onclick: move |_| { let _ = open::that_detached(APPLE_ACCOUNT_URL); },
-                            Icon { name: "browser", class: "icon--sm" } "Open account.apple.com"
-                        }
-                    }
-                }
-                div { class: "icloud-form__step",
-                    span { class: "icloud-form__num", "2" }
-                    div { style: "flex:1;display:flex;flex-direction:column;gap:10px",
-                        div { class: "icloud-form__step-title", "Sign in" }
-                        label { class: "field",
-                            "iCloud address"
-                            input { class: "input", r#type: "email", autocomplete: "username", placeholder: "name@icloud.com",
-                                value: "{email}", disabled: busy,
-                                oninput: move |e| email.set(e.value()),
-                            }
-                        }
-                        label { class: "field",
-                            "App-specific password"
-                            input { class: "input", r#type: "password", autocomplete: "off", placeholder: "abcd-efgh-ijkl-mnop",
-                                "aria-invalid": "{*touched.read() && problem.is_some()}",
-                                value: "{password}", disabled: busy,
-                                oninput: move |e| password.set(e.value()),
-                                onkeydown: move |e| if e.key() == Key::Enter { e.prevent_default(); submit(()) },
-                            }
-                            if *touched.read() && let Some(p) = problem { span { class: "field__error", "{p}" } }
-                        }
-                        if ask_mail {
-                            label { class: "field",
-                                "iCloud Mail address (optional)"
-                                input { class: "input", r#type: "email", autocomplete: "off", placeholder: "name@icloud.com",
-                                    value: "{mail}", disabled: busy, spellcheck: "false",
-                                    oninput: move |e| mail.set(e.value()),
-                                }
-                                span { class: "settings-field__hint",
-                                    "{super::settings::ICLOUD_SEND_HINT} Add more aliases later in Settings › Accounts."
-                                }
-                            }
-                        }
-                        if let Some(err) = server_error.filter(|_| !busy) {
-                            div { class: "banner banner--error", role: "alert", Icon { name: "alert", class: "icon--sm" } span { dir: "auto", "{err}" } }
-                        }
-                        div { style: "display:flex;gap:8px;align-items:center",
-                            button { class: "btn btn--primary", r#type: "button", disabled: busy, onclick: move |_| submit(()),
-                                if busy { "Checking…" } else { "Sign in to iCloud" }
-                            }
-                            button { class: "btn btn--ghost", r#type: "button", disabled: busy, onclick: move |_| on_cancel.call(()), "Cancel" }
-                        }
-                    }
+        div { class: "add-account__head add-account__head--row",
+            button { class: "add-account__back", r#type: "button", "aria-label": "Back", title: "Back", disabled: busy,
+                onclick: move |_| flow.back(),
+                Icon { name: "chev-left", class: "icon--sm" }
+            }
+            h1 { class: "add-account__title", "iCloud Mail" }
+        }
+        if *editing.read() {
+            label { class: "add-account__field",
+                "Apple ID"
+                input { class: "input", r#type: "email", autocomplete: "username", placeholder: "name@icloud.com",
+                    value: "{email}", disabled: busy, spellcheck: "false",
+                    onmounted: move |e| async move { let _ = e.set_focus(true).await; },
+                    oninput: move |e| email.set(e.value()),
                 }
             }
-            div { class: "onboard__fine", Icon { name: "lock", class: "icon--sm" }
-                "Coo checks the password with iCloud Mail and Calendar, then keeps it in your Keychain. You can revoke it any time at account.apple.com."
+        } else {
+            div { class: "add-account__id",
+                span { class: "provider-logo", style: "--logo:18px", "aria-hidden": "true",
+                    dangerous_inner_html: super::sidebar::provider_svg(ProviderKind::ICloud) }
+                span { class: "add-account__id-email", dir: "auto", "{email}" }
+                button { class: "link-btn", r#type: "button", disabled: busy, onclick: move |_| editing.set(true), "Change" }
             }
+        }
+        label { class: "add-account__field",
+            "App-specific password"
+            input { class: "input add-account__password", r#type: "password", autocomplete: "off", placeholder: "abcd-efgh-ijkl-mnop",
+                "aria-invalid": "{*touched.read() && problem.is_some()}",
+                value: "{password}", disabled: busy,
+                onmounted: move |e| async move { if !*editing.peek() { let _ = e.set_focus(true).await; } },
+                oninput: move |e| password.set(e.value()),
+                onkeydown: move |e| if e.key() == Key::Enter { e.prevent_default(); submit_enter() },
+            }
+            if *touched.read() && let Some(p) = problem { span { class: "field__error", "{p}" } }
+            span { class: "add-account__field-hint",
+                "Apple doesn't let other apps use your Apple ID password. Make a password just for Coo, then paste it here."
+            }
+        }
+        button { class: "link-btn add-account__apple-link", r#type: "button",
+            onclick: move |_| { let _ = open::that_detached(APPLE_ACCOUNT_URL); },
+            "Create one at account.apple.com"
+            Icon { name: "popout", class: "icon--xs" }
+        }
+        ol { class: "add-account__steps",
+            li { "Sign in, open Sign-In and Security, then App-Specific Passwords." }
+            li { "Name it “Coo” and copy the password it shows." }
+        }
+        if ask_mail {
+            label { class: "add-account__field",
+                span { "iCloud Mail address " span { class: "t-3", "(optional)" } }
+                input { class: "input", r#type: "email", autocomplete: "off", placeholder: "name@icloud.com",
+                    value: "{mail}", disabled: busy, spellcheck: "false",
+                    oninput: move |e| mail.set(e.value()),
+                }
+                span { class: "add-account__field-hint",
+                    "{super::settings::ICLOUD_SEND_HINT} Add more aliases later in Settings › Accounts."
+                }
+            }
+        }
+        if let Some(err) = error.filter(|_| !busy) {
+            div { class: "banner banner--error add-account__error", role: "alert",
+                Icon { name: "alert", class: "icon--sm" } span { dir: "auto", "{err}" } }
+        }
+        button { class: "btn btn--primary add-account__primary", r#type: "button", disabled: busy,
+            onclick: move |_| { let mut go = submit; go() },
+            if busy { "Checking…" } else { "Sign in" }
+        }
+        p { class: "add-account__hint",
+            Icon { name: "lock", class: "icon--xs" }
+            " Coo checks it with iCloud Mail and Calendar, then keeps it in your Keychain."
         }
     }
 }

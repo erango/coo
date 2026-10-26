@@ -177,6 +177,11 @@ fn MailNav(many: bool) -> Element {
             for (i, a) in accounts.iter().enumerate() {
                 AccountSection { key: "{a.account.id}", nav: a.clone(), first: i == 0, many, index: i, count: accounts.len(), drag, over }
             }
+            button { class: "nav-add-account", r#type: "button",
+                onclick: move |_| super::add_account::open(s, ""),
+                Icon { name: "plus", class: "icon--sm" }
+                "Add account"
+            }
         }
     }
 }
@@ -393,7 +398,13 @@ fn SyncFooter() -> Element {
 
 /// Small provider mark for account headers (label kept as the tooltip).
 fn provider_mark(kind: ProviderKind, label: &str) -> String {
-    let svg = match kind {
+    let svg = provider_svg(kind);
+    format!("<span class=\"provider-mark\" aria-label=\"{label}\">{svg}</span>")
+}
+
+/// The provider's logo, 12px by default (CSS can size it up).
+pub(crate) fn provider_svg(kind: ProviderKind) -> &'static str {
+    match kind {
         ProviderKind::Microsoft => {
             r##"<svg viewBox="0 0 16 16" width="12" height="12"><rect x="1" y="1" width="6.5" height="6.5" fill="#F25022"/><rect x="8.5" y="1" width="6.5" height="6.5" fill="#7FBA00"/><rect x="1" y="8.5" width="6.5" height="6.5" fill="#00A4EF"/><rect x="8.5" y="8.5" width="6.5" height="6.5" fill="#FFB900"/></svg>"##
         }
@@ -403,8 +414,7 @@ fn provider_mark(kind: ProviderKind, label: &str) -> String {
         ProviderKind::ICloud => {
             r##"<svg viewBox="0 0 24 16" width="15" height="10"><path fill="#3693F3" d="M19.3 6.6A6.5 6.5 0 0 0 6.9 4.5 4.6 4.6 0 0 0 0 8.8 4.4 4.4 0 0 0 4.4 13.2h14.3a3.4 3.4 0 0 0 .6-6.6z"/></svg>"##
         }
-    };
-    format!("<span class=\"provider-mark\" aria-label=\"{label}\">{svg}</span>")
+    }
 }
 
 #[cfg(test)]

@@ -719,6 +719,7 @@ fn AuthCard(account_id: String) -> Element {
         ProviderKind::Google => "Google",
         ProviderKind::ICloud => "iCloud",
     };
+    let email = acct.email.clone();
     rsx! {
         div { class: "auth-card", role: "alertdialog",
             div { class: "auth-card__icon", Icon { name: "lock" } }
@@ -729,13 +730,11 @@ fn AuthCard(account_id: String) -> Element {
             button { class: "btn btn--primary", r#type: "button",
                 onclick: move |_| {
                     if provider == ProviderKind::ICloud {
-                        let (mut open, mut form) = (s.settings_open, s.icloud_form);
-                        form.set(true);
-                        open.set(true);
+                        super::add_account::open_icloud(s, &email);
                     } else {
                         let mut si = s.signing_in;
                         si.set(true);
-                        send_cmd(Cmd::Login(provider));
+                        send_cmd(Cmd::Login { provider, login_hint: Some(email.clone()) });
                     }
                 },
                 "Sign in again"
