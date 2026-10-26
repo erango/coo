@@ -5,9 +5,12 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-/// Install the judge (once, at startup).
+/// Install the judge (once, at startup), when this Mac has a Hebrew
+/// dictionary; without one the repair keeps its plain guesses.
 pub fn install() {
-    pigeon_core::mojibake::set_word_judge(hebrew_word);
+    if imp::has_hebrew() {
+        pigeon_core::mojibake::set_word_judge(hebrew_word);
+    }
 }
 
 fn hebrew_word(word: &str) -> bool {
@@ -33,6 +36,10 @@ mod imp {
     use objc2_app_kit::NSSpellChecker;
     use objc2_foundation::{NSNotFound, NSString};
 
+    pub fn has_hebrew() -> bool {
+        NSSpellChecker::sharedSpellChecker().availableLanguages().iter().any(|l| l.to_string() == "he")
+    }
+
     pub fn check(word: &str) -> bool {
         let checker = NSSpellChecker::sharedSpellChecker();
         let (w, lang) = (NSString::from_str(word), NSString::from_str("he"));
@@ -56,6 +63,10 @@ mod imp {
     pub fn check(_word: &str) -> bool {
         false
     }
+
+    pub fn has_hebrew() -> bool {
+        false
+    }
 }
 
 #[cfg(test)]
@@ -63,6 +74,10 @@ mod tests {
     #[test]
     #[cfg(target_os = "macos")]
     fn knows_hebrew_words() {
+        // CI runners may have no Hebrew dictionary.
+        if !super::imp::has_hebrew() {
+            return;
+        }
         assert!(super::imp::check("שלום"));
         assert!(!super::imp::check("שלוא"));
     }
