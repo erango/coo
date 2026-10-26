@@ -15,6 +15,7 @@ pub mod identity;
 pub mod images;
 pub mod meeting;
 pub mod model;
+pub mod mojibake;
 pub mod paths;
 pub mod photos;
 pub mod provider;
