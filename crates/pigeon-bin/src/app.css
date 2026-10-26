@@ -1102,3 +1102,22 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .sound-kinds { display: grid; grid-template-columns: auto auto; justify-content: start; align-items: center; column-gap: 12px; row-gap: 6px; }
 .sound-kind { display: flex; align-items: center; gap: 8px; font-size: var(--fs-ui); color: var(--text-1); cursor: pointer; }
 .sound-kind > .icon { color: var(--text-3); }
+
+/* Dragging messages onto a folder (ui/mail_drag.rs). The pill is the drag
+   image: rendered offscreen for the moment WebKit snapshots it. */
+.drag-pill {
+  position: fixed; top: -100px; left: 0; max-width: 260px;
+  padding: 6px 12px; border-radius: 999px;
+  background: var(--accent); color: var(--on-accent);
+  font: var(--fw-semibold) 12px/1.3 var(--font-ui);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  box-shadow: var(--shadow-popover);
+}
+.nav-item[data-drop-target] {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+  color: var(--text-1);
+}
+.nav-item[data-drop-target] > .icon:first-child { color: var(--accent); }
+:root[data-mail-dragging] .nav-item:hover:not([data-drop-target]) { background: transparent; }
+:root[data-mail-dragging] .nav-item__pin { display: none !important; }

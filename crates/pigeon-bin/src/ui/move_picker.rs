@@ -88,7 +88,7 @@ pub fn rank(query: &str, names: &[(String, String)], recent: &[String]) -> Vec<u
     scored.into_iter().map(|(i, _)| i).collect()
 }
 
-fn remember(account_id: &str, folder_id: &str) {
+pub(super) fn remember(account_id: &str, folder_id: &str) {
     let key = format!("{account_id}|{folder_id}");
     crate::prefs::update(|p| {
         p.recent_move_targets.retain(|r| r != &key);

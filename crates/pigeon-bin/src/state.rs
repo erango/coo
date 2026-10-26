@@ -187,6 +187,8 @@ pub struct DrivePicked {
 #[derive(Clone, Copy)]
 pub struct AppState {
     pub move_picker: Signal<Option<MovePicker>>,
+    /// Rows being dragged toward a sidebar folder (ui/mail_drag.rs).
+    pub mail_drag: Signal<Option<Vec<ListItem>>>,
     /// A list row's right-click menu while open.
     pub row_menu: Signal<Option<crate::ui::row_menu::RowMenu>>,
     /// A reply started from a message window, as (account id, message id):
@@ -325,6 +327,7 @@ impl AppState {
     pub fn new() -> Self {
         AppState {
             move_picker: Signal::new(None),
+            mail_drag: Signal::new(None),
             row_menu: Signal::new(None),
             reply_to_window: Signal::new(None),
             window_focused: Signal::new(true),

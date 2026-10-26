@@ -13,6 +13,7 @@ mod icloud;
 mod invite;
 mod list;
 mod list_motion;
+mod mail_drag;
 pub mod mailframe;
 mod move_picker;
 mod multi;

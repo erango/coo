@@ -148,9 +148,11 @@ fn MailNav(many: bool) -> Element {
                if (h) { e.dataTransfer.setData('text/plain', h.dataset.accountDrag); e.dataTransfer.effectAllowed = 'move'; }\
              }, true);\
              document.addEventListener('dragover', e => {\
+               if (document.documentElement.dataset.mailDragging) return;\
                if (e.target.closest && e.target.closest('[data-account-drop]')) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }\
              }, true);",
         );
+        document::eval(super::mail_drag::JS);
     });
 
     let unified_unread = |role: FolderRole| -> u32 {
@@ -246,12 +248,14 @@ fn AccountSection(
         div { class: "nav-account", "data-account-drop": "{index}",
             "data-drop": drop_side,
             "data-dragging": (*drag.read() == Some(index)).then_some("true"),
-            ondragover: move |e| { e.prevent_default(); if *over_w.peek() != Some(index) { over_w.set(Some(index)); } },
-            ondrop: move |e| { e.prevent_default(); finish_drag(s, drag, over, index); },
+            ondragover: move |e| { e.prevent_default(); if drag.peek().is_some() && *over_w.peek() != Some(index) { over_w.set(Some(index)); } },
+            ondrop: move |e| { e.prevent_default(); if drag.peek().is_some() { finish_drag(s, drag, over, index); } },
         div { class: "nav-section", "data-hue": "{nav.hue}",
             style: if first { "margin-top:18px" } else { "" },
             draggable: if draggable { "true" } else { "false" },
             "data-account-drag": "{index}",
+            // Hovering a mail drag over it opens a collapsed account.
+            "data-spring": collapsed.then_some("true"),
             title: if draggable { "Drag to reorder" } else { "" },
             ondragstart: move |_| drag_w.set(Some(index)),
             ondragend: move |_| { drag_w.set(None); over_w.set(None); },
@@ -298,6 +302,7 @@ fn AccountSection(
                     }
                     if !rest.is_empty() {
                         button { class: "nav-item nav-item--child nav-group", r#type: "button", "aria-expanded": "{open}",
+                            "data-spring": (!open).then_some("true"),
                             onclick: move |_| {
                                 let mut o = s.folders_open;
                                 let mut v = o.read().clone();
@@ -341,8 +346,15 @@ fn FolderRow(account_id: String, info: FolderInfo, pinned: bool, child: bool) ->
     let custom = info.folder.role.is_none();
     let key = pin_key(&account_id, &info.folder.id);
     let pin_label = if pinned { "Unpin from the sidebar" } else { "Pin to the sidebar" };
+    // A drop target for dragged messages (ui/mail_drag.rs).
+    let droppable = super::mail_drag::drop_action(&info).is_some();
+    let here = super::mail_drag::is_current(&mailbox.read(), &account_id, &info);
+    let (drop_account, drop_info) = (account_id.clone(), info.clone());
     rsx! {
         a { class: "nav-item nav-item--child", "data-grouped": child.then_some("true"), href: "#",
+            "data-folder-drop": droppable.then_some(account_id.clone()),
+            "data-folder-current": here.then_some("true"),
+            ondrop: move |e| { e.prevent_default(); e.stop_propagation(); super::mail_drag::drop_on(s, &drop_account, &drop_info); },
             "aria-current": if active { "page" } else { "false" },
             "data-pinned": pinned.then_some("true"),
             onclick: move |e| { e.prevent_default(); mailbox.set(target.clone()); },
