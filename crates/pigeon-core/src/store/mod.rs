@@ -14,6 +14,7 @@ use crate::{Error, Result, now_ms, text};
 mod contacts;
 mod outbox;
 mod search;
+mod send_addresses;
 mod services;
 pub use outbox::undo_ops;
 
@@ -29,6 +30,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("009_services.sql"),
     include_str!("010_refetch_partial_graph.sql"),
     include_str!("011_account_scopes.sql"),
+    include_str!("012_send_addresses.sql"),
 ];
 
 /// Which folder a list query reads.

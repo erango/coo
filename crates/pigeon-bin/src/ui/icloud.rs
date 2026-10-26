@@ -3,6 +3,7 @@
 //! and Settings › Accounts.
 
 use dioxus::prelude::*;
+use pigeon_core::compose::{is_icloud_mail, is_plain_address};
 use pigeon_core::model::ProviderKind;
 use pigeon_engine::service::{Cmd, Secret};
 
@@ -20,15 +21,28 @@ pub fn debug_open(want: &str) -> bool {
     cfg!(debug_assertions) && std::env::var("PIGEON_DEBUG_OPEN").is_ok_and(|v| v == want)
 }
 
+/// The Apple ID is an address at another provider (a Gmail address, say):
+/// iCloud Mail then sends from the account's own iCloud address, which
+/// the form asks for.
+pub fn needs_mail_address(apple_id: &str) -> bool {
+    let id = apple_id.trim();
+    is_plain_address(id) && !is_icloud_mail(id)
+}
+
 /// Pure form check: an error to show, or None when it can be submitted.
-pub fn validate(email: &str, password: &str) -> Option<&'static str> {
+/// `mail` is the optional iCloud Mail address.
+pub fn validate(email: &str, password: &str, mail: &str) -> Option<&'static str> {
     let email = email.trim();
+    let mail = mail.trim();
     let pw: String = password.chars().filter(|c| !c.is_whitespace() && *c != '-').collect();
     if !email.contains('@') || email.starts_with('@') || email.ends_with('@') {
         return Some("Enter your full iCloud address, like name@icloud.com");
     }
     if pw.len() != 16 || !pw.chars().all(|c| c.is_ascii_alphabetic()) {
         return Some("App-specific passwords look like abcd-efgh-ijkl-mnop (16 letters)");
+    }
+    if needs_mail_address(email) && !mail.is_empty() && !is_plain_address(mail) {
+        return Some("Enter your iCloud Mail address, like name@icloud.com, or leave it empty");
     }
     None
 }
@@ -38,19 +52,21 @@ pub fn ICloudForm(on_cancel: EventHandler<()>) -> Element {
     let s = use_context::<AppState>();
     let mut email = use_signal(String::new);
     let mut password = use_signal(String::new);
+    let mut mail = use_signal(String::new);
     let mut touched = use_signal(|| false);
     let mut signing_in = s.signing_in;
     // Toasts newer than the submit belong to this attempt.
     let mut after_toast = use_signal(|| None::<u64>);
     let busy = *signing_in.read();
-    let problem = validate(&email.read(), &password.read());
+    let problem = validate(&email.read(), &password.read(), &mail.read());
+    let ask_mail = needs_mail_address(&email.read());
     let server_error = after_toast
         .read()
         .and_then(|after| s.toasts.read().iter().rev().find(|t| t.error && t.id >= after).map(|t| t.message.clone()));
 
     let mut submit = move |_| {
         touched.set(true);
-        if validate(&email.read(), &password.read()).is_some() || *signing_in.read() {
+        if validate(&email.read(), &password.read(), &mail.read()).is_some() || *signing_in.read() {
             return;
         }
         let next_id = s.toasts.read().iter().map(|t| t.id + 1).max().unwrap_or(0);
@@ -60,6 +76,9 @@ pub fn ICloudForm(on_cancel: EventHandler<()>) -> Element {
             provider: ProviderKind::ICloud,
             email: email.read().trim().to_string(),
             password: Secret(password.read().clone()),
+            mail_address: needs_mail_address(&email.read())
+                .then(|| mail.read().trim().to_string())
+                .filter(|m| !m.is_empty()),
         });
     };
 
@@ -102,6 +121,18 @@ pub fn ICloudForm(on_cancel: EventHandler<()>) -> Element {
                             }
                             if *touched.read() && let Some(p) = problem { span { class: "field__error", "{p}" } }
                         }
+                        if ask_mail {
+                            label { class: "field",
+                                "iCloud Mail address (optional)"
+                                input { class: "input", r#type: "email", autocomplete: "off", placeholder: "name@icloud.com",
+                                    value: "{mail}", disabled: busy, spellcheck: "false",
+                                    oninput: move |e| mail.set(e.value()),
+                                }
+                                span { class: "settings-field__hint",
+                                    "{super::settings::ICLOUD_SEND_HINT} Add more aliases later in Settings › Accounts."
+                                }
+                            }
+                        }
                         if let Some(err) = server_error.filter(|_| !busy) {
                             div { class: "banner banner--error", role: "alert", Icon { name: "alert", class: "icon--sm" } span { dir: "auto", "{err}" } }
                         }
@@ -123,13 +154,24 @@ pub fn ICloudForm(on_cancel: EventHandler<()>) -> Element {
 
 #[cfg(test)]
 mod tests {
-    use super::validate;
+    use super::{needs_mail_address, validate};
 
     #[test]
     fn form_validation() {
-        assert!(validate("name@icloud.com", "abcd-efgh-ijkl-mnop").is_none());
-        assert!(validate("name@icloud.com", "abcd efgh ijkl mnop").is_none());
-        assert!(validate("name", "abcd-efgh-ijkl-mnop").is_some());
-        assert!(validate("name@icloud.com", "my-apple-pass1").is_some());
+        assert!(validate("name@icloud.com", "abcd-efgh-ijkl-mnop", "").is_none());
+        assert!(validate("name@icloud.com", "abcd efgh ijkl mnop", "").is_none());
+        assert!(validate("name", "abcd-efgh-ijkl-mnop", "").is_some());
+        assert!(validate("name@icloud.com", "my-apple-pass1", "").is_some());
+        assert!(validate("me@gmail.com", "abcd-efgh-ijkl-mnop", "").is_none(), "the iCloud address is optional");
+        assert!(validate("me@gmail.com", "abcd-efgh-ijkl-mnop", "me@icloud.com").is_none());
+        assert!(validate("me@gmail.com", "abcd-efgh-ijkl-mnop", "me@").is_some());
+    }
+
+    #[test]
+    fn asks_for_the_mail_address_only_for_a_foreign_apple_id() {
+        assert!(needs_mail_address("me@gmail.com"));
+        assert!(!needs_mail_address("me@icloud.com"));
+        assert!(!needs_mail_address("me@me.com"));
+        assert!(!needs_mail_address("me@gmail"), "not until it's a full address");
     }
 }

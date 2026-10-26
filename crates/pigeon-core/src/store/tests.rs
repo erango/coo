@@ -772,3 +772,69 @@ fn patch_changes_state_and_keeps_the_header() {
     assert_eq!((got.subject.as_str(), got.received_at, got.thread_id.as_str()), ("Quarterly", 100, "t"));
     assert!(got.is_read);
 }
+
+#[test]
+fn icloud_addresses_are_detected_from_own_mail_and_overridable() {
+    let mut s = Store::open_in_memory().unwrap();
+    let ic = account(ProviderKind::ICloud, "me@gmail.com");
+    let other = account(ProviderKind::Google, "me@gmail.com");
+    s.upsert_account(&ic).unwrap();
+    s.upsert_account(&other).unwrap();
+    s.replace_folders(
+        &ic.id,
+        &[
+            folder("INBOX", Some(FolderRole::Inbox)),
+            folder("Sent Messages", Some(FolderRole::Sent)),
+            folder("Junk", Some(FolderRole::Spam)),
+            folder("Lists", None),
+        ],
+    )
+    .unwrap();
+    s.replace_folders(&other.id, &[folder("INBOX", Some(FolderRole::Inbox))]).unwrap();
+    let mail = |id: &str, from: &str, to: &[&str], cc: &[&str], folder: &str| {
+        let mut m = msg(id, id, 100, &[folder]);
+        m.from = Some(Address::new(None, from));
+        m.to = to.iter().map(|e| Address::new(None, e)).collect();
+        m.cc = cc.iter().map(|e| Address::new(None, e)).collect();
+        MailChange::Upsert(m)
+    };
+    let changes = [
+        // Sent: From is ours, whatever the recipients.
+        mail("s1", "Me@iCloud.com", &["a@x.io", "friend@icloud.com"], &[], "Sent Messages"),
+        mail("s2", "me@icloud.com", &["a@x.io"], &[], "Sent Messages"),
+        mail("s3", "me@gmail.com", &["a@x.io"], &[], "Sent Messages"),
+        // Incoming to one address: an alias.
+        mail("i1", "a@x.io", &["alias@me.com"], &[], "INBOX"),
+        mail("i2", "a@x.io", &[], &["old@mac.com"], "Lists"),
+        // Group mail: other people's iCloud addresses don't count.
+        mail("i3", "a@x.io", &["me@icloud.com", "pal@icloud.com"], &["mate@icloud.com"], "INBOX"),
+        // Spam to random addresses doesn't count.
+        mail("j1", "spam@x.io", &["random@icloud.com"], &[], "Junk"),
+        // Not an iCloud domain.
+        mail("i4", "a@x.io", &["me@gmail.com"], &[], "INBOX"),
+    ];
+    s.apply_mail(&ic.id, "mail", &changes, "1").unwrap();
+    // Another account's mail never leaks in.
+    s.apply_mail(&other.id, "mail", &[mail("g1", "a@x.io", &["someone@icloud.com"], &[], "INBOX")], "1").unwrap();
+
+    assert_eq!(s.detected_icloud_addresses(&ic.id).unwrap(), ["me@icloud.com", "alias@me.com", "old@mac.com"]);
+    assert_eq!(s.detected_icloud_addresses(&other.id).unwrap(), ["someone@icloud.com"]);
+
+    s.add_send_address(&ic.id, " Custom@Domain.dev ", 1).unwrap();
+    s.remove_send_address(&ic.id, "old@mac.com", 2).unwrap();
+    s.add_send_address(&ic.id, "x@icloud.com", 3).unwrap();
+    s.remove_send_address(&ic.id, "x@icloud.com", 4).unwrap();
+    assert_eq!(
+        s.send_address_overrides(&ic.id).unwrap(),
+        [
+            ("custom@domain.dev".to_string(), false),
+            ("old@mac.com".to_string(), true),
+            ("x@icloud.com".to_string(), true)
+        ]
+    );
+    s.add_send_address(&ic.id, "old@mac.com", 5).unwrap();
+    assert_eq!(s.send_address_overrides(&ic.id).unwrap().last(), Some(&("old@mac.com".to_string(), false)));
+
+    s.delete_account(&ic.id).unwrap();
+    assert!(s.send_address_overrides(&ic.id).unwrap().is_empty(), "go with the account");
+}

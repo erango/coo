@@ -290,7 +290,10 @@ pub fn Signatures() -> Element {
     });
     let editing = use_signal(|| None::<String>);
     let mut filter = use_signal(String::new);
-    let senders = s.senders.read().clone();
+    // Signatures go by address: one row even when two accounts share one.
+    let mut senders = s.senders.read().clone();
+    let mut seen = std::collections::HashSet::new();
+    senders.retain(|x| seen.insert(x.address.email.to_lowercase()));
     let q = filter.read().trim().to_lowercase();
     let shown: Vec<_> =
         senders.iter().filter(|x| q.is_empty() || x.address.email.to_lowercase().contains(&q)).cloned().collect();

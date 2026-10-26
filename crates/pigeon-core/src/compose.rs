@@ -24,6 +24,67 @@ impl Sender {
     }
 }
 
+/// Domains of iCloud Mail addresses.
+pub const ICLOUD_DOMAINS: [&str; 3] = ["icloud.com", "me.com", "mac.com"];
+
+/// Whether `email` is an iCloud Mail address (not an Apple ID at another
+/// provider).
+pub fn is_icloud_mail(email: &str) -> bool {
+    email.trim().rsplit_once('@').is_some_and(|(local, domain)| {
+        !local.is_empty() && ICLOUD_DOMAINS.iter().any(|d| domain.eq_ignore_ascii_case(d))
+    })
+}
+
+/// A bare `name@domain.tld` (what a send-from address typed by hand must be).
+pub fn is_plain_address(email: &str) -> bool {
+    let bad = |c: char| c.is_whitespace() || "<>,;:\"()[]\\".contains(c);
+    match email.split_once('@') {
+        Some((local, domain)) => {
+            !local.is_empty()
+                && !domain.contains('@')
+                && domain.split('.').count() >= 2
+                && domain.split('.').all(|p| !p.is_empty())
+                && !email.chars().any(bad)
+        }
+        None => false,
+    }
+}
+
+/// An iCloud account's send-from addresses: the ones added by hand (oldest
+/// first), then the detected ones (most used first), minus the removed
+/// ones; lowercased, no duplicates.
+pub fn icloud_send_addresses(detected: &[String], overrides: &[(String, bool)]) -> Vec<String> {
+    let removed: Vec<String> = overrides.iter().filter(|(_, r)| *r).map(|(e, _)| e.to_lowercase()).collect();
+    let mut out: Vec<String> = Vec::new();
+    let added = overrides.iter().filter(|(_, r)| !*r).map(|(e, _)| e);
+    for e in added.chain(detected) {
+        let e = e.trim().to_lowercase();
+        if !e.is_empty() && !removed.contains(&e) && !out.contains(&e) {
+            out.push(e);
+        }
+    }
+    out
+}
+
+/// Who an iCloud account sends as. Its SMTP only accepts its iCloud Mail
+/// addresses and aliases: when the Apple ID is an address at another
+/// provider and one of those is known, the Apple ID isn't offered and the
+/// first known address comes first. Otherwise the account's own address
+/// leads, followed by the rest.
+pub fn icloud_senders(account: &Account, addresses: &[String]) -> Vec<Sender> {
+    let at = |email: &str| Sender {
+        account_id: account.id.clone(),
+        address: Address::new(Some(&account.display_name), email),
+    };
+    let own = account.email.to_lowercase();
+    let mut out = Vec::new();
+    if is_icloud_mail(&own) || addresses.is_empty() {
+        out.push(Sender::primary(account));
+    }
+    out.extend(addresses.iter().filter(|e| e.to_lowercase() != own).map(|e| at(e)));
+    out
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReplyKind {
@@ -441,6 +502,70 @@ mod tests {
             display_name: "Me".into(),
         };
         assert_eq!(Sender::primary(&a), sender("google:me@x.io", "me@x.io"));
+    }
+
+    #[test]
+    fn icloud_domains_are_recognized() {
+        assert!(is_icloud_mail("me@icloud.com"));
+        assert!(is_icloud_mail(" Me@ME.com "));
+        assert!(is_icloud_mail("x@mac.com"));
+        assert!(!is_icloud_mail("me@gmail.com"));
+        assert!(!is_icloud_mail("me@noticloud.com"));
+        assert!(!is_icloud_mail("@icloud.com"));
+        assert!(!is_icloud_mail("icloud.com"));
+    }
+
+    #[test]
+    fn plain_addresses_only() {
+        assert!(is_plain_address("me@icloud.com"));
+        assert!(is_plain_address("first.last@sub.domain.dev"));
+        for bad in [
+            "",
+            "me",
+            "me@",
+            "@x.com",
+            "me@x",
+            "me@x..com",
+            "a@b@c.com",
+            "Me <me@x.com>",
+            "me @x.com",
+            "a@x.com,b@y.com",
+        ] {
+            assert!(!is_plain_address(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn icloud_addresses_merge_manual_and_detected() {
+        let detected = vec!["main@icloud.com".to_string(), "old@me.com".to_string(), "alias@icloud.com".to_string()];
+        let overrides = vec![
+            ("Custom@Domain.dev".to_string(), false),
+            ("old@me.com".to_string(), true),
+            ("main@icloud.com".into(), false),
+        ];
+        assert_eq!(
+            icloud_send_addresses(&detected, &overrides),
+            ["custom@domain.dev", "main@icloud.com", "alias@icloud.com"]
+        );
+        assert!(icloud_send_addresses(&[], &[("x@icloud.com".into(), true)]).is_empty());
+    }
+
+    #[test]
+    fn icloud_senders_drop_a_foreign_apple_id() {
+        let acct = |email: &str| Account {
+            id: format!("icloud:{email}"),
+            provider: crate::model::ProviderKind::ICloud,
+            email: email.into(),
+            display_name: "Me".into(),
+        };
+        let emails = |v: Vec<Sender>| v.into_iter().map(|s| s.address.email).collect::<Vec<_>>();
+        let gmail = acct("me@gmail.com");
+        let known = ["me@icloud.com".to_string(), "alias@icloud.com".to_string()];
+        assert_eq!(emails(icloud_senders(&gmail, &known)), ["me@icloud.com", "alias@icloud.com"]);
+        assert!(icloud_senders(&gmail, &known).iter().all(|s| s.account_id == gmail.id));
+        assert_eq!(emails(icloud_senders(&gmail, &[])), ["me@gmail.com"], "nothing known yet: as before");
+        let native = acct("me@icloud.com");
+        assert_eq!(emails(icloud_senders(&native, &known)), ["me@icloud.com", "alias@icloud.com"], "no duplicate");
     }
 
     /// Hebrew subject, names and mixed RTL/LTR body survive build → parse.

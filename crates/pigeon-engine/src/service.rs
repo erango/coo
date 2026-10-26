@@ -202,12 +202,22 @@ pub enum Cmd {
         provider: ProviderKind,
         email: String,
         password: Secret,
+        /// iCloud Mail address to send from, when the Apple ID is an
+        /// address at another provider.
+        mail_address: Option<String>,
     },
     /// Sign out and delete the account's local data.
     Logout {
         account_id: String,
     },
     LoadSenders,
+    /// Offer (`offered`) or stop offering an iCloud send-from address.
+    /// Answered with `Delta::Senders`.
+    SetSendAddress {
+        account_id: String,
+        email: String,
+        offered: bool,
+    },
     /// How many messages from `email` this account already has (sender
     /// card's "first time" check). Answered with `Delta::SenderSeen`.
     SenderSeen {
@@ -1003,10 +1013,20 @@ impl Service {
                     self.toast(format!("Couldn't let anyone with the link view: {e}"), true, None);
                 }
             }
-            Cmd::LoginPassword { provider, email, password } => {
+            Cmd::LoginPassword { provider, email, password, mail_address } => {
                 let account = self.app.login_password(provider, &email, &password.0).await?;
+                if let Some(addr) = mail_address.as_deref().map(str::trim).filter(|a| !a.is_empty())
+                    && let Err(e) = self.app.set_send_address(&account.id, addr, true)
+                {
+                    tracing::warn!(error = %e, "could not save the iCloud Mail address");
+                }
+                *self.my_addresses.lock().await = None;
                 self.toast(format!("Signed in as {}", account.email), false, None);
                 self.publish().await;
+                // The From pickers learn the new account's addresses.
+                if let Ok(senders) = self.app.senders().await {
+                    self.send(Delta::Senders(senders));
+                }
                 tokio::spawn(self.clone().sync());
             }
             Cmd::Logout { account_id } => {
@@ -1018,6 +1038,12 @@ impl Service {
                 self.publish().await;
             }
             Cmd::LoadSenders => self.send(Delta::Senders(self.app.senders().await?)),
+            Cmd::SetSendAddress { account_id, email, offered } => {
+                let r = self.app.set_send_address(&account_id, &email, offered);
+                *self.my_addresses.lock().await = None;
+                self.send(Delta::Senders(self.app.senders().await?));
+                r?;
+            }
             Cmd::SenderSeen { account_id, email } => {
                 let count = self.app.store().messages_from(&account_id, &email)?;
                 self.send(Delta::SenderSeen { account_id, email, count });
@@ -1054,7 +1080,7 @@ impl Service {
             }
             Cmd::NewDraft { from_account } => {
                 let from = match from_account.and_then(|id| self.app.account(&id).ok()) {
-                    Some(account) => Sender::primary(&account),
+                    Some(account) => self.app.primary_sender(&account)?,
                     None => self
                         .app
                         .senders()
@@ -1428,6 +1454,7 @@ mod tests {
             provider: ProviderKind::ICloud,
             email: "a@icloud.com".into(),
             password: Secret("hunter2".into()),
+            mail_address: None,
         };
         assert!(!format!("{c:?}").contains("hunter2"));
     }

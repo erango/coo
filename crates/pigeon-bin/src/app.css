@@ -13,6 +13,9 @@
 .from-menu__item { width: 100%; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 7px; background: transparent; color: var(--text-1); font-size: 13px; text-align: left; }
 .from-menu__item:hover, .from-menu__item[aria-selected="true"] { background: var(--bg-2); }
 .from-menu__addr { color: var(--text-3); }
+/* Which account sends an address that two accounts share. */
+.from-menu__acct, .from-picker__acct { margin-left: auto; padding: 0 6px; border: 1px solid var(--line); border-radius: 4px; color: var(--text-3); font-size: 11px; line-height: 16px; white-space: nowrap; }
+.from-picker__acct { margin-left: 0; }
 
 .cross-account-hint { padding: 0 16px 8px; font-size: 12px; color: var(--warning); }
 
@@ -929,3 +932,12 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .bug-dialog__sent { font-size: var(--fs-caption); color: var(--text-2); }
 .bug-dialog__sent ul { margin: 6px 0 0; padding-left: 16px; display: flex; flex-direction: column; gap: 2px; }
 .bug-dialog__sent p { margin: 6px 0 0; }
+/* Settings › Accounts › an iCloud account's send-from addresses */
+.account-detail--plain { background: transparent; gap: 8px; padding-top: 10px; padding-bottom: 14px; }
+.icloud-send__head { display: flex; flex-direction: column; gap: 2px; }
+.icloud-send__warn { color: var(--warning); }
+.icloud-send__list { display: flex; flex-direction: column; max-width: 420px; }
+.icloud-send__row { display: flex; align-items: center; gap: 8px; min-height: 30px; font-size: var(--fs-ui); color: var(--text-1); box-shadow: inset 0 -1px 0 var(--line); }
+.icloud-send__row > .spacer { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.icloud-send__add { display: flex; gap: 8px; align-items: center; max-width: 420px; }
+.icloud-send__add > .input { flex: 1; min-width: 0; }

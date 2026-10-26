@@ -3,6 +3,7 @@
 //! sidebar (page list, search, Back). Esc, Back or ⌘1/⌘2 leave.
 
 use dioxus::prelude::*;
+use pigeon_core::compose::{is_icloud_mail, is_plain_address};
 use pigeon_core::model::ProviderKind;
 use pigeon_engine::service::{AccountNav, Cmd};
 
@@ -19,7 +20,7 @@ pub const PAGES: &[(&str, &str, &str)] = &[
     (
         "Accounts",
         "at",
-        "account sign in sign out add microsoft google gmail icloud zoom video calls order nickname name rename default from sender",
+        "account sign in sign out add microsoft google gmail icloud zoom video calls order nickname name rename default from sender alias aliases address",
     ),
     ("Composing", "edit", "undo send later reply new message window docked"),
     ("Signatures", "text", "signature signatures sign-off footer html"),
@@ -458,12 +459,7 @@ fn AccountRow(
     on_cancel: EventHandler<()>,
 ) -> Element {
     let a = nav.account.clone();
-    let provider = match a.provider {
-        ProviderKind::Microsoft => "Microsoft 365",
-        ProviderKind::Google if a.email.to_lowercase().ends_with("@gmail.com") => "Gmail",
-        ProviderKind::Google => "Google Workspace",
-        ProviderKind::ICloud => "iCloud",
-    };
+    let provider = crate::state::provider_name(a.provider, &a.email);
     let s = use_context::<AppState>();
     let nickname = s.nicknames.read().get(&a.id).cloned().unwrap_or_default();
     let (id1, id2, id3, id4) = (a.id.clone(), a.id.clone(), a.id.clone(), a.id.clone());
@@ -497,6 +493,9 @@ fn AccountRow(
             }
             button { class: "btn btn--ghost btn--sm", r#type: "button", onclick: move |_| on_ask.call(id1.clone()), "Sign out" }
         }
+        if a.provider == ProviderKind::ICloud && !confirming {
+            ICloudSendFrom { account_id: a.id.clone(), email: a.email.clone() }
+        }
         if confirming {
             div { class: "account-detail",
                 div { class: "account-detail__msg",
@@ -513,6 +512,89 @@ fn AccountRow(
                     button { class: "btn btn--secondary", r#type: "button", onclick: move |_| on_cancel.call(()), "Cancel" }
                 }
             }
+        }
+    }
+}
+
+/// Hint under an iCloud account's send-from list.
+pub const ICLOUD_SEND_HINT: &str =
+    "iCloud sends only from your iCloud Mail addresses and aliases, not from an Apple ID at another provider.";
+
+/// Settings › Accounts, an iCloud account: the addresses it sends from
+/// (found in its mail, or added here) with remove buttons and an add box.
+/// The Apple ID itself is listed only when it's an iCloud address.
+#[component]
+fn ICloudSendFrom(account_id: String, email: String) -> Element {
+    let s = use_context::<AppState>();
+    // Fresh each time: detection follows what has synced since.
+    use_hook(|| send_cmd(Cmd::LoadSenders));
+    let mut draft = use_signal(String::new);
+    let mut touched = use_signal(|| false);
+    let own = email.to_lowercase();
+    let foreign = !is_icloud_mail(&own);
+    let listed: Vec<String> = s
+        .senders
+        .read()
+        .iter()
+        .filter(|x| x.account_id == account_id)
+        .map(|x| x.address.email.to_lowercase())
+        .filter(|e| !(foreign && *e == own))
+        .collect();
+    let typed = draft.read().trim().to_string();
+    let invalid = *touched.read() && !typed.is_empty() && !is_plain_address(&typed);
+    let (id_key, id_click, id_rm) = (account_id.clone(), account_id.clone(), account_id.clone());
+    let mut add = move |id: &str| {
+        touched.set(true);
+        let v = draft.read().trim().to_string();
+        if !is_plain_address(&v) {
+            return;
+        }
+        send_cmd(Cmd::SetSendAddress { account_id: id.to_string(), email: v, offered: true });
+        draft.set(String::new());
+        touched.set(false);
+    };
+    rsx! {
+        div { class: "account-detail account-detail--plain icloud-send",
+            div { class: "icloud-send__head",
+                span { class: "settings-field__label", "Send from" }
+                span { class: "settings-field__hint", "{ICLOUD_SEND_HINT}" }
+            }
+            if listed.is_empty() {
+                span { class: "settings-field__hint icloud-send__warn",
+                    "No iCloud Mail address found yet. Until you add one, messages from this account go out as {email}, which iCloud may refuse."
+                }
+            }
+            div { class: "icloud-send__list",
+                for addr in listed {
+                    {
+                        let removable = addr != own;
+                        let (id, a) = (id_rm.clone(), addr.clone());
+                        rsx! {
+                            div { class: "icloud-send__row", key: "{addr}",
+                                span { class: "spacer", "{addr}" }
+                                if removable {
+                                    button { class: "btn btn--ghost btn--sm", r#type: "button", title: "Stop offering this address",
+                                        "aria-label": "Remove {addr}",
+                                        onclick: move |_| send_cmd(Cmd::SetSendAddress { account_id: id.clone(), email: a.clone(), offered: false }),
+                                        "Remove"
+                                    }
+                                } else {
+                                    span { class: "settings-field__hint", style: "margin:0", "Apple Account" }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            div { class: "icloud-send__add",
+                input { class: "input", r#type: "email", placeholder: "name@icloud.com", "aria-label": "Add a send-from address",
+                    spellcheck: "false", value: "{draft}", "aria-invalid": "{invalid}",
+                    oninput: move |e| draft.set(e.value()),
+                    onkeydown: move |e| if e.key() == Key::Enter { e.prevent_default(); add(&id_key) },
+                }
+                button { class: "btn btn--secondary btn--sm", r#type: "button", disabled: typed.is_empty(), onclick: move |_| add(&id_click), "Add address" }
+            }
+            if invalid { span { class: "field__error", "Enter a full address, like name@icloud.com" } }
         }
     }
 }
