@@ -21,6 +21,13 @@ impl Store {
     /// one address (To + Cc), so other people's iCloud addresses on group
     /// mail aren't picked up. Drafts, Spam and Trash don't count.
     pub fn detected_icloud_addresses(&self, account_id: &str) -> Result<Vec<String>> {
+        Ok(self.send_address_candidates(account_id)?.into_iter().filter(|e| is_icloud_mail(e)).collect())
+    }
+
+    /// The same evidence for addresses at any domain, most used first: an
+    /// iCloud+ custom domain's addresses look like anyone else's until the
+    /// domain's mail servers are checked (the engine does that).
+    pub fn send_address_candidates(&self, account_id: &str) -> Result<Vec<String>> {
         let mut stmt = self.conn.prepare_cached(
             "SELECT lower(m.from_addr), 1 FROM messages m
              WHERE m.account_id = ?1 AND m.from_addr IS NOT NULL
@@ -40,7 +47,10 @@ impl Store {
         let mut score: HashMap<String, u32> = HashMap::new();
         for row in rows {
             let (email, sent) = row?;
-            let Some(email) = email.map(|e| e.trim().to_string()).filter(|e| is_icloud_mail(e)) else { continue };
+            let Some(email) = email.map(|e| e.trim().to_string()).filter(|e| crate::compose::is_plain_address(e))
+            else {
+                continue;
+            };
             *score.entry(email).or_default() += if sent { SENT_WEIGHT } else { RECEIVED_WEIGHT };
         }
         let mut out: Vec<(String, u32)> = score.into_iter().collect();
@@ -55,6 +65,16 @@ impl Store {
         )?;
         let rows = stmt.query_map([account_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Record a detected address (custom-domain alias) unless the user
+    /// already decided about it: a removed one stays removed.
+    pub fn note_send_address(&self, account_id: &str, email: &str, now: i64) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR IGNORE INTO send_addresses (account_id, email, removed, added_at) VALUES (?1, ?2, 0, ?3)",
+            params![account_id, email.trim().to_lowercase(), now],
+        )?;
+        Ok(())
     }
 
     /// Add (or bring back) a send-from address.

@@ -49,6 +49,8 @@ pub struct Pigeon {
     backends: Mutex<HashMap<String, Arc<Backend>>>,
     /// The OAuth token source behind each backend (the broker hands out its tokens).
     sources: Mutex<HashMap<String, Arc<TokenSource>>>,
+    /// Domains checked for iCloud+ mail hosting (send-from detection).
+    icloud_domains: Mutex<HashMap<String, bool>>,
 }
 
 #[derive(Debug)]
@@ -95,6 +97,7 @@ impl Pigeon {
             data_dir,
             backends: Mutex::default(),
             sources: Mutex::default(),
+            icloud_domains: Mutex::default(),
         })
     }
 
@@ -320,6 +323,7 @@ impl Pigeon {
             if a.provider == ProviderKind::ICloud {
                 // No API lists iCloud aliases: what local mail shows plus
                 // what the user added (Settings › Accounts).
+                self.confirm_custom_domain_aliases(a).await;
                 return match self.icloud_addresses(&a.id) {
                     Ok(known) => icloud_senders(a, &known),
                     Err(e) => {
@@ -349,6 +353,51 @@ impl Pigeon {
         }))
         .await;
         Ok(per_account.into_iter().flatten().collect())
+    }
+
+    /// Mail that came into this iCloud mailbox addressed (alone) to an
+    /// address at another domain: when that domain's mail is hosted by
+    /// iCloud (an iCloud+ custom domain), the address is the user's alias.
+    /// Each domain's MX records are looked up once per run; confirmed
+    /// addresses are recorded without undoing a removal.
+    async fn confirm_custom_domain_aliases(&self, account: &Account) {
+        let candidates = match self.store().send_address_candidates(&account.id) {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+        let mut by_domain: HashMap<String, Vec<String>> = HashMap::new();
+        for email in candidates {
+            if pigeon_core::compose::is_icloud_mail(&email) || email.eq_ignore_ascii_case(&account.email) {
+                continue;
+            }
+            if let Some(domain) = pigeon_core::provider_detect::domain_of(&email) {
+                by_domain.entry(domain).or_default().push(email);
+            }
+        }
+        for (domain, emails) in by_domain {
+            let known = self.icloud_domains.lock().ok().and_then(|m| m.get(&domain).copied());
+            let hosted = match known {
+                Some(h) => h,
+                None => {
+                    let host = detect::detect(&emails[0]).await.host;
+                    let h = matches!(
+                        host,
+                        pigeon_core::provider_detect::MailHost::ICloud
+                            | pigeon_core::provider_detect::MailHost::ICloudCustomDomain
+                    );
+                    if let Ok(mut m) = self.icloud_domains.lock() {
+                        m.insert(domain, h);
+                    }
+                    h
+                }
+            };
+            if hosted {
+                let now = pigeon_core::now_ms();
+                for e in emails {
+                    let _ = self.store().note_send_address(&account.id, &e, now);
+                }
+            }
+        }
     }
 
     /// An iCloud account's known send-from addresses (detected + added by

@@ -818,6 +818,10 @@ fn icloud_addresses_are_detected_from_own_mail_and_overridable() {
     s.apply_mail(&other.id, "mail", &[mail("g1", "a@x.io", &["someone@icloud.com"], &[], "INBOX")], "1").unwrap();
 
     assert_eq!(s.detected_icloud_addresses(&ic.id).unwrap(), ["me@icloud.com", "alias@me.com", "old@mac.com"]);
+    // Any domain, for the engine to confirm (an iCloud+ custom domain).
+    let all = s.send_address_candidates(&ic.id).unwrap();
+    assert!(all.contains(&"me@gmail.com".to_string()) && all.contains(&"alias@me.com".to_string()));
+    assert!(!all.contains(&"random@icloud.com".to_string()) && !all.contains(&"pal@icloud.com".to_string()));
     assert_eq!(s.detected_icloud_addresses(&other.id).unwrap(), ["someone@icloud.com"]);
 
     s.add_send_address(&ic.id, " Custom@Domain.dev ", 1).unwrap();
@@ -834,6 +838,13 @@ fn icloud_addresses_are_detected_from_own_mail_and_overridable() {
     );
     s.add_send_address(&ic.id, "old@mac.com", 5).unwrap();
     assert_eq!(s.send_address_overrides(&ic.id).unwrap().last(), Some(&("old@mac.com".to_string(), false)));
+
+    // A detected custom-domain address doesn't undo a removal.
+    s.remove_send_address(&ic.id, "help@shop.dev", 6).unwrap();
+    s.note_send_address(&ic.id, "help@shop.dev", 7).unwrap();
+    s.note_send_address(&ic.id, "new@shop.dev", 8).unwrap();
+    let o = s.send_address_overrides(&ic.id).unwrap();
+    assert!(o.contains(&("help@shop.dev".to_string(), true)) && o.contains(&("new@shop.dev".to_string(), false)));
 
     s.delete_account(&ic.id).unwrap();
     assert!(s.send_address_overrides(&ic.id).unwrap().is_empty(), "go with the account");
