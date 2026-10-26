@@ -30,21 +30,24 @@ pub fn shows_outgoing(mb: &Mailbox, role_of_folder: Option<FolderRole>, draft_ac
     }
 }
 
-fn title(s: &AppState, mb: &Mailbox) -> (String, String) {
+/// A role folder's name in unified views.
+pub fn role_title(role: FolderRole) -> &'static str {
+    match role {
+        FolderRole::Inbox => "Inbox",
+        FolderRole::Sent => "Sent",
+        FolderRole::Drafts => "Drafts",
+        FolderRole::Trash => "Trash",
+        FolderRole::Archive => "Archive",
+        FolderRole::Spam => "Spam",
+        FolderRole::Starred => "Starred",
+        FolderRole::Important => "Important",
+    }
+}
+
+/// A mailbox's (title, subtitle): folder name and whose it is.
+pub fn title(s: &AppState, mb: &Mailbox) -> (String, String) {
     match mb {
-        Mailbox::Unified(role) => {
-            let t = match role {
-                FolderRole::Inbox => "Inbox",
-                FolderRole::Sent => "Sent",
-                FolderRole::Drafts => "Drafts",
-                FolderRole::Trash => "Trash",
-                FolderRole::Archive => "Archive",
-                FolderRole::Spam => "Spam",
-                FolderRole::Starred => "Starred",
-                FolderRole::Important => "Important",
-            };
-            (t.to_string(), "All accounts".to_string())
-        }
+        Mailbox::Unified(role) => (role_title(*role).to_string(), "All accounts".to_string()),
         Mailbox::Folder { account_id, folder_id } => {
             let accounts = s.accounts.read();
             let acct = accounts.iter().find(|a| &a.account.id == account_id);
@@ -112,11 +115,14 @@ pub fn MailList() -> Element {
     let s = use_context::<AppState>();
     let mut threaded = s.threaded;
     let items = s.list.read().clone();
-    let (heading, sub) = if s.search.read().is_some() {
-        ("Search".to_string(), "All accounts".to_string())
-    } else {
-        title(&s, &s.mailbox.read())
-    };
+    // Search happens in place: the folder keeps its title.
+    let (heading, mut sub) = title(&s, &s.mailbox.read());
+    let searching = s.search.read().as_ref().map(|st| (st.query.trim().is_empty(), st.items.len()));
+    match searching {
+        Some((false, 1)) => sub = "1 result".into(),
+        Some((false, n)) => sub = format!("{n} results"),
+        _ => {}
+    }
     let now = chrono::Local::now();
     let many = s.accounts.read().len() > 4;
 
@@ -344,7 +350,15 @@ pub fn MailList() -> Element {
                     Icon { name: "edit" }
                 }
             }
-            if s.search.read().is_some() {
+            if searching.is_none() {
+                button { class: "list-search", r#type: "button", "aria-label": "Search {heading}",
+                    onclick: move |_| super::search::open_here(s),
+                    Icon { name: "search", class: "icon--sm" }
+                    span { class: "list-search__placeholder", dir: "auto", "Search {heading}" }
+                    kbd { class: "kbd", "⌘F" }
+                }
+            }
+            if searching.is_some() {
                 super::search::SearchPane {}
             } else if items.is_empty() && out_display.is_empty() && cold {
                 div { class: "list", role: "listbox", "aria-busy": "true",

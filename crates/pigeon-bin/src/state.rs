@@ -7,7 +7,8 @@ use dioxus::prelude::*;
 use pigeon_core::compose::{Draft, Sender};
 use pigeon_core::model::{Calendar, EventRow, FolderRole, FreeBusy, MessageRow, StoredBody};
 use pigeon_engine::service::{
-    AccountNav, Delta, InviteView, ListItem, Mailbox, ReaderView, ServerSearch, SyncState, Toast,
+    AccountNav, Delta, Elsewhere, InviteView, ListItem, Mailbox, ReaderView, SearchScope, ServerSearch, SyncState,
+    Toast,
 };
 
 use crate::RX;
@@ -112,6 +113,10 @@ pub struct SearchState {
     pub token: u64,
     pub items: Vec<MessageRow>,
     pub server: ServerSearch,
+    /// Where it looks (the scope chip); operators narrow further.
+    pub scope: SearchScope,
+    /// Local matches the scope leaves out.
+    pub elsewhere: Elsewhere,
     /// Last caret the search box reported: (its text then, byte offset).
     /// Only meaningful while that text is still the query.
     pub caret: Option<(String, usize)>,
@@ -747,13 +752,15 @@ fn apply(s: &mut AppState, delta: Delta) {
                 s.sending.set(false)
             }
             Delta::Contacts { token, items } => s.contacts.set((token, items)),
-            Delta::SearchResults { token, items, server } => {
+            Delta::SearchResults { token, items, server, elsewhere } => {
                 let current = s.search.peek().as_ref().map(|st| st.token);
                 if current == Some(token) {
-                    let nothing_local = items.is_empty() && server == ServerSearch::Idle;
+                    // Matches in other folders are offered instead.
+                    let nothing_local = items.is_empty() && elsewhere.total == 0 && server == ServerSearch::Idle;
                     if let Some(st) = s.search.write().as_mut() {
                         st.items = items;
                         st.server = server;
+                        st.elsewhere = elsewhere;
                     }
                     if nothing_local {
                         crate::ui::search::auto_server_search(*s, token);

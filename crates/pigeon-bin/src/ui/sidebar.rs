@@ -105,10 +105,11 @@ pub fn Sidebar() -> Element {
         aside { class: "sidebar",
             div { class: "sidebar__top" }
             div { class: "sidebar__controls",
-                button { class: "search-field", r#type: "button",
+                // Search lives in the list pane (⌘F); this is the palette.
+                button { class: "search-field", r#type: "button", title: "Go to a folder, run a command, or search everywhere",
                     onclick: move |_| { let mut p = s.palette_open; p.set(true); },
-                    Icon { name: "search", class: "icon--sm" }
-                    span { class: "spacer", style: "text-align:left", "Search" }
+                    Icon { name: "arrow-right", class: "icon--sm" }
+                    span { class: "spacer", style: "text-align:left", "Go to or do…" }
                     kbd { class: "kbd", "⌘K" }
                 }
                 div { class: "segmented segmented--block", role: "tablist",
