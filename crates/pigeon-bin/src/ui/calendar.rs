@@ -691,7 +691,7 @@ fn EventPopover(row: EventRow, on_close: EventHandler<()>) -> Element {
                             let icon = match r { "yes" => "check", "maybe" => "question", "no" => "x", _ => "dash" };
                             rsx! {
                                 div { class: "guest", "data-rsvp": "{r}", key: "{a.address.email}",
-                                    span { class: "avatar avatar--22", "data-hue": "{hue}",
+                                    span { class: "avatar avatar--22", "data-hue": "{pigeon_engine::service::hue_for(&a.address.email)}",
                                         "{format::initials(a.address.display())}"
                                         span { class: "rsvp", "data-rsvp": "{r}", Icon { name: icon } }
                                     }

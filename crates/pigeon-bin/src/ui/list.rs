@@ -577,9 +577,9 @@ pub fn Row(
             if avatar {
                 match h.from.clone() {
                     Some(from) => rsx! {
-                        super::avatar::Avatar { email: from.email.clone(), label: from.display().to_string(), hue, class: "avatar--36 row__avatar" }
+                        super::avatar::Avatar { email: from.email.clone(), label: from.display().to_string(), class: "avatar--36 row__avatar" }
                     },
-                    None => rsx! { span { class: "avatar avatar--36 row__avatar", "data-hue": "{hue}", "?" } },
+                    None => rsx! { span { class: "avatar avatar--36 row__avatar", "?" } },
                 }
             }
             div { class: "row__line",

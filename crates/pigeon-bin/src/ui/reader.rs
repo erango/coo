@@ -257,7 +257,7 @@ pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Elem
                             let who = m.from.as_ref().map(|a| a.display().to_string()).unwrap_or_default();
                             rsx! {
                                 div { class: "msg-collapsed", key: "{m.id}", onclick: move |_| { expanded.write().insert(id.clone()); },
-                                    super::avatar::Avatar { email: m.from.as_ref().map(|a| a.email.clone()).unwrap_or_default(), label: who.clone(), hue }
+                                    super::avatar::Avatar { email: m.from.as_ref().map(|a| a.email.clone()).unwrap_or_default(), label: who.clone() }
                                     span { class: "msg-collapsed__who", dir: "auto", "{who}" }
                                     span { class: "msg-collapsed__snip", dir: "auto", "{m.snippet}" }
                                     span { class: "msg-collapsed__time", "{format::row_time(m.received_at, chrono::Local::now())}" }
@@ -327,7 +327,6 @@ pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Elem
 #[component]
 fn Message(account_id: String, header: MessageHeader) -> Element {
     let s = use_context::<AppState>();
-    let hue = s.hue(&account_id);
     let key = (account_id.clone(), header.id.clone());
     let body = s.bodies.read().get(&key).cloned();
     let invite = body.as_ref().and_then(|b| b.invite.clone()).zip(s.invites.read().get(&key).cloned());
@@ -337,7 +336,7 @@ fn Message(account_id: String, header: MessageHeader) -> Element {
     rsx! {
         article { class: "msg",
             div { class: "msg-head",
-                super::avatar::Avatar { email: from.email.clone(), label: from.display().to_string(), hue, class: "avatar--32 avatar--ring" }
+                super::avatar::Avatar { email: from.email.clone(), label: from.display().to_string(), class: "avatar--32 avatar--ring" }
                 div {
                     div { class: "msg-head__from", dir: "auto",
                         super::sender_card::Person { account_id: account_id.clone(), message_id: Some(header.id.clone()), addr: from.clone(), sender: true,

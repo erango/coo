@@ -1,9 +1,11 @@
 //! A person's avatar: their photo when one is known (and photos are turned
-//! on), else initials on the account hue. Photos come from the engine
+//! on), else initials. Its color is the person's, from their address
+//! (`hue_for`, one of the theme's hues), so someone writing to two of your
+//! accounts looks the same in both. Photos come from the engine
 //! (`Cmd::Photo`), cached on disk; the UI never fetches anything itself.
 
 use dioxus::prelude::*;
-use pigeon_engine::service::Cmd;
+use pigeon_engine::service::{Cmd, hue_for};
 
 use crate::format;
 use crate::send_cmd;
@@ -14,7 +16,6 @@ pub fn Avatar(
     email: String,
     /// Display name or address, for initials and the alt text.
     label: String,
-    hue: u8,
     /// Extra classes: size (`avatar--32`), `avatar--ring`.
     #[props(default)]
     class: String,
@@ -22,6 +23,7 @@ pub fn Avatar(
     let s = use_context::<AppState>();
     let enabled = crate::prefs::get().photos_gravatar;
     let key = email.trim().to_lowercase();
+    let hue = hue_for(if key.is_empty() { &label } else { &key });
     let photo = if enabled { s.photos.read().get(&key).cloned().flatten() } else { None };
     // Ask once per address (the map remembers "asked", even with no photo).
     let ask = key.clone();

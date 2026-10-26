@@ -495,7 +495,7 @@ pub fn EventEditor() -> Element {
                                 div { style: "display:flex;gap:6px;flex-wrap:wrap;margin-top:8px",
                                     for g in guests.iter() {
                                         span { class: "guest-chip", key: "{g.email}",
-                                            span { class: "avatar avatar--22", "data-hue": "{hue}", "{format::initials(g.display())}" }
+                                            span { class: "avatar avatar--22", "data-hue": "{pigeon_engine::service::hue_for(&g.email)}", "{format::initials(g.display())}" }
                                             span { dir: "auto", "{g.display()}" }
                                         }
                                     }
