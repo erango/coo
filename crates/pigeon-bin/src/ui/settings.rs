@@ -224,20 +224,22 @@ fn Appearance() -> Element {
                     }
                 }
             }
-            div { class: "settings-field",
+            div { class: "settings-field settings-field--top",
                 span { class: "settings-field__label", "Message list" }
-                div { class: "segmented", role: "radiogroup", "aria-label": "Message list style",
+                div { class: "theme-grid list-style-grid", role: "radiogroup", "aria-label": "Message list style",
                     for st in crate::state::ListStyle::ALL {
-                        button { role: "radio", "aria-selected": "{style_now == st}", "aria-checked": "{style_now == st}",
+                        button { class: "theme-card", r#type: "button", role: "radio", key: "{st.as_pref()}",
+                            "aria-checked": "{style_now == st}",
                             onclick: move |_| {
                                 list_style.set(st);
                                 prefs::update(move |p| p.list_style = st.as_pref().to_string());
                             },
-                            "{st.label()}"
+                            ListStylePreview { style: st, avatars: avatars_on }
+                            div { class: "theme-card__name", "{st.label()}" }
+                            div { class: "theme-card__variants", "{st.blurb()}" }
                         }
                     }
                 }
-                span { class: "settings-field__hint", "Cards give each message its own box; day bands group a day's mail into one panel with two-line rows." }
             }
             label { class: "settings-field",
                 span { class: "settings-field__label", "Sender avatars" }
@@ -258,6 +260,30 @@ fn Appearance() -> Element {
                     button { class: "icon-btn icon-btn--sm", "aria-label": "Bigger text (⌘+)", onclick: move |_| step(Step::Bigger), "+" }
                     button { class: "btn btn--ghost btn--sm", r#type: "button", disabled: pct == 100.0,
                         onclick: move |_| step(Step::Reset), "Reset" kbd { class: "kbd", "⌘0" } }
+                }
+            }
+        }
+    }
+}
+
+/// A miniature message list in `style`: three placeholder rows (with
+/// avatar dots when `avatars`), drawn with the real list colors.
+#[component]
+fn ListStylePreview(style: crate::state::ListStyle, avatars: bool) -> Element {
+    let rows = if style == crate::state::ListStyle::Bands { 4 } else { 3 };
+    rsx! {
+        div { class: "lsp", "data-style": style.as_pref(), "data-avatars": avatars.then_some("true"), "aria-hidden": "true",
+            span { class: "lsp__group" }
+            div { class: "lsp__rows",
+                for i in 0..rows {
+                    div { class: "lsp__row", key: "{i}", "data-unread": (i == 0).then_some("true"),
+                        if avatars { span { class: "lsp__avatar", "data-hue": "{i % 4 + 1}" } }
+                        span { class: "lsp__lines",
+                            span { class: "lsp__who" }
+                            span { class: "lsp__text" }
+                            if style != crate::state::ListStyle::Bands { span { class: "lsp__text lsp__text--short" } }
+                        }
+                    }
                 }
             }
         }

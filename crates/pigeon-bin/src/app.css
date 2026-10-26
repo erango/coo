@@ -832,20 +832,53 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 
 /* List styles (Settings › Appearance; state::ListStyle). Row heights must
    match ListStyle::metrics: the list is virtualized on them. */
-.list[data-style="cards"], .list[data-style="bands"] {
-  --card: color-mix(in srgb, var(--bg-3) 60%, var(--bg-0));
-  --card-hover: color-mix(in srgb, var(--bg-2) 60%, var(--card));
-  --card-selected: color-mix(in srgb, var(--accent) 9%, var(--card));
-  background: var(--bg-1);
+/* Card surfaces by mode (mirrors tokens.css's selectors; palettes only
+   change the bg tokens these mix). Dark: cards sit lighter than the ground
+   and unread ones lighter still; light: white cards on bg-1. */
+:root, :root[data-theme="dark"] {
+  --list-ground: var(--bg-0);
+  --card: color-mix(in srgb, var(--bg-1) 40%, var(--bg-2));
+  --card-unread: color-mix(in srgb, var(--bg-2) 55%, var(--bg-3));
+  --card-edge: 0 0 0 1px color-mix(in srgb, var(--text-1) 5%, transparent);
+  --card-lift: 0 0 0 1px color-mix(in srgb, var(--text-1) 9%, transparent), 0 2px 8px rgba(0, 0, 0, 0.35);
 }
+:root[data-theme="light"] {
+  --list-ground: var(--bg-1);
+  --card: var(--bg-0);
+  --card-unread: var(--bg-0);
+  --card-edge: 0 0 0 1px rgba(15, 17, 20, 0.05), 0 1px 2px rgba(15, 17, 20, 0.04);
+  --card-lift: 0 0 0 1px rgba(15, 17, 20, 0.08), 0 2px 8px rgba(15, 17, 20, 0.08);
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]):not([data-theme="light"]) {
+    --list-ground: var(--bg-1);
+    --card: var(--bg-0);
+    --card-unread: var(--bg-0);
+    --card-edge: 0 0 0 1px rgba(15, 17, 20, 0.05), 0 1px 2px rgba(15, 17, 20, 0.04);
+    --card-lift: 0 0 0 1px rgba(15, 17, 20, 0.08), 0 2px 8px rgba(15, 17, 20, 0.08);
+  }
+}
+.list[data-style="cards"], .list[data-style="bands"] {
+  --card-hover: color-mix(in srgb, var(--text-1) 3%, var(--card));
+  --card-selected: color-mix(in srgb, var(--accent) 9%, var(--card));
+  background: var(--list-ground);
+}
+/* Cards: 72 px boxes, 6 px apart (a bottom margin only: vertical margins
+   between rows collapse), as in the design. Hover lifts the card; the
+   selected card gets an accent ring, the open one a firmer ring and tint. */
 .list[data-style="cards"] .list-group { height: 32px; padding-left: 22px; }
 .list[data-style="cards"] .row {
-  height: 72px; margin: 3px 10px; padding: 9px 14px 0 24px; border-radius: 12px;
-  background: var(--card); box-shadow: 0 0 0 1px var(--line);
+  height: 72px; margin: 0 10px 6px; padding: 9px 12px 0 24px; border-radius: 12px;
+  background: var(--card); box-shadow: var(--card-edge);
+  transition: box-shadow var(--dur-fast) var(--ease-standard), background-color var(--dur-fast) var(--ease-standard);
 }
-.list[data-style="cards"] .row:hover { background: var(--card-hover); }
-.list[data-style="cards"] .row[aria-selected="true"] { background: var(--card-selected); }
-.list[data-style="cards"] .row[data-focused] { box-shadow: inset 0 0 0 1.5px var(--focus-ring); }
+.list[data-style="cards"] .row[data-unread] { background: var(--card-unread); }
+.list[data-style="cards"] .row[data-unread] .row__time { color: var(--accent); font-weight: var(--fw-semibold); }
+.list[data-style="cards"] .row:hover { background: var(--card-hover); box-shadow: var(--card-lift); }
+.list[data-style="cards"] .row[aria-selected="true"] {
+  background: var(--card); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+.list[data-style="cards"] .row[data-focused] { background: var(--card-selected); box-shadow: inset 0 0 0 1.5px var(--focus-ring); }
 .list[data-style="cards"] .row[data-unread]::before { left: 10px; top: 16px; }
 
 .list[data-style="bands"] .list-group { height: 34px; padding: 0 22px 6px; }
@@ -985,3 +1018,29 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 /* The sidebar's quiet "+ Add account" row after the accounts. */
 .nav-add-account { height: 30px; margin-top: 8px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 0; border-radius: var(--radius-sm); background: transparent; font: inherit; font-size: var(--fs-ui); color: var(--text-3); text-align: left; cursor: pointer; width: 100%; }
 .nav-add-account:hover { background: var(--bg-2); color: var(--text-2); }
+
+/* Settings › Appearance › Message list: miniature lists (ui/settings.rs
+   ListStylePreview) drawn with the real list colors (--list-ground, --card). */
+.list-style-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); max-width: 520px; }
+.lsp { height: 96px; border-radius: var(--radius-md); overflow: hidden; padding: 8px 8px 0; box-sizing: border-box; display: flex; flex-direction: column; gap: 5px; background: var(--bg-0); box-shadow: inset 0 0 0 1px var(--line); }
+.lsp__group { width: 34%; height: 4px; border-radius: 2px; background: var(--text-3); opacity: 0.45; flex: none; }
+.lsp__rows { display: flex; flex-direction: column; gap: 6px; }
+.lsp__row { display: flex; gap: 6px; align-items: flex-start; padding: 2px 4px; }
+.lsp__avatar { width: 12px; height: 12px; border-radius: 50%; flex: none; background: rgba(var(--hue-rgb, 123, 147, 255), 0.35); }
+.lsp__avatar[data-hue="1"] { --hue-rgb: var(--hue-1-rgb); }
+.lsp__avatar[data-hue="2"] { --hue-rgb: var(--hue-2-rgb); }
+.lsp__avatar[data-hue="3"] { --hue-rgb: var(--hue-3-rgb); }
+.lsp__avatar[data-hue="4"] { --hue-rgb: var(--hue-4-rgb); }
+.lsp__lines { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.lsp__lines > span { height: 3px; border-radius: 2px; background: var(--text-3); opacity: 0.35; }
+.lsp__who { width: 45%; opacity: 0.7 !important; background: var(--text-2) !important; }
+.lsp__row[data-unread] .lsp__who { background: var(--text-1) !important; opacity: 0.85 !important; }
+.lsp__text { width: 88%; }
+.lsp__text--short { width: 60%; }
+.lsp[data-style="cards"], .lsp[data-style="bands"] { background: var(--list-ground); }
+.lsp[data-style="cards"] .lsp__rows { gap: 4px; }
+.lsp[data-style="cards"] .lsp__row { padding: 5px 6px; border-radius: 5px; background: var(--card); box-shadow: var(--card-edge); }
+.lsp[data-style="bands"] .lsp__rows { gap: 0; border-radius: 5px; overflow: hidden; background: var(--card); box-shadow: var(--card-edge); }
+.lsp[data-style="bands"] .lsp__row { padding: 4px 6px; box-shadow: inset 0 -1px 0 var(--line); }
+.lsp[data-style="bands"] .lsp__row:last-child { box-shadow: none; }
+.lsp[data-style="bands"] .lsp__avatar { width: 9px; height: 9px; }

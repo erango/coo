@@ -80,6 +80,15 @@ impl ListStyle {
         }
     }
 
+    /// One line under the preview in Settings.
+    pub fn blurb(self) -> &'static str {
+        match self {
+            ListStyle::Classic => "Rows separated by space",
+            ListStyle::Cards => "Each message in its own box",
+            ListStyle::Bands => "One panel per day, denser rows",
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             ListStyle::Classic => "Classic",
