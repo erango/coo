@@ -888,7 +888,7 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
   background: var(--card); box-shadow: inset 1px 0 0 var(--line), inset -1px 0 0 var(--line);
 }
 .list[data-style="bands"] .row__line { grid-column: 1 / -1; }
-.list[data-style="bands"] .row__snippet { padding-left: 6px; }
+.list[data-style="bands"] .row__snippet { padding-left: 4px; gap: 4px; }
 .list[data-style="bands"] .row__snippet::before { content: "\2014"; color: var(--text-3); }
 .list[data-style="bands"] .row::after {
   content: ""; position: absolute; left: 26px; right: 0; bottom: 0; height: 1px; background: var(--line);
@@ -907,9 +907,19 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .row__avatar { position: absolute; left: 20px; top: 12px; }
 .list[data-avatars] .row { padding-left: 66px; }
 .list[data-avatars][data-style="cards"] .row__avatar { left: 20px; top: 13px; }
-.list[data-avatars][data-style="bands"] .row { padding-left: 62px; }
-.list[data-avatars][data-style="bands"] .row__avatar { width: 32px; height: 32px; font-size: 12px; left: 20px; top: 14px; }
-.list[data-avatars][data-style="bands"] .row::after { left: 62px; }
+/* With avatars the avatar carries the account color, so the row's account
+   dot goes; unread becomes a small badge on the avatar's corner. */
+.list[data-avatars] .row__line > .dot { display: none; }
+.list[data-avatars] .row[data-unread]::before {
+  display: block; z-index: 1; left: 17px; top: 10px; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--hue, var(--unread)); box-shadow: 0 0 0 2px var(--card, var(--bg-0));
+}
+.list[data-avatars][data-style="cards"] .row[data-unread]::before { left: 17px; top: 11px; }
+/* Day bands: two-line rows, so a smaller avatar centered on them. */
+.list[data-avatars][data-style="bands"] .row { padding-left: 54px; }
+.list[data-avatars][data-style="bands"] .row__avatar { width: 28px; height: 28px; font-size: 11px; left: 16px; top: 16px; }
+.list[data-avatars][data-style="bands"] .row[data-unread]::before { left: 13px; top: 13px; width: 9px; height: 9px; }
+.list[data-avatars][data-style="bands"] .row::after { left: 54px; }
 
 /* Search where you are: the list's own search box (idle), the scope chip
    and its "Search in" menu, and the card counting matches elsewhere. The
@@ -1044,3 +1054,4 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .lsp[data-style="bands"] .lsp__row { padding: 4px 6px; box-shadow: inset 0 -1px 0 var(--line); }
 .lsp[data-style="bands"] .lsp__row:last-child { box-shadow: none; }
 .lsp[data-style="bands"] .lsp__avatar { width: 9px; height: 9px; }
+.list[data-avatars][data-style="classic"] .row[data-unread]::before { box-shadow: 0 0 0 2px var(--bg-0); }
