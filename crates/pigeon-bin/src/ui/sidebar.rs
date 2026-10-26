@@ -219,7 +219,7 @@ fn AccountSection(
         (Some(from), Some(o)) if o == index && from != index => Some(if from > index { "before" } else { "after" }),
         _ => None,
     };
-    let mut mailbox = s.mailbox;
+    let mailbox = s.mailbox;
     let mut collapsed_set = s.collapsed_accounts;
     let id = nav.account.id.clone();
     let collapsed = collapsed_set.read().contains(&id);
@@ -271,25 +271,100 @@ fn AccountSection(
             if draggable { Icon { name: "grip", class: "icon--xs nav-section__grip" } }
         }
         if !collapsed {
-            for f in visible_folders(nav.account.provider, &nav.folders) {
-                {
-                    let target = Mailbox::Folder { account_id: id.clone(), folder_id: f.folder.id.clone() };
-                    let active = current == target;
-                    let icon = role_icon(f.folder.role, f.folder.kind);
-                    let unread = f.unread;
-                    let label = f.folder.name.clone();
-                    rsx! {
-                        a { class: "nav-item nav-item--child", href: "#", key: "{f.folder.id}",
-                            "aria-current": if active { "page" } else { "false" },
-                            onclick: move |e| { e.prevent_default(); mailbox.set(target.clone()); },
-                            Icon { name: icon, class: "icon--sm" }
-                            span { class: "nav-item__label", dir: "auto", "{label}" }
-                            if unread > 0 { span { class: "count", "{unread}" } }
+            {
+                let all = visible_folders(nav.account.provider, &nav.folders);
+                let pinned_keys = s.pinned_folders.read().clone();
+                let open = s.folders_open.read().contains(&id);
+                let is_pinned = |f: &FolderInfo| pinned_keys.contains(&pin_key(&id, &f.folder.id));
+                let is_current = |f: &FolderInfo| {
+                    current == Mailbox::Folder { account_id: id.clone(), folder_id: f.folder.id.clone() }
+                };
+                let custom: Vec<&FolderInfo> = all.iter().copied().filter(|f| f.folder.role.is_none()).collect();
+                // Standard folders, then pinned ones (and, while the group is
+                // closed, the folder you're in), then the group.
+                let shown: Vec<&FolderInfo> = all
+                    .iter()
+                    .copied()
+                    .filter(|f| f.folder.role.is_some() || is_pinned(f) || (!open && is_current(f)))
+                    .collect();
+                let rest: Vec<&FolderInfo> = custom.iter().copied().filter(|f| !is_pinned(f)).collect();
+                let hidden_unread: u32 = if open { 0 } else { rest.iter().map(|f| f.unread).sum() };
+                let group = if nav.account.provider == ProviderKind::Google { "Labels" } else { "Folders" };
+                let toggle = id.clone();
+                let chev = if open { "chev-down" } else { "chev-right" };
+                rsx! {
+                    for f in shown {
+                        FolderRow { key: "{f.folder.id}", account_id: id.clone(), info: f.clone(), pinned: is_pinned(f), child: false }
+                    }
+                    if !rest.is_empty() {
+                        button { class: "nav-item nav-item--child nav-group", r#type: "button", "aria-expanded": "{open}",
+                            onclick: move |_| {
+                                let mut o = s.folders_open;
+                                let mut v = o.read().clone();
+                                if !v.contains(&toggle) { v.push(toggle.clone()); } else { v.retain(|x| *x != toggle); }
+                                let saved = v.clone();
+                                o.set(v);
+                                crate::prefs::update(move |p| p.folders_open = saved);
+                            },
+                            Icon { name: chev, class: "icon--sm" }
+                            span { class: "nav-item__label", "{group}" }
+                            if hidden_unread > 0 { span { class: "count", "{hidden_unread}" } }
+                        }
+                        if open {
+                            for f in rest {
+                                FolderRow { key: "g-{f.folder.id}", account_id: id.clone(), info: f.clone(), pinned: false, child: true }
+                            }
                         }
                     }
                 }
             }
         }
+        }
+    }
+}
+
+fn pin_key(account_id: &str, folder_id: &str) -> String {
+    format!("{account_id}|{folder_id}")
+}
+
+/// One folder in the sidebar. Your own folders/labels get a pin button on
+/// hover: pinned ones show outside the (usually closed) Folders group.
+#[component]
+fn FolderRow(account_id: String, info: FolderInfo, pinned: bool, child: bool) -> Element {
+    let s = use_context::<AppState>();
+    let mut mailbox = s.mailbox;
+    let target = Mailbox::Folder { account_id: account_id.clone(), folder_id: info.folder.id.clone() };
+    let active = *mailbox.read() == target;
+    let icon = role_icon(info.folder.role, info.folder.kind);
+    let unread = info.unread;
+    let label = info.folder.name.clone();
+    let custom = info.folder.role.is_none();
+    let key = pin_key(&account_id, &info.folder.id);
+    let pin_label = if pinned { "Unpin from the sidebar" } else { "Pin to the sidebar" };
+    rsx! {
+        a { class: "nav-item nav-item--child", "data-grouped": child.then_some("true"), href: "#",
+            "aria-current": if active { "page" } else { "false" },
+            "data-pinned": pinned.then_some("true"),
+            onclick: move |e| { e.prevent_default(); mailbox.set(target.clone()); },
+            Icon { name: icon, class: "icon--sm" }
+            span { class: "nav-item__label", dir: "auto", "{label}" }
+            if unread > 0 { span { class: "count", "{unread}" } }
+            if custom {
+                button { class: "nav-item__pin", r#type: "button", "aria-label": "{pin_label}", title: "{pin_label}",
+                    "aria-pressed": "{pinned}",
+                    onclick: move |e| {
+                        e.prevent_default();
+                        e.stop_propagation();
+                        let mut p = s.pinned_folders;
+                        let mut v = p.read().clone();
+                        if v.contains(&key) { v.retain(|k| *k != key); } else { v.push(key.clone()); }
+                        let saved = v.clone();
+                        p.set(v);
+                        crate::prefs::update(move |pr| pr.pinned_folders = saved);
+                    },
+                    Icon { name: "pushpin", class: "icon--xs" }
+                }
+            }
         }
     }
 }

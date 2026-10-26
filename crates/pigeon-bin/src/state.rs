@@ -281,6 +281,10 @@ pub struct AppState {
     pub theme: Signal<Theme>,
     pub list_style: Signal<ListStyle>,
     pub list_avatars: Signal<bool>,
+    /// Sidebar: accounts with the Folders group open; pinned folders
+    /// (`account|folder_id`). Mirrors prefs.
+    pub folders_open: Signal<Vec<String>>,
+    pub pinned_folders: Signal<Vec<String>>,
     /// Color theme family id (see `themes`).
     pub palette: Signal<String>,
     pub settings_open: Signal<bool>,
@@ -377,6 +381,8 @@ impl AppState {
             theme: Signal::new(Theme::from_pref(&crate::prefs::get().theme_mode)),
             list_style: Signal::new(ListStyle::from_pref(&crate::prefs::get().list_style)),
             list_avatars: Signal::new(crate::prefs::get().list_avatars),
+            folders_open: Signal::new(crate::prefs::get().folders_open),
+            pinned_folders: Signal::new(crate::prefs::get().pinned_folders),
             palette: Signal::new({
                 let p = crate::prefs::get().palette;
                 if crate::themes::is_known(&p) { p } else { crate::themes::DEFAULT.to_string() }

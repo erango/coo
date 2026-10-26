@@ -94,6 +94,11 @@ pub struct Prefs {
     pub list_style: String,
     /// A sender avatar column in the message list.
     pub list_avatars: bool,
+    /// Accounts whose Folders/Labels group is open in the sidebar (closed
+    /// by default: Gmail labels pile up).
+    pub folders_open: Vec<String>,
+    /// Folders pinned to show outside that group, as `account|folder_id`.
+    pub pinned_folders: Vec<String>,
     /// Closing the main window keeps Coo running in the menu bar (false:
     /// closing quits).
     pub close_to_menu_bar: bool,
@@ -138,6 +143,8 @@ impl Default for Prefs {
             photos_gravatar: false,
             list_style: "cards".into(),
             list_avatars: true,
+            folders_open: Vec::new(),
+            pinned_folders: Vec::new(),
             close_to_menu_bar: true,
             relaunch_hidden: false,
             menu_bar_hint_shown: false,
