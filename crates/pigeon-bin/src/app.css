@@ -476,6 +476,18 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .row[data-entering] { overflow: hidden; animation: coo-row-in var(--dur-collapse) var(--ease-standard) both; }
 @keyframes coo-row-in { from { opacity: 0; height: 0; padding-top: 0; padding-bottom: 0; } }
 .row[data-leaving] { overflow: hidden; pointer-events: none; }
+/* Sending row: an indeterminate bar after "Sending…" (ui/list.rs). */
+.row__snippet--sending { display: flex; align-items: center; gap: 10px; }
+.progress--indeterminate { position: relative; flex: 1; max-width: 160px; background: var(--bg-2); }
+.progress--indeterminate > span {
+  position: absolute; inset: 0 auto 0 0; width: 40%;
+  animation: coo-indeterminate 1.3s var(--ease-standard) infinite;
+}
+@keyframes coo-indeterminate { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+@media (prefers-reduced-motion: reduce) {
+  .progress--indeterminate > span { width: 100%; animation: coo-pulse 1.6s ease-in-out infinite alternate; }
+  @keyframes coo-pulse { from { opacity: 0.35; } to { opacity: 0.9; } }
+}
 
 /* Shortcut hints: larger and higher contrast (11px mono at 70% opacity was
    hard to read on buttons). System font first so ⌘ ⇧ ⌥ ⌃ ⌫ ↵ render as the

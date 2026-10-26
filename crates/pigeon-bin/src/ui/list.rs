@@ -71,6 +71,23 @@ struct Motion {
     generation: u64,
 }
 
+/// The outgoing rows drawn last and their motion (see `plan_outgoing`).
+#[derive(Default)]
+struct OutMotion {
+    view: String,
+    keys: Vec<String>,
+    rows: Vec<Outgoing>,
+    order: Vec<super::list_motion::Entry>,
+    ghosts: Vec<(usize, Outgoing)>,
+    entering: std::collections::HashSet<String>,
+    generation: u64,
+}
+
+/// A ghost gets its own key: the same draft may be back (retry) meanwhile.
+fn out_key(id: &str, motion: Option<&str>) -> String {
+    if motion == Some("leaving") { format!("out-ghost-{id}") } else { format!("out-{id}") }
+}
+
 /// Live rows interleaved with collapsing ghosts, as (item, is_ghost).
 fn merged_items(
     items: &[ListItem],
@@ -133,8 +150,56 @@ pub fn MailList() -> Element {
     let mut scroll_top = use_signal(|| 0.0f64);
     let mut viewport = use_signal(|| 1200.0f64);
     let mut asked_for = use_signal(|| 0usize);
+    // Outgoing rows animate in and out like mail rows (diffed the same way,
+    // during render).
+    let out_motion = use_hook(|| std::rc::Rc::new(std::cell::RefCell::new(OutMotion::default())));
+    let mut out_tick = use_signal(|| 0u64);
+    let _ = out_tick.read();
+    let out_view = format!("{mailbox:?}|{}", s.search.read().is_some());
+    {
+        let mut m = out_motion.borrow_mut();
+        let keys: Vec<String> = outgoing.iter().map(|o| o.draft.id.clone()).collect();
+        if m.keys != keys || m.view != out_view {
+            let plan = super::list_motion::plan_outgoing(&m.keys, &keys, m.view == out_view);
+            m.generation += 1;
+            let animating = plan.animates();
+            m.ghosts = plan.ghosts.iter().map(|&g| (g, m.rows[g].clone())).collect();
+            m.order = super::list_motion::merge(&m.keys, &keys, &plan.ghosts);
+            m.entering = plan.entering.into_iter().collect();
+            m.rows = outgoing.clone();
+            m.keys = keys;
+            m.view = out_view;
+            if animating {
+                let (generation, cell) = (m.generation, out_motion.clone());
+                spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(super::list_motion::CLEAR_AFTER_MS)).await;
+                    let mut m = cell.borrow_mut();
+                    if m.generation == generation {
+                        m.entering.clear();
+                        m.ghosts.clear();
+                        m.order = (0..m.rows.len()).map(super::list_motion::Entry::Live).collect();
+                        drop(m);
+                        out_tick += 1;
+                    }
+                });
+            }
+        }
+    }
+    let out_display: Vec<(Outgoing, Option<&'static str>)> = {
+        use super::list_motion::Entry;
+        let m = out_motion.borrow();
+        m.order
+            .iter()
+            .filter_map(|e| match *e {
+                Entry::Live(i) => {
+                    m.rows.get(i).map(|o| (o.clone(), m.entering.contains(&o.draft.id).then_some("entering")))
+                }
+                Entry::Ghost(g) => m.ghosts.iter().find(|(j, _)| *j == g).map(|(_, o)| (o.clone(), Some("leaving"))),
+            })
+            .collect()
+    };
     // Outgoing (sending/failed) rows sit above the virtualized rows.
-    let out_h = outgoing.len() as f64 * vlist::ROW_H;
+    let out_h = out_display.len() as f64 * vlist::ROW_H;
 
     // Insert/remove motion. Diffed here, during render, against the last
     // list this component drew (a non-reactive cell), so a removed row is
@@ -275,7 +340,7 @@ pub fn MailList() -> Element {
             }
             if s.search.read().is_some() {
                 super::search::SearchPane {}
-            } else if items.is_empty() && outgoing.is_empty() && cold {
+            } else if items.is_empty() && out_display.is_empty() && cold {
                 div { class: "list", role: "listbox", "aria-busy": "true",
                     for i in 0..9 {
                         div { class: "row row--skeleton", key: "sk{i}",
@@ -283,13 +348,18 @@ pub fn MailList() -> Element {
                         }
                     }
                 }
-            } else if items.is_empty() && outgoing.is_empty() && expired.is_empty() {
+            } else if items.is_empty() && out_display.is_empty() && expired.is_empty() {
                 Empty { syncing: s.sync.read().syncing }
             } else {
                 div { class: "list", role: "listbox", "data-auth": (!expired.is_empty()).then_some("expired"),
                     onscroll: on_scroll,
-                    for o in outgoing.iter() {
-                        OutgoingRow { key: "out-{o.draft.id}", out: o.clone(), many }
+                    for (o, motion) in out_display.iter() {
+                        OutgoingRow {
+                            key: "{out_key(&o.draft.id, *motion)}",
+                            out: o.clone(),
+                            many,
+                            motion: *motion,
+                        }
                     }
                     div { style: "height:{top_pad}px", "aria-hidden": "true" }
                     {rows.into_iter()}
@@ -513,7 +583,7 @@ pub fn Row(item: ListItem, many: bool, #[props(default)] motion: Option<&'static
 }
 
 #[component]
-fn OutgoingRow(out: Outgoing, many: bool) -> Element {
+fn OutgoingRow(out: Outgoing, many: bool, #[props(default)] motion: Option<&'static str>) -> Element {
     let s = use_context::<AppState>();
     let d = out.draft.clone();
     let hue = s.hue(&d.from.account_id);
@@ -528,7 +598,15 @@ fn OutgoingRow(out: Outgoing, many: bool) -> Element {
     let (retry, open, cancel) = (d.clone(), d.clone(), d.id.clone());
     rsx! {
         div { class: "row", role: "option", "data-hue": "{hue}", "data-state": "{state}",
-            onclick: move |_| { let mut dr = s.draft; dr.set(Some(open.clone())); },
+            "data-entering": (motion == Some("entering")).then_some("true"),
+            "data-leaving": (motion == Some("leaving")).then_some("true"),
+            "aria-hidden": (motion == Some("leaving")).then_some("true"),
+            onclick: move |_| {
+                if motion != Some("leaving") {
+                    let mut dr = s.draft;
+                    dr.set(Some(open.clone()));
+                }
+            },
             div { class: "row__line",
                 if many { span { class: "pip", "{letter}" } } else { span { class: "dot" } }
                 span { class: "row__who", dir: "auto", "To: {to}" }
@@ -538,7 +616,12 @@ fn OutgoingRow(out: Outgoing, many: bool) -> Element {
             }
             div { class: "row__subject", dir: "auto", "{subject}" }
             match out.state.clone() {
-                OutState::Sending | OutState::Sent(_) => rsx! { div { class: "row__snippet", "Sending…" } },
+                OutState::Sending | OutState::Sent(_) => rsx! {
+                    div { class: "row__snippet row__snippet--sending",
+                        "Sending…"
+                        span { class: "progress progress--indeterminate", role: "progressbar", "aria-label": "Sending", span {} }
+                    }
+                },
                 OutState::Failed(err) => rsx! {
                     div { class: "row__snippet", title: "{err}",
                         "Failed to send · "

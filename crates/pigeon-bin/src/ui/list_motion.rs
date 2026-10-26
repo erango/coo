@@ -70,6 +70,23 @@ pub fn plan(prev: &[String], next: &[String], same_view: bool, at_top: bool, fir
     Plan { entering, ghosts, anchor }
 }
 
+/// Motion for the outgoing (sending/scheduled/failed) rows above the list:
+/// unlike mail, the first one appearing animates too (that's the send), and
+/// a send finishing (the row leaving) always collapses. A view switch just
+/// shows what's there.
+pub fn plan_outgoing(prev: &[String], next: &[String], same_view: bool) -> Plan {
+    if !same_view || prev == next {
+        return Plan::default();
+    }
+    let in_next: HashSet<&str> = next.iter().map(String::as_str).collect();
+    let in_prev: HashSet<&str> = prev.iter().map(String::as_str).collect();
+    Plan {
+        entering: next.iter().filter(|k| !in_prev.contains(k.as_str())).cloned().collect(),
+        ghosts: (0..prev.len()).filter(|&i| !in_next.contains(prev[i].as_str())).collect(),
+        anchor: None,
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Entry {
     /// Index into the new list.
@@ -140,6 +157,16 @@ mod tests {
         assert!(!plan(&prev, &burst, true, true, 0).animates(), "sync burst");
         assert!(!plan(&prev, &k(&["a", "b", "c", "d"]), true, true, 0).animates(), "next page appended");
         assert!(!plan(&prev, &prev, true, true, 0).animates());
+    }
+
+    #[test]
+    fn outgoing_rows_slide_in_and_collapse_out() {
+        let p = plan_outgoing(&[], &k(&["d1"]), true);
+        assert_eq!(p.entering, k(&["d1"]), "the first send animates");
+        let p = plan_outgoing(&k(&["d1", "d2"]), &k(&["d2"]), true);
+        assert_eq!(p.ghosts, vec![0]);
+        assert!(p.entering.is_empty());
+        assert!(!plan_outgoing(&[], &k(&["d1"]), false).animates(), "view switch");
     }
 
     #[test]
