@@ -1055,3 +1055,12 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .lsp[data-style="bands"] .lsp__row:last-child { box-shadow: none; }
 .lsp[data-style="bands"] .lsp__avatar { width: 9px; height: 9px; }
 .list[data-avatars][data-style="classic"] .row[data-unread]::before { box-shadow: 0 0 0 2px var(--bg-0); }
+
+/* Cards and Day bands: the whole list pane (header and search box too)
+   sits on the list's ground, so the header doesn't read as a separate
+   strip; the search box becomes a card on it. */
+.pane--list:is([data-list-style="cards"], [data-list-style="bands"]) { background: var(--list-ground); }
+.pane--list:is([data-list-style="cards"], [data-list-style="bands"]) .list-search { background: var(--card); box-shadow: var(--card-edge); }
+.pane--list:is([data-list-style="cards"], [data-list-style="bands"]) .list-search:hover { box-shadow: var(--card-lift); }
+.pane--list:is([data-list-style="cards"], [data-list-style="bands"]) .pane-header .segmented { background: color-mix(in srgb, var(--text-1) 6%, var(--list-ground)); }
+.pane--list:is([data-list-style="cards"], [data-list-style="bands"]) .search-bar { background: var(--card); }

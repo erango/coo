@@ -336,7 +336,7 @@ pub fn MailList() -> Element {
     };
 
     rsx! {
-        section { class: "pane pane--list", "aria-label": "{heading}",
+        section { class: "pane pane--list", "aria-label": "{heading}", "data-list-style": style.as_pref(),
             header { class: "pane-header",
                 h1 { class: "pane-header__title", dir: "auto", "{heading}" }
                 span { class: "pane-header__sub", "{sub}" }
