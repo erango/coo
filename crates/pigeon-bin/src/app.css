@@ -1133,3 +1133,5 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .attachments__save:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .attachment { cursor: pointer; }
 .attachment[data-context] { box-shadow: inset 0 0 0 1.5px var(--accent); background: var(--bg-1); }
+.cal-list__item { cursor: default; }
+.cal-list__item .check { cursor: pointer; }

@@ -510,6 +510,25 @@ pub fn hue_for(email: &str) -> u8 {
     (h % 8) as u8 + 1
 }
 
+/// 1..=8 color slots for `keys` in order, none repeated until all eight
+/// are taken: each starts from its own `hue_for` slot and moves on to the
+/// next free one. Accounts (keyed by id, so the same address at two
+/// providers differs) and calendars use it.
+pub fn distinct_hues<S: AsRef<str>>(keys: &[S]) -> Vec<u8> {
+    let mut used = [false; 8];
+    keys.iter()
+        .map(|k| {
+            if used.iter().all(|u| *u) {
+                used = [false; 8];
+            }
+            let start = usize::from(hue_for(k.as_ref()) - 1);
+            let slot = (0..8).map(|i| (start + i) % 8).find(|&i| !used[i]).unwrap_or(start);
+            used[slot] = true;
+            slot as u8 + 1
+        })
+        .collect()
+}
+
 /// An invite resolved against the local calendars.
 #[derive(Debug, Clone, PartialEq)]
 pub struct InviteView {
@@ -684,9 +703,11 @@ impl Service {
             let store = self.app.store();
             let lock_ms = t.elapsed().as_secs_f64() * 1000.0;
             let mut accounts = Vec::new();
-            for a in store.accounts()? {
+            let all = store.accounts()?;
+            let hues = distinct_hues(&all.iter().map(|a| a.id.as_str()).collect::<Vec<_>>());
+            for (a, hue) in all.into_iter().zip(hues) {
                 accounts.push(AccountNav {
-                    hue: hue_for(&a.email),
+                    hue,
                     folders: store.folders(&a.id)?,
                     first_sync_done: store.has_mail_cursor(&a.id)?,
                     main_address: store.main_address(&a.id)?,
@@ -1222,7 +1243,13 @@ impl Service {
                 for (attachment_id, name) in &files {
                     let to = if into_folder { free_path(&dest, &safe_file_name(name)) } else { dest.clone() };
                     let copied = match self.app.attachment(&account, &message_id, attachment_id).await {
-                        Ok(from) => tokio::fs::copy(&from, &to).await.map_err(|e| Error::Other(e.to_string())),
+                        Ok(from) => {
+                            let to = to.clone();
+                            tokio::task::spawn_blocking(move || std::fs::copy(from, to))
+                                .await
+                                .map_err(|e| Error::Other(e.to_string()))
+                                .and_then(|r| r.map_err(|e| Error::Other(e.to_string())))
+                        }
                         Err(e) => Err(e),
                     };
                     match copied {
@@ -1593,6 +1620,20 @@ mod tests {
             mail_address: None,
         };
         assert!(!format!("{c:?}").contains("hunter2"));
+    }
+
+    #[test]
+    fn distinct_hues_repeat_only_after_all_eight() {
+        let keys: Vec<String> = (0..10).map(|i| format!("k{i}")).collect();
+        let h = distinct_hues(&keys);
+        let first: std::collections::BTreeSet<u8> = h[..8].iter().copied().collect();
+        assert_eq!(first.len(), 8);
+        assert!(h.iter().all(|x| (1..=8).contains(x)));
+        assert_ne!(h[8], h[9]);
+        // Same address, two providers: two colors.
+        let two = distinct_hues(&["google:me@x.com", "icloud:me@x.com"]);
+        assert_ne!(two[0], two[1]);
+        assert_eq!(distinct_hues(&["a"]), vec![hue_for("a")]);
     }
 
     #[test]

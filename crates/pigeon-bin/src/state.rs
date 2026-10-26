@@ -287,6 +287,8 @@ pub struct AppState {
     /// (`account|folder_id`). Mirrors prefs.
     pub folders_open: Signal<Vec<String>>,
     pub pinned_folders: Signal<Vec<String>>,
+    /// Calendars unchecked in the calendar sidebar (`account|calendar_id`). Mirrors prefs.
+    pub hidden_calendars: Signal<Vec<String>>,
     /// Color theme family id (see `themes`).
     pub palette: Signal<String>,
     pub settings_open: Signal<bool>,
@@ -386,6 +388,7 @@ impl AppState {
             list_avatars: Signal::new(crate::prefs::get().list_avatars),
             folders_open: Signal::new(crate::prefs::get().folders_open),
             pinned_folders: Signal::new(crate::prefs::get().pinned_folders),
+            hidden_calendars: Signal::new(crate::prefs::get().hidden_calendars),
             palette: Signal::new({
                 let p = crate::prefs::get().palette;
                 if crate::themes::is_known(&p) { p } else { crate::themes::DEFAULT.to_string() }
@@ -421,6 +424,32 @@ impl AppState {
 
     pub fn hue(&self, account_id: &str) -> u8 {
         self.accounts.read().iter().find(|a| a.account.id == account_id).map(|a| a.hue).unwrap_or(1)
+    }
+
+    /// Each calendar's own color, `account|calendar_id` → 1..=8: no two
+    /// share one until all eight are used, in sidebar order (accounts, then
+    /// their calendars).
+    pub fn calendar_hues(&self) -> std::collections::HashMap<String, u8> {
+        let accounts = self.accounts.read();
+        let cal = self.calendar.read();
+        let keys: Vec<String> = accounts
+            .iter()
+            .flat_map(|a| {
+                cal.calendars.iter().filter(move |(id, _)| *id == a.account.id).map(|(id, c)| format!("{id}|{}", c.id))
+            })
+            .collect();
+        keys.iter().cloned().zip(pigeon_engine::service::distinct_hues(&keys)).collect()
+    }
+
+    /// The color of `calendar_id`'s events (its account's while calendars
+    /// haven't loaded).
+    pub fn calendar_hue(
+        &self,
+        hues: &std::collections::HashMap<String, u8>,
+        account_id: &str,
+        calendar_id: &str,
+    ) -> u8 {
+        hues.get(&format!("{account_id}|{calendar_id}")).copied().unwrap_or_else(|| self.hue(account_id))
     }
 
     pub fn dark(&self) -> bool {

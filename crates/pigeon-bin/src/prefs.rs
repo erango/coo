@@ -101,6 +101,9 @@ pub struct Prefs {
     pub folders_open: Vec<String>,
     /// Folders pinned to show outside that group, as `account|folder_id`.
     pub pinned_folders: Vec<String>,
+    /// Calendars unchecked in the calendar sidebar, as `account|calendar_id`:
+    /// their events don't show in the calendar views.
+    pub hidden_calendars: Vec<String>,
     /// Closing the main window keeps Coo running in the menu bar (false:
     /// closing quits).
     pub close_to_menu_bar: bool,
@@ -147,6 +150,7 @@ impl Default for Prefs {
             list_avatars: true,
             folders_open: Vec::new(),
             pinned_folders: Vec::new(),
+            hidden_calendars: Vec::new(),
             close_to_menu_bar: true,
             relaunch_hidden: false,
             menu_bar_hint_shown: false,

@@ -395,7 +395,7 @@ fn NextUp() -> Element {
     };
     let Some(row) = row else { return rsx! {} };
     let e = row.event.clone();
-    let hue = s.hue(&row.account_id);
+    let hue = s.calendar_hue(&s.calendar_hues(), &row.account_id, &row.event.calendar_id);
     let live = join_state(e.start_at, e.end_at, now) == JoinState::Live;
     let soon = if live { "now".to_string() } else { format::soon(e.start_at, now) };
     rsx! {

@@ -122,6 +122,31 @@ pub fn layout_day(spans: &[(i64, i64)]) -> Vec<(usize, usize)> {
 }
 
 /// Local midnight of `d`, epoch ms.
+/// `account|calendar_id`, the key unchecked calendars are remembered by.
+fn calendar_key(account_id: &str, calendar_id: &str) -> String {
+    format!("{account_id}|{calendar_id}")
+}
+
+/// Events of the calendars that are checked in the sidebar.
+fn shown(s: &AppState, events: &[EventRow]) -> Vec<EventRow> {
+    let hidden = s.hidden_calendars.read();
+    events.iter().filter(|e| !hidden.contains(&calendar_key(&e.account_id, &e.event.calendar_id))).cloned().collect()
+}
+
+/// Check or uncheck a calendar in the sidebar (remembered).
+fn toggle_calendar(s: AppState, key: &str) {
+    let mut h = s.hidden_calendars;
+    let mut v = h.read().clone();
+    if v.iter().any(|k| k == key) {
+        v.retain(|k| k != key);
+    } else {
+        v.push(key.to_string());
+    }
+    let saved = v.clone();
+    h.set(v);
+    crate::prefs::update(move |p| p.hidden_calendars = saved);
+}
+
 pub fn midnight(d: NaiveDate) -> i64 {
     Local
         .from_local_datetime(&d.and_hms_opt(0, 0, 0).expect("midnight"))
@@ -384,10 +409,11 @@ pub fn CalendarView() -> Element {
 #[component]
 fn MonthGrid(on_select: EventHandler<(String, String)>) -> Element {
     let s = use_context::<AppState>();
+    let cal_hues = s.calendar_hues();
     let mut view = s.cal_view;
     let day = *s.cal_day.read();
     let first = *s.first_weekday.read();
-    let events = s.calendar.read().events.clone();
+    let events = shown(&s, &s.calendar.read().events);
     let today = Local::now().date_naive();
     rsx! {
         div { class: "week",
@@ -410,7 +436,7 @@ fn MonthGrid(on_select: EventHandler<(String, String)>) -> Element {
                                 span { class: "month__num", "{date.day()}" }
                                 for e in chips {
                                     {
-                                        let hue = s.hue(&e.account_id);
+                                        let hue = s.calendar_hue(&cal_hues, &e.account_id, &e.event.calendar_id);
                                         let key = (e.account_id.clone(), e.event.id.clone());
                                         let time = if e.event.all_day { String::new() } else { format::hhmm(e.event.start_at) };
                                         rsx! {
@@ -436,6 +462,7 @@ fn MonthGrid(on_select: EventHandler<(String, String)>) -> Element {
 #[component]
 fn TimeGrid(days: Vec<NaiveDate>, selected: Signal<Option<(String, String)>>) -> Element {
     let s = use_context::<AppState>();
+    let cal_hues = s.calendar_hues();
     let mut selected = selected;
     let data = s.calendar.read().clone();
     let now = pigeon_core::now_ms();
@@ -451,7 +478,7 @@ fn TimeGrid(days: Vec<NaiveDate>, selected: Signal<Option<(String, String)>>) ->
     });
 
     let events: Vec<EventRow> =
-        data.events.iter().filter(|e| e.event.end_at > first && e.event.start_at < last).cloned().collect();
+        shown(&s, &data.events).into_iter().filter(|e| e.event.end_at > first && e.event.start_at < last).collect();
     let (all_day, timed): (Vec<EventRow>, Vec<EventRow>) = events.into_iter().partition(|e| e.event.all_day);
     let draft_form = s.editor.read().clone();
     let draft = draft_form.as_ref().and_then(super::event_editor::draft_span);
@@ -502,7 +529,7 @@ fn TimeGrid(days: Vec<NaiveDate>, selected: Signal<Option<(String, String)>>) ->
                         if let Some(lane) = lane {
                             {
                                 let span = end_day - start_day + 1;
-                                let hue = s.hue(&e.account_id);
+                                let hue = s.calendar_hue(&cal_hues, &e.account_id, &e.event.calendar_id);
                                 rsx! {
                                     div { class: "allday-chip", key: "{e.account_id}{e.event.id}", "data-hue": "{hue}", dir: "auto",
                                         title: "{e.event.title}",
@@ -558,7 +585,7 @@ fn TimeGrid(days: Vec<NaiveDate>, selected: Signal<Option<(String, String)>>) ->
                                                 let top = (start - day_start) as f64 / 3_600_000.0 * HOUR_PX;
                                                 let height = ((end - start) as f64 / 3_600_000.0 * HOUR_PX - 2.0).max(14.0);
                                                 let short = height < 40.0;
-                                                let hue = s.hue(&e.account_id);
+                                                let hue = s.calendar_hue(&cal_hues, &e.account_id, &e.event.calendar_id);
                                                 let key = (e.account_id.clone(), e.event.id.clone());
                                                 let is_sel = selected.read().as_ref() == Some(&key);
                                                 let video = pigeon_core::meeting::meeting_link(&e.event).is_some();
@@ -616,7 +643,7 @@ fn TimeGrid(days: Vec<NaiveDate>, selected: Signal<Option<(String, String)>>) ->
 fn EventPopover(row: EventRow, on_close: EventHandler<()>) -> Element {
     let s = use_context::<AppState>();
     let e = row.event.clone();
-    let hue = s.hue(&row.account_id);
+    let hue = s.calendar_hue(&s.calendar_hues(), &row.account_id, &row.event.calendar_id);
     let now = pigeon_core::now_ms();
     let can_edit =
         s.calendar.read().calendars.iter().any(|(a, c)| a == &row.account_id && c.id == e.calendar_id && c.can_edit);
@@ -726,6 +753,7 @@ fn EventPopover(row: EventRow, on_close: EventHandler<()>) -> Element {
 #[component]
 pub fn CalendarSidebar() -> Element {
     let s = use_context::<AppState>();
+    let cal_hues = s.calendar_hues();
     let focus = *s.cal_day.read();
     let view = *s.cal_view.read();
     let first = *s.first_weekday.read();
@@ -810,15 +838,19 @@ pub fn CalendarSidebar() -> Element {
                                 let target = Target::Calendar(c.id.clone());
                                 let on = menu_on(&a.account.id, &target);
                                 let account_id = a.account.id.clone();
+                                let key = calendar_key(&a.account.id, &c.id);
+                                let visible = !s.hidden_calendars.read().contains(&key);
                                 rsx! {
-                                    label { class: "cal-list__item", "data-hue": "{a.hue}", key: "{c.id}", title: "{tip}",
+                                    label { class: "cal-list__item", "data-hue": "{s.calendar_hue(&cal_hues, &a.account.id, &c.id)}", key: "{c.id}", title: "{tip}",
                                         "data-context": on.then_some("true"),
                                         oncontextmenu: move |e| {
                                             e.prevent_default();
                                             let p = e.client_coordinates();
                                             super::account_menu::open_for(s, &account_id, target.clone(), p.x, p.y);
                                         },
-                                        input { class: "check check--hue", r#type: "checkbox", checked: true, disabled: true }
+                                        input { class: "check check--hue", r#type: "checkbox", checked: visible,
+                                            "aria-label": if visible { "Hide this calendar" } else { "Show this calendar" },
+                                            onchange: move |_| toggle_calendar(s, &key) }
                                         span { dir: "auto", "{c.name}" }
                                     }
                                 }
