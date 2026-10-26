@@ -472,6 +472,46 @@ fn search_query_combines_operators() {
 }
 
 #[test]
+fn search_scope_narrows_and_counts_the_rest() {
+    use crate::search::{Elsewhere, FolderCount, SearchScope, parse};
+    let (mut s, ms, g) = setup();
+    let inv = |id: &str, at: i64, folders: &[&str]| {
+        let mut m = msg(id, id, at, folders);
+        m.subject = format!("Invoice {id}");
+        m
+    };
+    let up = |m| MailChange::Upsert(m);
+    s.apply_mail(
+        &ms.id,
+        "f",
+        &[up(inv("a", 1, &["in-ms"])), up(inv("b", 2, &["proj"])), up(inv("c", 3, &["proj"]))],
+        "1",
+    )
+    .unwrap();
+    s.apply_mail(&g.id, "mail", &[up(inv("d", 4, &["INBOX", "STARRED"])), up(inv("e", 5, &["STARRED"]))], "1").unwrap();
+    let q = parse("invoice");
+    let ids = |scope: &SearchScope| {
+        s.search_scoped(&q, scope, 50).unwrap().into_iter().map(|r| r.header.id).collect::<Vec<_>>()
+    };
+    let ms_inbox = SearchScope::Folder { account_id: ms.id.clone(), folder_id: "in-ms".into() };
+    assert_eq!(ids(&SearchScope::All), ["e", "d", "c", "b", "a"]);
+    assert_eq!(ids(&ms_inbox), ["a"]);
+    assert_eq!(ids(&SearchScope::Account(g.id.clone())), ["e", "d"]);
+    assert_eq!(ids(&SearchScope::Role(FolderRole::Inbox)), ["d", "a"]);
+    assert_eq!(s.search_scoped(&parse("invoice in:proj"), &ms_inbox, 50).unwrap().len(), 0, "operators narrow further");
+
+    // Starred is a label, not a place: e counts but names no folder.
+    let fc = |role, name: &str, count| FolderCount { role, name: name.into(), count };
+    assert_eq!(
+        s.search_elsewhere(&q, &ms_inbox).unwrap(),
+        Elsewhere { total: 4, folders: vec![fc(None, "PROJ", 2), fc(Some(FolderRole::Inbox), "INBOX", 1)] }
+    );
+    assert_eq!(s.search_elsewhere(&q, &SearchScope::Role(FolderRole::Inbox)).unwrap().total, 3);
+    assert_eq!(s.search_elsewhere(&q, &SearchScope::All).unwrap(), Elsewhere::default());
+    assert_eq!(s.search_elsewhere(&parse("nothing"), &ms_inbox).unwrap(), Elsewhere::default());
+}
+
+#[test]
 fn found_messages_are_stored_without_touching_cursors() {
     let (mut s, ms, _) = setup();
     s.apply_found(&ms.id, &[MailChange::Upsert(msg("old", "t", 5, &["in-ms"]))]).unwrap();

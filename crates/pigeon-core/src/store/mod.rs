@@ -13,6 +13,7 @@ use crate::{Error, Result, now_ms, text};
 
 mod contacts;
 mod outbox;
+mod search;
 mod services;
 pub use outbox::undo_ops;
 
@@ -199,84 +200,6 @@ impl Store {
         apply_changes(&tx, account_id, changes)?;
         tx.commit()?;
         Ok(())
-    }
-
-    /// Run a parsed search over the local store, newest first.
-    pub fn search_query(&self, q: &crate::search::SearchQuery, limit: u32) -> Result<Vec<MessageRow>> {
-        use rusqlite::types::Value;
-        if q.is_empty() {
-            return Ok(Vec::new());
-        }
-        let mut join = String::new();
-        let mut cond: Vec<String> = Vec::new();
-        let mut args: Vec<Value> = Vec::new();
-        let like = |v: &str| Value::Text(format!("%{}%", v.replace(['%', '_'], "")));
-        if let Some(fts) = text::fts_query(&q.text.join(" ")) {
-            join.push_str(" JOIN messages_fts ON messages_fts.rowid = m.pk");
-            cond.push("messages_fts MATCH ?".into());
-            args.push(Value::Text(fts));
-        }
-        for f in &q.from {
-            cond.push("(m.from_addr LIKE ? OR m.from_name LIKE ?)".into());
-            args.push(like(f));
-            args.push(like(f));
-        }
-        for t in &q.to {
-            cond.push("m.recipients LIKE ?".into());
-            args.push(like(t));
-        }
-        if q.has_attachment {
-            cond.push("m.has_attachments".into());
-        }
-        match q.unread {
-            Some(true) => cond.push("NOT m.is_read".into()),
-            Some(false) => cond.push("m.is_read".into()),
-            None => {}
-        }
-        if q.flagged {
-            cond.push("m.is_flagged".into());
-        }
-        if let Some(a) = &q.account {
-            cond.push("m.account_id LIKE ?".into());
-            args.push(like(a));
-        }
-        if let Some(b) = q.before {
-            cond.push("m.received_at < ?".into());
-            args.push(Value::Integer(b));
-        }
-        if let Some(a) = q.after {
-            cond.push("m.received_at >= ?".into());
-            args.push(Value::Integer(a));
-        }
-        if let Some(r) = q.role {
-            cond.push(
-                "EXISTS (SELECT 1 FROM message_folders mf JOIN folders fo ON fo.account_id = mf.account_id
-                 AND fo.id = mf.folder_id WHERE mf.message_pk = m.pk AND fo.role = ?)"
-                    .into(),
-            );
-            args.push(Value::Text(r.as_str().into()));
-        }
-        if let Some(f) = &q.folder {
-            cond.push(
-                "EXISTS (SELECT 1 FROM message_folders mf JOIN folders fo ON fo.account_id = mf.account_id
-                 AND fo.id = mf.folder_id WHERE mf.message_pk = m.pk AND fo.name = ? COLLATE NOCASE)"
-                    .into(),
-            );
-            args.push(Value::Text(f.clone()));
-        }
-        if cond.is_empty() {
-            return Ok(Vec::new());
-        }
-        args.push(Value::Integer(i64::from(limit)));
-        let sql = format!(
-            "SELECT {MSG_COLS} FROM messages m{join} WHERE {} ORDER BY m.received_at DESC LIMIT ?",
-            cond.join(" AND ")
-        );
-        let mut stmt = self.conn.prepare_cached(&sql)?;
-        let rows = stmt.query_map(rusqlite::params_from_iter(args), |r| {
-            Ok(MessageRow { account_id: r.get(0)?, header: header_from_row(r)? })
-        })?;
-        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     /// The concrete (account, folder) pairs a query reads.

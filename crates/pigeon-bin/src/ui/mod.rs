@@ -143,12 +143,12 @@ pub fn App() -> Element {
                 "compose" => new_message(s),
                 // search:<query>, with an optional `|` marking the caret
                 "search" if arg.contains('|') => search::open_at(s, arg),
-                "search" => search::open(s, arg),
+                "search" => search::open(s, arg, search::here(&s)),
                 // find:<query>|<account_id>|<thread_id> — search, then open a thread from it
                 "find" => {
                     let p: Vec<&str> = arg.split('|').collect();
                     if let [q, account_id, thread_id] = p[..] {
-                        search::open(s, q);
+                        search::open(s, q, pigeon_engine::service::SearchScope::All);
                         let mut sel = s.selected;
                         sel.set(Some(format!("{account_id}|{thread_id}")));
                         send_cmd(Cmd::OpenThread { account_id: account_id.into(), thread_id: thread_id.into() });
@@ -1117,7 +1117,8 @@ fn on_key(s: AppState, key: &str) {
         return;
     }
     match key {
-        "/" | "meta+f" => search::open(s, ""),
+        "/" | "meta+f" => search::open_here(s),
+        "meta+alt+f" => search::focus_in(s, pigeon_engine::service::SearchScope::All),
         "v" => move_picker::open(s, false),
         "l" => move_picker::open(s, true),
         // Gmail's "Report spam" key; "Not spam" in the spam folder.

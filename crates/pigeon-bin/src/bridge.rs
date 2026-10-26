@@ -35,7 +35,7 @@ pub const JS: &str = r#"
                         'meta+1','meta+2','meta+k','meta+n','meta+Enter','meta+shift+z','meta+,',
                         // Apple Mail shortcuts (the single keys above stay as extras).
                         'meta+r','meta+shift+r','meta+shift+f','meta+Backspace','ctrl+meta+a','meta+shift+l',
-                        'meta+shift+u','meta+shift+n','meta+f']);
+                        'meta+shift+u','meta+shift+n','meta+f','meta+alt+f']);
   const editable = (el) => el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
   let lastShift = 0; // 1 = left, 2 = right
   document.addEventListener('keydown', (e) => {
@@ -60,6 +60,8 @@ pub const JS: &str = r#"
     let key = e.key;
     if (e.shiftKey && key.length > 1 && e.metaKey) key = 'shift+' + key;
     if (e.shiftKey && e.metaKey && key.length === 1) key = 'shift+' + key.toLowerCase();
+    // ⌥ changes e.key (⌥F is ƒ): name the physical key.
+    if (e.metaKey && e.altKey && !e.ctrlKey && /^Key[A-Z]$/.test(e.code)) key = 'alt+' + e.code.slice(3).toLowerCase();
     if (e.metaKey) key = 'meta+' + key;
     if (e.metaKey && e.ctrlKey) key = 'ctrl+' + key.toLowerCase(); // ⌃⌘A archive
     if (editable(e.target)) {
@@ -68,7 +70,7 @@ pub const JS: &str = r#"
       if (key === 'meta+Enter' || key === 'Escape') { e.preventDefault(); send('key', key); }
       return;
     }
-    if (e.altKey || (e.ctrlKey && !e.metaKey)) return;
+    if ((e.altKey && !key.startsWith('meta+alt+')) || (e.ctrlKey && !e.metaKey)) return;
     if (KEYS.has(key)) { e.preventDefault(); send('key', key); }
   }, true);
 

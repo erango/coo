@@ -7,7 +7,7 @@ use dioxus::prelude::*;
 use pigeon_core::compose::ReplyKind;
 use pigeon_core::model::{FolderRole, MessageRow};
 use pigeon_engine::MailAction;
-use pigeon_engine::service::{Cmd, ListItem, Mailbox};
+use pigeon_engine::service::{Cmd, ListItem, Mailbox, SearchScope};
 
 use super::{Icon, act, reply, selected_item};
 use crate::send_cmd;
@@ -24,7 +24,7 @@ enum Action {
     Sync,
     Theme(Theme),
     Threads(bool),
-    Search(String),
+    Search(String, SearchScope),
     Open(Box<MessageRow>),
     Mail(MailAction),
     Reply(ReplyKind),
@@ -38,6 +38,8 @@ struct Item {
     section: &'static str,
     icon: &'static str,
     label: String,
+    /// Part of the label shown bold (the folder in "Search Inbox for …").
+    bold: String,
     meta: String,
     keys: &'static str,
     action: Action,
@@ -50,7 +52,7 @@ fn item(
     keys: &'static str,
     action: Action,
 ) -> Item {
-    Item { section, icon, label: label.into(), meta: String::new(), keys, action }
+    Item { section, icon, label: label.into(), bold: String::new(), meta: String::new(), keys, action }
 }
 
 /// Every word of the query appears in the label or meta.
@@ -63,10 +65,19 @@ fn build(s: &AppState, query: &str) -> Vec<Item> {
     let mut out = Vec::new();
     let q = query.trim();
     if !q.is_empty() {
+        let here = super::search::here(s);
+        let name = super::search::scope_label(s, &here);
         out.push(Item {
-            meta: "local + servers".into(),
-            ..item("Search", "search", format!("Search mail for “{q}”"), "↵", Action::Search(q.to_string()))
+            bold: name.clone(),
+            ..item("Search", "search", format!("Search {name} for “{q}”"), "↵", Action::Search(q.to_string(), here))
         });
+        out.push(item(
+            "Search",
+            "search",
+            format!("Search all mail for “{q}”"),
+            "⇧↵",
+            Action::Search(q.to_string(), SearchScope::All),
+        ));
     }
 
     let mut actions = Vec::new();
@@ -186,15 +197,15 @@ fn run(mut s: AppState, action: Action) {
         Action::AgentSetup => s.agent_setup_open.set(true),
         Action::Theme(t) => s.theme.set(t),
         Action::Threads(t) => s.threaded.set(t),
-        Action::Search(q) => {
+        Action::Search(q, scope) => {
             s.mode.set(Mode::Mail);
             s.settings_open.set(false);
-            super::search::open(s, &q);
+            super::search::open(s, &q, scope);
         }
         Action::Open(row) => {
             s.mode.set(Mode::Mail);
             s.settings_open.set(false);
-            super::search::open(s, "");
+            super::search::open(s, "", SearchScope::All);
             super::select(s, &ListItem::Message(*row));
         }
         Action::Mail(a) => {
@@ -223,6 +234,8 @@ pub fn Palette() -> Element {
     let n = items.len();
     let at = (*cursor.read()).min(n.saturating_sub(1));
     let chosen = items.get(at).cloned();
+    let q_trim = q.trim().to_string();
+    let searching = !q_trim.is_empty();
 
     let on_input = move |e: FormEvent| {
         let v = e.value();
@@ -235,7 +248,7 @@ pub fn Palette() -> Element {
             spawn(async move {
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 if *token_sig.read() == token {
-                    send_cmd(Cmd::Search { query: v, token, limit: 6 });
+                    send_cmd(Cmd::Search { query: v, scope: SearchScope::All, token, limit: 6 });
                 }
             });
         }
@@ -255,7 +268,12 @@ pub fn Palette() -> Element {
                 onmouseenter: move |_| cursor.set(i),
                 onclick: move |_| run(s, action.clone()),
                 Icon { name: it.icon }
-                span { class: "palette-item__label", dir: "auto", "{it.label}" }
+                match it.label.split_once(it.bold.as_str()).filter(|_| !it.bold.is_empty()) {
+                    Some((before, after)) => rsx! {
+                        span { class: "palette-item__label", dir: "auto", "{before}" b { "{it.bold}" } "{after}" }
+                    },
+                    None => rsx! { span { class: "palette-item__label", dir: "auto", "{it.label}" } },
+                }
                 span { class: "palette-item__meta", dir: "auto", "{it.meta}" }
                 if !it.keys.is_empty() { span { class: "palette-item__keys", kbd { class: "kbd", "{it.keys}" } } }
             }
@@ -275,6 +293,11 @@ pub fn Palette() -> Element {
                         onkeydown: move |e| match e.key() {
                             Key::ArrowDown => { e.prevent_default(); cursor.set((at + 1).min(n.saturating_sub(1))); }
                             Key::ArrowUp => { e.prevent_default(); cursor.set(at.saturating_sub(1)); }
+                            // ⇧↵: search all mail for the query.
+                            Key::Enter if e.modifiers().shift() && !q_trim.is_empty() => {
+                                e.prevent_default();
+                                run(s, Action::Search(q_trim.clone(), SearchScope::All));
+                            }
                             Key::Enter => { e.prevent_default(); if let Some(it) = &chosen { run(s, it.action.clone()); } }
                             _ => {}
                         },
@@ -285,9 +308,14 @@ pub fn Palette() -> Element {
                 div { class: "palette__list", {rows.into_iter()} }
                 div { class: "palette__footer",
                     span { code { "↑↓" } " navigate" }
-                    span { code { "↵" } " run" }
+                    if searching {
+                        span { code { "↵" } " search here" }
+                        span { code { "⇧↵" } " everywhere" }
+                    } else {
+                        span { code { "↵" } " run" }
+                    }
                     span { code { "esc" } " close" }
-                    span { "Search supports " code { "from: to: has:attachment is:unread in:" } }
+                    if searching { span { code { "from: in: has:" } } } else { span { "Search supports " code { "from: to: has:attachment is:unread in:" } } }
                 }
             }
         }

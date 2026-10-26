@@ -289,7 +289,7 @@ pub fn SenderCard() -> Element {
                     onclick: move |_| {
                         let mut c = s.sender_card;
                         c.set(None);
-                        super::search::open(s, &format!("from:{search_email}"));
+                        super::search::open(s, &format!("from:{search_email}"), pigeon_engine::service::SearchScope::All);
                     },
                     Icon { name: "search", class: "icon--sm" } "Mail from this sender"
                 }

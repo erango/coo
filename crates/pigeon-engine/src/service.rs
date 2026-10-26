@@ -9,6 +9,7 @@ use std::time::Duration;
 use base64::Engine as _;
 use pigeon_core::compose::{Draft, ReplyKind, Sender};
 use pigeon_core::model::*;
+pub use pigeon_core::search::{Elsewhere, SearchScope};
 use pigeon_core::store::{FolderSel, ListQuery};
 use pigeon_core::{Error, Result, now_ms};
 use tokio::sync::{Mutex, mpsc};
@@ -66,6 +67,16 @@ impl Mailbox {
             Mailbox::Folder { folder_id, .. } => Some(folder_id.clone()),
         }
     }
+
+    /// Searching "here": this view's folder(s).
+    pub fn search_scope(&self) -> SearchScope {
+        match self {
+            Mailbox::Unified(role) => SearchScope::Role(*role),
+            Mailbox::Folder { account_id, folder_id } => {
+                SearchScope::Folder { account_id: account_id.clone(), folder_id: folder_id.clone() }
+            }
+        }
+    }
 }
 
 /// One list item of an `ActMany`: a message, or a thread (see `Cmd::Act`).
@@ -103,15 +114,19 @@ pub enum Cmd {
         token: u64,
         limit: u32,
     },
-    /// Local search; `token` lets the UI drop stale results.
+    /// Local search within `scope`; `token` lets the UI drop stale
+    /// results. A narrower scope also reports what it leaves out.
     Search {
         query: String,
+        scope: SearchScope,
         token: u64,
         limit: u32,
     },
-    /// Then ask the servers for older matches and re-run locally.
+    /// Then ask the servers (the scope's account, or all) for older
+    /// matches and re-run locally.
     SearchServers {
         query: String,
+        scope: SearchScope,
         token: u64,
     },
     ShowMailbox {
@@ -400,6 +415,8 @@ pub enum Delta {
         token: u64,
         items: Vec<MessageRow>,
         server: ServerSearch,
+        /// Local matches outside the scope (empty for all mail).
+        elsewhere: Elsewhere,
     },
     FreeBusy {
         token: u64,
@@ -654,6 +671,18 @@ impl Service {
             self.send(Delta::Events { from, to, events, calendars });
         }
         Ok(())
+    }
+
+    /// Matches within the scope, and the count of those outside it (local
+    /// index only).
+    fn search_local(
+        &self,
+        q: &pigeon_core::search::SearchQuery,
+        scope: &SearchScope,
+        limit: u32,
+    ) -> Result<(Vec<MessageRow>, Elsewhere)> {
+        let store = self.app.store();
+        Ok((store.search_scoped(q, scope, limit)?, store.search_elsewhere(q, scope)?))
     }
 
     /// Every address the user sends from (accounts + aliases), cached after
@@ -1069,18 +1098,23 @@ impl Service {
                 let items = self.app.store().suggest_contacts(&query, &mine, limit as usize, now_ms())?;
                 self.send(Delta::Contacts { token, items });
             }
-            Cmd::Search { query, token, limit } => {
+            Cmd::Search { query, scope, token, limit } => {
                 let q = pigeon_core::search::parse(&query);
-                let items = self.app.store().search_query(&q, limit)?;
-                self.send(Delta::SearchResults { token, items, server: ServerSearch::Idle });
+                let (items, elsewhere) = self.search_local(&q, &scope, limit)?;
+                self.send(Delta::SearchResults { token, items, server: ServerSearch::Idle, elsewhere });
             }
-            Cmd::SearchServers { query, token } => {
+            Cmd::SearchServers { query, scope, token } => {
                 let q = pigeon_core::search::parse(&query);
-                let local = self.app.store().search_query(&q, SEARCH_LIMIT)?;
-                self.send(Delta::SearchResults { token, items: local, server: ServerSearch::Loading });
-                let found = self.app.search_servers(&q, 50).await?;
-                let items = self.app.store().search_query(&q, SEARCH_LIMIT)?;
-                self.send(Delta::SearchResults { token, items, server: ServerSearch::Done(found) });
+                let (items, elsewhere) = self.search_local(&q, &scope, SEARCH_LIMIT)?;
+                self.send(Delta::SearchResults { token, items, server: ServerSearch::Loading, elsewhere });
+                // Only the scope's account needs asking.
+                let mut server_q = q.clone();
+                if let Some(a) = scope.account_id() {
+                    server_q.account = Some(a.to_string());
+                }
+                let found = self.app.search_servers(&server_q, 50).await?;
+                let (items, elsewhere) = self.search_local(&q, &scope, SEARCH_LIMIT)?;
+                self.send(Delta::SearchResults { token, items, server: ServerSearch::Done(found), elsewhere });
             }
             Cmd::Rsvp { account_id, calendar_id, event_id, response } => {
                 let account = self.app.account(&account_id)?;

@@ -33,6 +33,49 @@ impl SearchQuery {
     }
 }
 
+/// Where a search looks, on top of its operators (which narrow further):
+/// the folder you're in, its account, or everything.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum SearchScope {
+    #[default]
+    All,
+    Account(String),
+    /// That role's folder in every account (a unified view like Inbox).
+    Role(FolderRole),
+    Folder {
+        account_id: String,
+        folder_id: String,
+    },
+}
+
+impl SearchScope {
+    /// The one account this scope is limited to, if any.
+    pub fn account_id(&self) -> Option<&str> {
+        match self {
+            SearchScope::Account(a) | SearchScope::Folder { account_id: a, .. } => Some(a),
+            SearchScope::All | SearchScope::Role(_) => None,
+        }
+    }
+}
+
+/// Matches outside the scope, for "N more in other folders".
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Elsewhere {
+    /// Distinct messages.
+    pub total: u32,
+    /// The folders they're in, most matches first. A message in several
+    /// folders (Gmail labels) counts in each.
+    pub folders: Vec<FolderCount>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FolderCount {
+    /// Folders are grouped across accounts by role, else by name.
+    pub role: Option<FolderRole>,
+    pub name: String,
+    pub count: u32,
+}
+
 /// Split on whitespace, keeping `"quoted phrases"` (also after `op:`) whole.
 fn tokens(input: &str) -> Vec<String> {
     let mut out = Vec::new();

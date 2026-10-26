@@ -64,6 +64,7 @@ fn ReaderEmpty() -> Element {
             div { class: "reader-empty__keys",
                 span { kbd { class: "kbd", "J" } kbd { class: "kbd", "K" } "Move" }
                 span { kbd { class: "kbd", "C" } "New message" }
+                span { kbd { class: "kbd", "⌘F" } "Search this folder" }
                 span { kbd { class: "kbd", "⌘K" } "Commands" }
             }
         }

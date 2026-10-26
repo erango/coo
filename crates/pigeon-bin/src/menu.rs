@@ -50,7 +50,8 @@ const VIEW_ROWS: &[Row] = &[
 const MESSAGE_ROWS: &[Row] = &[
     ("pigeon-msg-new", "New Message", "⌘N", "meta+n"),
     ("pigeon-msg-sync", "Get New Mail", "⇧⌘N", "meta+shift+n"),
-    ("pigeon-msg-search", "Search", "⌘F", "meta+f"),
+    ("pigeon-msg-search", "Search This Folder", "⌘F", "meta+f"),
+    ("pigeon-msg-search-all", "Search All Mail", "⌥⌘F", "meta+alt+f"),
     SEP,
     ("pigeon-msg-next", "Next Conversation", "J", "j"),
     ("pigeon-msg-prev", "Previous Conversation", "K", "k"),
