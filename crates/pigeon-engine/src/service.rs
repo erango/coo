@@ -777,15 +777,26 @@ impl Service {
         match &reports {
             Ok(reports) => {
                 for r in reports {
-                    for e in [r.mail.as_ref().err(), r.calendar.as_ref().err()].into_iter().flatten() {
+                    let parts = [("mail", r.mail.as_ref().err()), ("calendar", r.calendar.as_ref().err())];
+                    for (part, e) in parts.into_iter().filter_map(|(p, e)| e.map(|e| (p, e))) {
                         failures += 1;
-                        if e.is_network() {
+                        let network = e.is_network();
+                        if network {
                             network_failures += 1;
                         }
                         if matches!(e, Error::SignInRequired(_)) {
                             needs_sign_in.push(r.account.id.clone());
+                            continue;
+                        }
+                        errors.push(format!("{}: {e}", r.account.email));
+                        // A dropped connection (sleep, a network change) is
+                        // expected: a breadcrumb, not a report. The provider
+                        // and part survive scrubbing, unlike the message.
+                        let provider = r.account.provider.as_str();
+                        if network {
+                            tracing::warn!(error = %e, provider, part, "sync failed (network)");
                         } else {
-                            errors.push(format!("{}: {e}", r.account.email));
+                            tracing::error!(error = %e, provider, part, "sync failed");
                         }
                     }
                 }
@@ -794,15 +805,15 @@ impl Service {
                 failures += 1;
                 if e.is_network() {
                     network_failures += 1;
+                    tracing::warn!(error = %e, "sync failed (network)");
+                } else {
+                    tracing::error!(error = %e, "sync failed");
                 }
                 errors.push(e.to_string())
             }
         }
         let offline = failures > 0 && failures == network_failures;
         needs_sign_in.dedup();
-        for e in &errors {
-            tracing::error!(error = %e, "sync failed");
-        }
         self.set_sync(|s| {
             s.syncing = false;
             if errors.is_empty() {

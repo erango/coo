@@ -103,7 +103,7 @@ pub async fn sync_calendars<P: CalendarProvider>(
     tracing::info!(account_id, calendars = calendars.len(), "calendar sync");
     let results: Vec<(String, Result<usize>)> = stream::iter(calendars.clone())
         .map(|cal| async move {
-            tracing::info!(account_id, calendar = cal.name, "syncing calendar");
+            tracing::info!(account_id, "syncing calendar");
             let r = sync_calendar(p, account_id, &cal, store, from, to).await;
             (cal.name, r)
         })
