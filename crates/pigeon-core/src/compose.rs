@@ -85,6 +85,16 @@ pub fn icloud_senders(account: &Account, addresses: &[String]) -> Vec<Sender> {
     out
 }
 
+/// One account's senders with its main address (the one the user picked to
+/// go by) first; unchanged when it's unset or no longer offered.
+pub fn lead_with_main(mut senders: Vec<Sender>, main: Option<&str>) -> Vec<Sender> {
+    if let Some(i) = main.and_then(|m| senders.iter().position(|s| s.address.email.eq_ignore_ascii_case(m))) {
+        let s = senders.remove(i);
+        senders.insert(0, s);
+    }
+    senders
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReplyKind {
@@ -548,6 +558,22 @@ mod tests {
             ["custom@domain.dev", "main@icloud.com", "alias@icloud.com"]
         );
         assert!(icloud_send_addresses(&[], &[("x@icloud.com".into(), true)]).is_empty());
+    }
+
+    #[test]
+    fn the_main_address_leads() {
+        let gmail = Account {
+            id: "icloud:me@gmail.com".into(),
+            provider: crate::model::ProviderKind::ICloud,
+            email: "me@gmail.com".into(),
+            display_name: "Me".into(),
+        };
+        let emails = |v: Vec<Sender>| v.into_iter().map(|s| s.address.email).collect::<Vec<_>>();
+        let known = ["me@icloud.com".to_string(), "sup@shop.dev".to_string()];
+        let senders = || icloud_senders(&gmail, &known);
+        assert_eq!(emails(lead_with_main(senders(), Some("SUP@shop.dev"))), ["sup@shop.dev", "me@icloud.com"]);
+        assert_eq!(emails(lead_with_main(senders(), None)), ["me@icloud.com", "sup@shop.dev"]);
+        assert_eq!(emails(lead_with_main(senders(), Some("gone@shop.dev"))), ["me@icloud.com", "sup@shop.dev"]);
     }
 
     #[test]

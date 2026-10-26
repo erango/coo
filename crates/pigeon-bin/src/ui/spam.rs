@@ -134,6 +134,7 @@ mod tests {
             hue: 1,
             folders,
             first_sync_done: true,
+            main_address: None,
         }
     }
 

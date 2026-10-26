@@ -96,4 +96,26 @@ impl Store {
         )?;
         Ok(())
     }
+
+    /// The address the account goes by, when the user picked an alias.
+    pub fn main_address(&self, account_id: &str) -> Result<Option<String>> {
+        use rusqlite::OptionalExtension;
+        Ok(self
+            .conn
+            .query_row("SELECT email FROM main_addresses WHERE account_id = ?1", [account_id], |r| r.get(0))
+            .optional()?)
+    }
+
+    /// Pick the address the account goes by; None goes back to its own.
+    pub fn set_main_address(&self, account_id: &str, email: Option<&str>) -> Result<()> {
+        match email.map(|e| e.trim().to_lowercase()) {
+            Some(e) => self.conn.execute(
+                "INSERT INTO main_addresses (account_id, email) VALUES (?1, ?2)
+                 ON CONFLICT (account_id) DO UPDATE SET email = excluded.email",
+                params![account_id, e],
+            )?,
+            None => self.conn.execute("DELETE FROM main_addresses WHERE account_id = ?1", [account_id])?,
+        };
+        Ok(())
+    }
 }

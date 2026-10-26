@@ -846,6 +846,15 @@ fn icloud_addresses_are_detected_from_own_mail_and_overridable() {
     let o = s.send_address_overrides(&ic.id).unwrap();
     assert!(o.contains(&("help@shop.dev".to_string(), true)) && o.contains(&("new@shop.dev".to_string(), false)));
 
+    assert_eq!(s.main_address(&ic.id).unwrap(), None);
+    s.set_main_address(&ic.id, Some(" Custom@Domain.dev ")).unwrap();
+    s.set_main_address(&ic.id, Some("new@shop.dev")).unwrap();
+    assert_eq!(s.main_address(&ic.id).unwrap().as_deref(), Some("new@shop.dev"));
+    s.set_main_address(&ic.id, None).unwrap();
+    assert_eq!(s.main_address(&ic.id).unwrap(), None);
+    s.set_main_address(&ic.id, Some("new@shop.dev")).unwrap();
+
     s.delete_account(&ic.id).unwrap();
     assert!(s.send_address_overrides(&ic.id).unwrap().is_empty(), "go with the account");
+    assert_eq!(s.main_address(&ic.id).unwrap(), None, "go with the account");
 }

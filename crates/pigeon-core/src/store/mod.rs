@@ -31,6 +31,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("010_refetch_partial_graph.sql"),
     include_str!("011_account_scopes.sql"),
     include_str!("012_send_addresses.sql"),
+    include_str!("013_main_address.sql"),
 ];
 
 /// Which folder a list query reads.

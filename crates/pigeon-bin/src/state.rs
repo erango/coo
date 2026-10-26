@@ -431,12 +431,18 @@ impl AppState {
     /// How an account is named in the UI: its nickname, else its address,
     /// plus the provider when another account has the same address (an
     /// iCloud Apple ID that's a Gmail address next to that Gmail account).
+    /// The account's own address stands for its main address when one is
+    /// picked.
     pub fn account_label(&self, account_id: &str, email: &str) -> String {
         let nickname = self.nicknames.read().get(account_id).cloned();
         let accounts = self.accounts.read();
-        let provider = accounts.iter().find(|a| a.account.id == account_id).map(|a| a.account.provider);
-        let shared = accounts.iter().any(|a| a.account.id != account_id && a.account.email.eq_ignore_ascii_case(email));
-        account_label(nickname.as_deref(), email, provider.filter(|_| shared))
+        let nav = accounts.iter().find(|a| a.account.id == account_id);
+        let email = match nav {
+            Some(a) if a.account.email.eq_ignore_ascii_case(email) => main_address(a),
+            _ => email,
+        };
+        let shared = accounts.iter().any(|a| a.account.id != account_id && main_address(a).eq_ignore_ascii_case(email));
+        account_label(nickname.as_deref(), email, nav.map(|a| a.account.provider).filter(|_| shared))
     }
 
     /// A short second label telling accounts apart (send-from pickers): the
@@ -847,6 +853,12 @@ pub fn provider_name(provider: ProviderKind, email: &str) -> &'static str {
         ProviderKind::Google => "Google Workspace",
         ProviderKind::ICloud => "iCloud",
     }
+}
+
+/// The address an account goes by: the alias picked as its main address,
+/// else its own.
+pub fn main_address(nav: &AccountNav) -> &str {
+    nav.main_address.as_deref().unwrap_or(&nav.account.email)
 }
 
 /// An account's name: its nickname, else its address; `ambiguous` (the

@@ -249,14 +249,17 @@ const MAX_CLUSTER: usize = 5;
 
 /// Pick the slots' letters. Slots in the same stretch of words (a lost
 /// letter can merge or split words, so neighbours decide together) try
-/// every combination of their options; the one with the most real words
-/// wins, ties going to the likelier options. Without a judge each slot
+/// every combination of their options; the one with the fewest made-up
+/// words wins, ties going to the likelier options. Without a judge each slot
 /// takes its first option (א for the common words ending in it).
 fn fill_slots(text: &str, slots: &[(usize, Slot)], judge: Option<fn(&str) -> bool>) -> String {
     let mut cs: Vec<char> = text.chars().collect();
     let char_at: HashMap<usize, usize> = text.char_indices().enumerate().map(|(ci, (bi, _))| (bi, ci)).collect();
     let mut found: Vec<(usize, Slot)> = slots.iter().filter_map(|(b, k)| char_at.get(b).map(|&c| (c, *k))).collect();
     found.sort_by_key(|(c, _)| *c);
+    // Bytes dropped outright leave two leads side by side (a Mid slot);
+    // without any, this mail turned its lost bytes into spaces.
+    let spaced = !found.iter().any(|(_, k)| *k == Slot::Mid);
     // Neighbouring slots: only letters and at most one space between them.
     let mut clusters: Vec<Vec<(usize, Slot)>> = Vec::new();
     for s in found {
@@ -324,9 +327,15 @@ fn fill_slots(text: &str, slots: &[(usize, Slot)], judge: Option<fn(&str) -> boo
             .collect();
         let pick = match judge {
             Some(judge) if cluster.len() <= MAX_CLUSTER => {
+                // Lower is better: words that don't exist (a lone letter
+                // never does), then, where lost bytes became spaces, more
+                // words (a space next to a slot is likelier its byte than a
+                // break: "מאושר", not "מם ושר").
                 let score = |p: &[usize]| {
                     let s: String = render(p).into_iter().collect();
-                    s.split(|c: char| !is_hebrew_letter(c)).filter(|w| w.chars().count() > 1 && judge(w)).count()
+                    let words: Vec<&str> = s.split(|c: char| !is_hebrew_letter(c)).filter(|w| !w.is_empty()).collect();
+                    let wrong = words.iter().filter(|w| w.chars().count() < 2 || !judge(w)).count();
+                    (wrong, if spaced { words.len() } else { 0 })
                 };
                 let sizes: Vec<usize> = cluster.iter().map(|(_, k)| k.options().len()).collect();
                 let mut best = default.clone();
@@ -334,7 +343,7 @@ fn fill_slots(text: &str, slots: &[(usize, Slot)], judge: Option<fn(&str) -> boo
                 let mut p = vec![0; cluster.len()];
                 'all: loop {
                     let sc = score(&p);
-                    if sc > best_score {
+                    if sc < best_score {
                         best_score = sc;
                         best = p.clone();
                     }
@@ -454,6 +463,38 @@ mod tests {
         let original = "שלום, שלום אני";
         let broken = garble(original, WINDOWS_1255).replace('\u{9d}', " ");
         assert_eq!(repair(&format!("{broken} {broken}")).as_deref(), Some(format!("{original} {original}").as_str()));
+    }
+
+    #[test]
+    fn a_space_next_to_a_lost_alef_was_its_byte() {
+        // Real mail: every lost א turned into a space, which read as a
+        // word break ("מם ושר", "מם ת:", "ם ודה", "ם תא").
+        const WORDS: &[&str] = &[
+            "הי",
+            "בוקר",
+            "טוב",
+            "מאושר",
+            "מם",
+            "ושר",
+            "תודה",
+            "רבה",
+            "מאת",
+            "אודה",
+            "לקבלת",
+            "אתם",
+            "תוסיפו",
+            "ציטוט",
+            "תא",
+            "את",
+        ];
+        fn judge(w: &str) -> bool {
+            WORDS.contains(&w)
+        }
+        for original in ["הי בוקר טוב מאושר תודה רבה", "מאת: תודה רבה", "אודה לקבלת ציטוט", "אתם תוסיפו ציטוט"]
+        {
+            let broken = garble(original, WINDOWS_1255).replace(['\u{90}', '\u{9d}'], " ");
+            assert_eq!(repair_with(&broken, &tables()[0], Some(judge)).0, original);
+        }
     }
 
     #[test]

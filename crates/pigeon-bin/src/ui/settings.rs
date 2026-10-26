@@ -482,7 +482,10 @@ fn AccountRow(
             button { class: "btn btn--ghost btn--sm", r#type: "button", onclick: move |_| on_ask.call(id1.clone()), "Sign out" }
         }
         if a.provider == ProviderKind::ICloud && !confirming {
-            ICloudSendFrom { account_id: a.id.clone(), email: a.email.clone() }
+            ICloudSendFrom { account_id: a.id.clone(), email: a.email.clone(), main: nav.main_address.clone() }
+        }
+        if a.provider != ProviderKind::ICloud && !confirming {
+            AliasList { account_id: a.id.clone(), email: a.email.clone(), main: nav.main_address.clone() }
         }
         if confirming {
             div { class: "account-detail",
@@ -508,11 +511,80 @@ fn AccountRow(
 pub const ICLOUD_SEND_HINT: &str =
     "iCloud sends only from your iCloud Mail addresses and aliases, not from an Apple ID at another provider.";
 
+/// Settings › Accounts, a Google or Microsoft account with aliases: its
+/// send-from addresses, to pick the one it goes by.
+#[component]
+fn AliasList(account_id: String, email: String, main: Option<String>) -> Element {
+    let s = use_context::<AppState>();
+    use_hook(|| {
+        if s.senders.read().is_empty() {
+            send_cmd(Cmd::LoadSenders);
+        }
+    });
+    let own = email.to_lowercase();
+    let mut listed: Vec<String> = s
+        .senders
+        .read()
+        .iter()
+        .filter(|x| x.account_id == account_id)
+        .map(|x| x.address.email.to_lowercase())
+        .collect();
+    // The account's own address first, as the provider lists them.
+    listed.sort_by_key(|e| *e != own);
+    if listed.len() < 2 {
+        return rsx! {};
+    }
+    rsx! {
+        div { class: "account-detail account-detail--plain icloud-send",
+            div { class: "icloud-send__head",
+                span { class: "settings-field__label", "Addresses" }
+                span { class: "settings-field__hint", "{MAIN_ADDRESS_HINT}" }
+            }
+            div { class: "icloud-send__list",
+                for addr in listed {
+                    div { class: "icloud-send__row", key: "{addr}",
+                        span { class: "spacer", "{addr}" }
+                        MainPick { account_id: account_id.clone(), email: addr.clone(), own: own.clone(), main: main.clone() }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// What a main address does (Settings › Accounts).
+pub const MAIN_ADDRESS_HINT: &str = "The main address is shown in the sidebar, and new messages come from it.";
+
+/// A send-from row's "Main" tag, or the button that makes it the address
+/// the account goes by.
+#[component]
+fn MainPick(account_id: String, email: String, own: String, main: Option<String>) -> Element {
+    let is_main = match &main {
+        Some(m) => m.eq_ignore_ascii_case(&email),
+        None => email == own,
+    };
+    if is_main {
+        return rsx! {
+            span { class: "tag", title: "Shown in the sidebar; new messages come from it", "Main" }
+        };
+    }
+    rsx! {
+        button { class: "btn btn--ghost btn--sm", r#type: "button", title: "Show this address in the sidebar and send new messages from it",
+            "aria-label": "Make {email} the main address",
+            onclick: move |_| send_cmd(Cmd::SetMainAddress {
+                account_id: account_id.clone(),
+                email: (email != own).then(|| email.clone()),
+            }),
+            "Make main"
+        }
+    }
+}
+
 /// Settings › Accounts, an iCloud account: the addresses it sends from
 /// (found in its mail, or added here) with remove buttons and an add box.
 /// The Apple ID itself is listed only when it's an iCloud address.
 #[component]
-fn ICloudSendFrom(account_id: String, email: String) -> Element {
+fn ICloudSendFrom(account_id: String, email: String, main: Option<String>) -> Element {
     let s = use_context::<AppState>();
     // Fresh each time: detection follows what has synced since.
     use_hook(|| send_cmd(Cmd::LoadSenders));
@@ -545,7 +617,7 @@ fn ICloudSendFrom(account_id: String, email: String) -> Element {
         div { class: "account-detail account-detail--plain icloud-send",
             div { class: "icloud-send__head",
                 span { class: "settings-field__label", "Send from" }
-                span { class: "settings-field__hint", "{ICLOUD_SEND_HINT}" }
+                span { class: "settings-field__hint", "{ICLOUD_SEND_HINT} {MAIN_ADDRESS_HINT}" }
             }
             if listed.is_empty() {
                 span { class: "settings-field__hint icloud-send__warn",
@@ -560,6 +632,7 @@ fn ICloudSendFrom(account_id: String, email: String) -> Element {
                         rsx! {
                             div { class: "icloud-send__row", key: "{addr}",
                                 span { class: "spacer", "{addr}" }
+                                MainPick { account_id: id_rm.clone(), email: addr.clone(), own: own.clone(), main: main.clone() }
                                 if removable {
                                     button { class: "btn btn--ghost btn--sm", r#type: "button", title: "Stop offering this address",
                                         "aria-label": "Remove {addr}",

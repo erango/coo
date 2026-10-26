@@ -224,7 +224,7 @@ fn AccountSection(
     let id = nav.account.id.clone();
     let collapsed = collapsed_set.read().contains(&id);
     let name = s.account_label(&nav.account.id, &nav.account.email);
-    let address = nav.account.email.clone();
+    let address = crate::state::main_address(&nav).to_string();
     let meta = crate::state::provider_name(nav.account.provider, &nav.account.email);
     let letter = format::initials(&name).chars().next().unwrap_or('?');
     let current = mailbox.read().clone();

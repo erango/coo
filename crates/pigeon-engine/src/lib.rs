@@ -24,7 +24,7 @@ use pigeon_core::auth::{self, OAuthApp, TokenSource};
 use pigeon_core::bodies::{download_attachment, load_body};
 use pigeon_core::compose::{
     AttachmentSource, Draft, ReplyContext, ReplyKind, Sender, ServerDraft, build_mime, default_sender,
-    icloud_send_addresses, icloud_senders, is_plain_address, reply_draft,
+    icloud_send_addresses, icloud_senders, is_plain_address, lead_with_main, reply_draft,
 };
 use pigeon_core::model::{Account, FolderRole, ProviderKind, StoredBody};
 use pigeon_core::provider::{DraftSync, MailSearch, MailSender};
@@ -316,43 +316,70 @@ impl Pigeon {
     }
 
     /// Every address the user can send from, across all accounts: each
-    /// account's own address plus its verified aliases.
+    /// account's own address plus its verified aliases, its main address
+    /// first.
     pub async fn senders(&self) -> Result<Vec<Sender>> {
         let accounts = self.accounts()?;
         let per_account = join_all(accounts.iter().map(|a| async move {
-            if a.provider == ProviderKind::ICloud {
-                // No API lists iCloud aliases: what local mail shows plus
-                // what the user added (Settings › Accounts).
-                self.confirm_custom_domain_aliases(a).await;
-                return match self.icloud_addresses(&a.id) {
-                    Ok(known) => icloud_senders(a, &known),
-                    Err(e) => {
-                        tracing::warn!(error = %e, "could not read iCloud send-from addresses");
-                        vec![Sender::primary(a)]
-                    }
-                };
-            }
-            let mut out = vec![Sender::primary(a)];
-            let aliases = match self.backend(a) {
-                Ok(b) => match &*b {
-                    Backend::Microsoft(p) => p.send_as().await,
-                    Backend::Google(p) => p.send_as().await,
-                    Backend::ICloud(p) => p.mail.send_as().await,
-                },
-                Err(e) => Err(e),
-            };
-            match aliases {
-                Ok(list) => out.extend(
-                    list.into_iter()
-                        .filter(|x| !x.email.eq_ignore_ascii_case(&a.email))
-                        .map(|address| Sender { account_id: a.id.clone(), address }),
-                ),
-                Err(e) => tracing::warn!(account = a.email, error = %e, "could not list send-as aliases"),
-            }
-            out
+            let main = self.store().main_address(&a.id).ok().flatten();
+            lead_with_main(self.account_senders(a).await, main.as_deref())
         }))
         .await;
         Ok(per_account.into_iter().flatten().collect())
+    }
+
+    /// One account's send-from addresses, its own first.
+    async fn account_senders(&self, a: &Account) -> Vec<Sender> {
+        if a.provider == ProviderKind::ICloud {
+            // No API lists iCloud aliases: what local mail shows plus
+            // what the user added (Settings › Accounts).
+            self.confirm_custom_domain_aliases(a).await;
+            return match self.icloud_addresses(&a.id) {
+                Ok(known) => icloud_senders(a, &known),
+                Err(e) => {
+                    tracing::warn!(error = %e, "could not read iCloud send-from addresses");
+                    vec![Sender::primary(a)]
+                }
+            };
+        }
+        let mut out = vec![Sender::primary(a)];
+        let aliases = match self.backend(a) {
+            Ok(b) => match &*b {
+                Backend::Microsoft(p) => p.send_as().await,
+                Backend::Google(p) => p.send_as().await,
+                Backend::ICloud(p) => p.mail.send_as().await,
+            },
+            Err(e) => Err(e),
+        };
+        match aliases {
+            Ok(list) => out.extend(
+                list.into_iter()
+                    .filter(|x| !x.email.eq_ignore_ascii_case(&a.email))
+                    .map(|address| Sender { account_id: a.id.clone(), address }),
+            ),
+            Err(e) => tracing::warn!(account = a.email, error = %e, "could not list send-as aliases"),
+        }
+        out
+    }
+
+    /// The address an account goes by (sidebar, new mail): one of its
+    /// send-from addresses, or None for its own.
+    pub fn main_address(&self, account_id: &str) -> Result<Option<String>> {
+        self.store().main_address(account_id)
+    }
+
+    /// Pick the address an account goes by; it must be one it can send
+    /// from. None (or its own address) goes back to the account's address.
+    pub async fn set_main_address(&self, account_id: &str, email: Option<&str>) -> Result<()> {
+        let account = self.account(account_id)?;
+        let email = email.map(str::trim).filter(|e| !e.is_empty() && !e.eq_ignore_ascii_case(&account.email));
+        if let Some(e) = email {
+            let offered = self.account_senders(&account).await.iter().any(|s| s.address.email.eq_ignore_ascii_case(e));
+            if !offered {
+                return Err(Error::Other("this account can't send from that address".into()));
+            }
+        }
+        self.store().set_main_address(account_id, email)
     }
 
     /// Mail that came into this iCloud mailbox addressed (alone) to an
@@ -424,17 +451,31 @@ impl Pigeon {
         if offered {
             self.store().add_send_address(account_id, email, now)
         } else {
-            self.store().remove_send_address(account_id, email, now)
+            let store = self.store();
+            if store.main_address(account_id)?.is_some_and(|m| m.eq_ignore_ascii_case(email)) {
+                store.set_main_address(account_id, None)?;
+            }
+            store.remove_send_address(account_id, email, now)
         }
     }
 
-    /// The address new mail from `account` comes from (iCloud: its first
-    /// iCloud Mail address, not a foreign Apple ID).
+    /// The address new mail from `account` comes from: its main address
+    /// when one is picked, else its own (iCloud: its first iCloud Mail
+    /// address, not a foreign Apple ID).
     pub fn primary_sender(&self, account: &Account) -> Result<Sender> {
+        let main = self.main_address(&account.id)?;
         if account.provider == ProviderKind::ICloud {
-            return Ok(icloud_senders(account, &self.icloud_addresses(&account.id)?).swap_remove(0));
+            let senders = icloud_senders(account, &self.icloud_addresses(&account.id)?);
+            return Ok(lead_with_main(senders, main.as_deref()).swap_remove(0));
         }
-        Ok(Sender::primary(account))
+        // Checked against the account's aliases when it was picked.
+        Ok(match main {
+            Some(email) => Sender {
+                account_id: account.id.clone(),
+                address: pigeon_core::model::Address::new(Some(&account.display_name), &email),
+            },
+            None => Sender::primary(account),
+        })
     }
 
     /// Save locally. The UI's copy may predate the last server sync, so a

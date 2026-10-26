@@ -229,6 +229,12 @@ pub enum Cmd {
         email: String,
         offered: bool,
     },
+    /// Pick the address an account goes by (None: its own). Answered with
+    /// `Delta::Senders` and a fresh `Delta::Accounts`.
+    SetMainAddress {
+        account_id: String,
+        email: Option<String>,
+    },
     /// How many messages from `email` this account already has (sender
     /// card's "first time" check). Answered with `Delta::SenderSeen`.
     SenderSeen {
@@ -310,6 +316,8 @@ pub struct AccountNav {
     pub folders: Vec<FolderInfo>,
     /// At least one mail page synced; false during the cold first sync.
     pub first_sync_done: bool,
+    /// The alias the account goes by (sidebar, new mail), when one is picked.
+    pub main_address: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -671,6 +679,7 @@ impl Service {
                     hue: hue_for(&a.email),
                     folders: store.folders(&a.id)?,
                     first_sync_done: store.has_mail_cursor(&a.id)?,
+                    main_address: store.main_address(&a.id)?,
                     account: a,
                 });
             }
@@ -1072,6 +1081,13 @@ impl Service {
                 let r = self.app.set_send_address(&account_id, &email, offered);
                 *self.my_addresses.lock().await = None;
                 self.send(Delta::Senders(self.app.senders().await?));
+                self.publish().await;
+                r?;
+            }
+            Cmd::SetMainAddress { account_id, email } => {
+                let r = self.app.set_main_address(&account_id, email.as_deref()).await;
+                self.send(Delta::Senders(self.app.senders().await?));
+                self.publish().await;
                 r?;
             }
             Cmd::SenderSeen { account_id, email } => {
