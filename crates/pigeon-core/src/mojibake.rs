@@ -97,6 +97,10 @@ enum Slot {
     /// Followed by a space: ם or א ending a word, or א / נ whose byte
     /// became that space.
     EndSpace,
+    /// Followed by a line break: ם or א ending a line, or an א whose byte
+    /// became a space that plain text then wrapped at ("ם\nודה" was
+    /// "אודה").
+    EndBreak,
 }
 
 /// Placeholder for a slot in the decoded text (private-use, never in mail).
@@ -109,6 +113,7 @@ impl Slot {
             Slot::Mid => &[('א', false)],
             Slot::End => &[('ם', false), ('א', false)],
             Slot::EndSpace => &[('ם', false), ('א', true), ('א', false), ('נ', true)],
+            Slot::EndBreak => &[('ם', false), ('א', false), ('א', true)],
         }
     }
 }
@@ -122,7 +127,8 @@ pub fn set_word_judge(judge: fn(&str) -> bool) {
     let _ = WORD_JUDGE.set(judge);
 }
 
-/// Frequent words ending in א, for when there's no spell checker.
+/// Frequent words ending in א, for when there's no spell checker, and to
+/// break ties when both letters make a word ("אנא", not "אנם").
 const ENDS_IN_ALEF: &[&str] = &[
     "לא",
     "הוא",
@@ -150,7 +156,21 @@ const ENDS_IN_ALEF: &[&str] = &[
     "כשלא",
     "פלא",
     "חטא",
+    "אנא",
+    "נורא",
+    "קורא",
+    "סבתא",
+    "מבטא",
 ];
+
+/// A word ending in א that isn't a common one, or in ם where the common
+/// word has א.
+fn unlikely_ending(w: &str) -> bool {
+    match w.strip_suffix('ם') {
+        Some(stem) => ENDS_IN_ALEF.contains(&format!("{stem}א").as_str()),
+        None => w.ends_with('א') && !ENDS_IN_ALEF.contains(&w),
+    }
+}
 
 fn is_hebrew_letter(c: char) -> bool {
     ('\u{5d0}'..='\u{5ea}').contains(&c)
@@ -197,7 +217,13 @@ fn repair_with(s: &str, map: &HashMap<char, u8>, judge: Option<fn(&str) -> bool>
                     continue;
                 }
                 if hebrew && bytes.last() == Some(&0xD7) {
-                    let kind = if r.starts_with(' ') { Slot::EndSpace } else { Slot::End };
+                    let kind = if r.starts_with(' ') {
+                        Slot::EndSpace
+                    } else if r.starts_with('\n') || r.starts_with("\r\n") {
+                        Slot::EndBreak
+                    } else {
+                        Slot::End
+                    };
                     slot(&mut bytes, &mut kinds, kind);
                 }
             }
@@ -277,15 +303,27 @@ fn fill_slots(text: &str, slots: &[(usize, Slot)], judge: Option<fn(&str) -> boo
         let (first, last) = (cluster[0].0, cluster[cluster.len() - 1].0);
         let from = word_bounds(&cs, first).0;
         let mut to = word_bounds(&cs, last).1;
-        if cs.get(to) == Some(&' ') {
-            to = word_bounds(&cs, (to + 1).min(cs.len().saturating_sub(1))).1.max(to);
+        let gap = cs[to.min(cs.len())..].iter().take_while(|&&c| c == ' ' || c == '\r' || c == '\n').count();
+        if (1..=2).contains(&gap) && to + gap < cs.len() {
+            to = word_bounds(&cs, to + gap).1.max(to);
         }
         let region = &cs[from..to];
         let render = |pick: &[usize]| -> Vec<char> {
             let mut out = Vec::with_capacity(region.len());
             let mut k = 0;
+            // What the last letter took after it: a space, or a line break.
             let mut skip_space = false;
+            let mut skip_break = false;
             for (off, &c) in region.iter().enumerate() {
+                if skip_break {
+                    if c == '\r' {
+                        continue;
+                    }
+                    skip_break = false;
+                    if c == '\n' {
+                        continue;
+                    }
+                }
                 if skip_space {
                     skip_space = false;
                     if c == ' ' {
@@ -303,7 +341,11 @@ fn fill_slots(text: &str, slots: &[(usize, Slot)], judge: Option<fn(&str) -> boo
                     let byte_space = matches!(letter, 'ם' | 'א')
                         && cs.get(at + 1) == Some(&' ')
                         && cs.get(at + 2).is_none_or(|&c| c.is_whitespace() || CLOSING.contains(&c));
-                    skip_space = takes || byte_space;
+                    if cluster[k].1 == Slot::EndBreak {
+                        skip_break = takes;
+                    } else {
+                        skip_space = takes || byte_space;
+                    }
                     k += 1;
                 } else {
                     out.push(c);
@@ -330,12 +372,15 @@ fn fill_slots(text: &str, slots: &[(usize, Slot)], judge: Option<fn(&str) -> boo
                 // Lower is better: words that don't exist (a lone letter
                 // never does), then, where lost bytes became spaces, more
                 // words (a space next to a slot is likelier its byte than a
-                // break: "מאושר", not "מם ושר").
+                // break: "מאושר", not "מם ושר"), then the fewest unlikely
+                // endings: א ends only the common words that do ("אנא",
+                // not "אנם"; "אתם", not "אתא").
                 let score = |p: &[usize]| {
                     let s: String = render(p).into_iter().collect();
                     let words: Vec<&str> = s.split(|c: char| !is_hebrew_letter(c)).filter(|w| !w.is_empty()).collect();
                     let wrong = words.iter().filter(|w| w.chars().count() < 2 || !judge(w)).count();
-                    (wrong, if spaced { words.len() } else { 0 })
+                    let unlikely = words.iter().filter(|w| unlikely_ending(w)).count();
+                    (wrong, if spaced { words.len() } else { 0 }, unlikely)
                 };
                 let sizes: Vec<usize> = cluster.iter().map(|(_, k)| k.options().len()).collect();
                 let mut best = default.clone();
@@ -486,15 +531,50 @@ mod tests {
             "ציטוט",
             "תא",
             "את",
+            "האם",
+            "הם",
+            "המאמר",
+            "המם",
+            "מר",
+            "לפרסום",
+            "אנא",
+            "נא",
+            "אשרו",
+            "שרו",
         ];
         fn judge(w: &str) -> bool {
             WORDS.contains(&w)
         }
-        for original in ["הי בוקר טוב מאושר תודה רבה", "מאת: תודה רבה", "אודה לקבלת ציטוט", "אתם תוסיפו ציטוט"]
-        {
+        for original in [
+            "הי בוקר טוב מאושר תודה רבה",
+            "מאת: תודה רבה",
+            "אודה לקבלת ציטוט",
+            "אתם תוסיפו ציטוט",
+            "בוקר טוב, האם המאמר מאושר לפרסום?",
+            "אנא אשרו את המאמר",
+        ] {
             let broken = garble(original, WINDOWS_1255).replace(['\u{90}', '\u{9d}'], " ");
             assert_eq!(repair_with(&broken, &tables()[0], Some(judge)).0, original);
         }
+    }
+
+    #[test]
+    fn plain_text_wrapped_at_a_lost_alef() {
+        // The א's byte became a space and the plain-text part wrapped there.
+        const WORDS: &[&str] = &["תודה", "רבה", "אודה", "לקבלת", "ציטוט", "שלום"];
+        fn judge(w: &str) -> bool {
+            WORDS.contains(&w)
+        }
+        let original = "תודה רבה, אודה לקבלת ציטוט";
+        for br in ["\n", "\r\n"] {
+            let broken = garble(original, WINDOWS_1255).replace('\u{90}', &format!(" {br}"));
+            let broken = broken.replace(&format!(" {br}"), br);
+            assert_eq!(repair_with(&broken, &tables()[0], Some(judge)).0, original);
+        }
+        // A real line ending in ם keeps its break.
+        let original = "תודה רבה שלום\nאודה לקבלת";
+        let broken = garble(original, WINDOWS_1255).replace(['\u{90}', '\u{9d}'], " ");
+        assert_eq!(repair_with(&broken, &tables()[0], Some(judge)).0, original);
     }
 
     #[test]

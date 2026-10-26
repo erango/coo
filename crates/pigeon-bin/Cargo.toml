@@ -25,6 +25,7 @@ tracing.workspace = true
 [dev-dependencies]
 # Checks the composer's list-autoformat pattern (richtext.rs), which runs in JS.
 regex = "1.13"
+encoding_rs.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

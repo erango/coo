@@ -86,4 +86,20 @@ mod tests {
         assert!(super::imp::check("שלום"));
         assert!(!super::imp::check("שלוא"));
     }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn repairs_real_garbled_sentences() {
+        if !super::imp::has_hebrew() {
+            return;
+        }
+        super::install();
+        // Sentences from a real garbled mail: lost א and ם bytes became
+        // spaces (the user's corrections).
+        let original = "הי בוקר טוב מאושר תודה רבה\nמאת: אודה לקבלת ציטוט. אתם תוסיפו ציטוט\n\
+                        בוקר טוב, האם המאמר מאושר לפרסום?\nאנא אשרו את המאמר";
+        let bytes: Vec<u8> = original.bytes().map(|b| if matches!(b, 0x90 | 0x9D) { b' ' } else { b }).collect();
+        let broken = encoding_rs::WINDOWS_1255.decode_without_bom_handling(&bytes).0.into_owned();
+        assert_eq!(pigeon_core::mojibake::repair(&broken).as_deref(), Some(original));
+    }
 }
