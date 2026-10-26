@@ -294,44 +294,18 @@ fn ThemeCard(id: &'static str, name: &'static str, checked: bool, on_pick: Event
 #[component]
 fn Accounts() -> Element {
     let s = use_context::<AppState>();
-    let mut signing_in = s.signing_in;
-    let login = move |p: ProviderKind| {
-        signing_in.set(true);
-        send_cmd(Cmd::Login(p));
-    };
-    let (mut l1, mut l2) = (login, login);
-    let mut icloud = s.icloud_form;
-    // Close the iCloud panel once its account shows up (sign-in succeeded);
-    // debug builds can open it once accounts have loaded, like a real click.
-    let mut seen = use_signal(|| None::<usize>);
-    use_effect(move || {
-        let n = s.accounts.read().len();
-        let prev = *seen.peek();
-        if prev.is_some_and(|p| n > p) && *icloud.peek() {
-            icloud.set(false);
-        }
-        if prev.is_none() && n > 0 && super::icloud::debug_open("settings:icloud") {
-            icloud.set(true);
-        }
-        if n > 0 || prev.is_some() {
-            seen.set(Some(n));
-        }
-    });
+    let signing_in = s.signing_in;
+    let sheet_open = s.add_account.read().is_some();
 
     rsx! {
         div { class: "settings__title", style: "margin-top:12px", "Accounts" }
         div { class: "settings__hint", "Click an account's name to give it a nickname. Drag accounts in the sidebar to reorder them; this list follows the same order. New messages come from the default account; right-click an account in the sidebar for more." }
         AccountList {}
         div { class: "account-detail__actions", style: "margin-top:4px",
-            button { class: "btn btn--secondary", r#type: "button", disabled: *signing_in.read(),
-                onclick: move |_| l1(ProviderKind::Microsoft), Icon { name: "building", class: "icon--sm" } "Add Microsoft 365" }
-            button { class: "btn btn--secondary", r#type: "button", disabled: *signing_in.read(),
-                onclick: move |_| l2(ProviderKind::Google), Icon { name: "at", class: "icon--sm" } "Add Google" }
-            button { class: "btn btn--secondary", r#type: "button", disabled: *signing_in.read(),
-                onclick: move |_| icloud.set(true), Icon { name: "cloud", class: "icon--sm" } "Add iCloud" }
-            if *signing_in.read() && !*icloud.read() { span { class: "settings__hint", style: "margin:0;align-self:center", "Finish signing in in your browser…" } }
+            button { class: "btn btn--outline", r#type: "button",
+                onclick: move |_| super::add_account::open(s, ""), Icon { name: "plus", class: "icon--sm" } "Add account…" }
+            if *signing_in.read() && !sheet_open { span { class: "settings__hint", style: "margin:0;align-self:center", "Finish signing in in your browser…" } }
         }
-        ICloudPanel { open: icloud }
         if !s.accounts.read().is_empty() {
             div { class: "settings-group", style: "margin-top:16px", DefaultFromField {} }
         }
@@ -410,18 +384,6 @@ fn VideoCalls() -> Element {
                 }
             }
         }
-    }
-}
-
-/// The inline iCloud sign-in under the account list.
-#[component]
-fn ICloudPanel(open: Signal<bool>) -> Element {
-    let mut open = open;
-    if !*open.read() {
-        return rsx! {};
-    }
-    rsx! {
-        div { style: "margin:12px 0", super::icloud::ICloudForm { on_cancel: move |_| open.set(false) } }
     }
 }
 

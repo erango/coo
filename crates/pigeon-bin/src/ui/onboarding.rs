@@ -3,6 +3,7 @@ use pigeon_core::model::ProviderKind;
 use pigeon_engine::service::Cmd;
 
 use super::Icon;
+use super::add_account::{FlowView, Opening, Step, use_flow};
 use crate::send_cmd;
 use crate::state::AppState;
 
@@ -10,9 +11,16 @@ use crate::state::AppState;
 pub fn Onboarding() -> Element {
     let s = use_context::<AppState>();
     let mut signing_in = s.signing_in;
-    let mut icloud = use_signal(|| super::icloud::debug_open("icloud"));
-    // The browser wait screen is for OAuth only; iCloud shows its own form.
-    let waiting = *signing_in.read() && !*icloud.read();
+    // The "Add account" flow, embedded; a finished sign-in shows up in the
+    // connected list, and the flow starts over for the next account.
+    let opening = Opening {
+        step: if super::icloud::debug_open("icloud") { Step::ICloud } else { Step::Start },
+        ..Default::default()
+    };
+    let flow = use_flow(opening, use_callback(|()| {}));
+    let in_icloud = *flow.step.read() == Step::ICloud;
+    // The browser wait screen is for OAuth only (also "Try again" below).
+    let waiting = flow.browser_wait().is_some() || (*signing_in.read() && !in_icloud);
     let mut login_error = s.login_error;
     let consent = login_error
         .read()
@@ -22,13 +30,6 @@ pub fn Onboarding() -> Element {
     let accounts = s.accounts.read().clone();
     let done = accounts.iter().filter(|a| a.first_sync_done).count();
     let mut first_run = s.first_run;
-    let pick = move |p: Option<ProviderKind>| match p {
-        Some(p) => {
-            signing_in.set(true);
-            send_cmd(Cmd::Login(p));
-        }
-        None => icloud.set(true),
-    };
 
     rsx! {
         div { class: "onboard",
@@ -43,19 +44,17 @@ pub fn Onboarding() -> Element {
                         div { class: "onboard__lede", "Coo opened your browser to sign in. Come back here when it says you're done." }
                         div { class: "onboard__fine", style: "justify-content:center",
                             "Adding Gmail? If Google says it hasn't verified Coo, click Advanced, then Go to Coo." }
-                        button { class: "btn btn--ghost", r#type: "button", onclick: move |_| signing_in.set(false), "Cancel" }
+                        button { class: "btn btn--ghost", r#type: "button",
+                            onclick: move |_| { flow.cancel_wait(); signing_in.set(false); }, "Cancel" }
                     }
-                } else if *icloud.read() {
-                    div { class: "onboard__col",
-                        div { class: "onboard__title onboard__title--sm", "Add your iCloud account" }
-                        super::icloud::ICloudForm { on_cancel: move |_| icloud.set(false) }
-                    }
+                } else if in_icloud {
+                    div { class: "onboard__col", FlowView { flow, embedded: true } }
                 } else if accounts.is_empty() {
                     div { class: "onboard__col",
                         svg { view_box: "4 4 60 56", style: "width:52px;height:48px", "aria-hidden": "true", dangerous_inner_html: super::list::AWAKE_BIRD }
                         div { class: "onboard__title", "Welcome to Coo" }
-                        div { class: "onboard__lede", "Add your accounts: work, personal, as many as you like. They all land in one inbox and one calendar." }
-                        ProviderChoices { on_pick: pick }
+                        div { class: "onboard__lede", "Add your accounts: work, personal, as many as you like. They all land in one inbox and one calendar. Coo works with Google, Microsoft 365 and iCloud." }
+                        FlowView { flow, embedded: true }
                         div { class: "onboard__fine", Icon { name: "lock", class: "icon--sm" } "Microsoft and Google sign in on their own page; iCloud uses an app-specific password. Coo keeps credentials in your Keychain." }
                     }
                 } else {
@@ -66,47 +65,13 @@ pub fn Onboarding() -> Element {
                         div { class: "onboard__lede", "Add the rest now, so everything is in one place from the start. Recent mail comes first; older messages fill in while you work." }
                         ConnectedAccounts {}
                         div { class: "t-label", "Add another account" }
-                        ProviderChoices { on_pick: pick, compact: true }
+                        FlowView { flow, embedded: true }
                         div { style: "display:flex;align-items:center;gap:12px",
                             button { class: "btn btn--primary", r#type: "button", style: "height:40px;padding:0 18px",
                                 onclick: move |_| first_run.set(false), "Continue to Coo" }
                             span { class: "t-caption", "{done} of {accounts.len()} synced · the rest keeps going in the background" }
                         }
                     }
-                }
-            }
-        }
-    }
-}
-
-/// One choice per provider (the design's large cards; `compact` for the
-/// "add another" list under connected accounts).
-#[component]
-fn ProviderChoices(on_pick: EventHandler<Option<ProviderKind>>, #[props(default)] compact: bool) -> Element {
-    // None = iCloud (password form, not OAuth).
-    let choices: [(Option<ProviderKind>, &str, &str, &str, u8); 3] = [
-        (
-            Some(ProviderKind::Microsoft),
-            "building",
-            "Microsoft 365 / Outlook",
-            "Work or school accounts, Outlook.com",
-            1,
-        ),
-        (Some(ProviderKind::Google), "at", "Google", "Gmail and Google Workspace", 3),
-        (None, "cloud", "iCloud", "iCloud Mail and Calendar", 7),
-    ];
-    rsx! {
-        div { style: "display:flex;flex-direction:column;gap:10px",
-            for (kind, icon, name, sub, hue) in choices {
-                button { class: "provider-choice", r#type: "button", key: "{name}", "data-hue": "{hue}",
-                    style: if compact { "height:56px" } else { "" },
-                    onclick: move |_| on_pick.call(kind),
-                    span { class: "provider-choice__icon", Icon { name: icon } }
-                    span { class: "provider-choice__text",
-                        span { class: "provider-choice__name", "{name}" }
-                        if !compact { span { class: "provider-choice__sub", "{sub}" } }
-                    }
-                    Icon { name: "chev-right", class: "icon--sm" }
                 }
             }
         }
@@ -164,7 +129,7 @@ fn AdminConsent(code: &'static str, on_back: EventHandler<()>) -> Element {
                         on_back.call(());
                         let mut si = s.signing_in;
                         si.set(true);
-                        send_cmd(Cmd::Login(ProviderKind::Microsoft));
+                        send_cmd(Cmd::Login { provider: ProviderKind::Microsoft, login_hint: None });
                     },
                     "Try again"
                 }

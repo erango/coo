@@ -187,8 +187,13 @@ pub struct AppState {
     pub window_focused: Signal<bool>,
     /// Outgoing messages (sending / failed / scheduled), newest first.
     pub outgoing: Signal<Vec<Outgoing>>,
-    /// Settings should open the iCloud password form (re-sign-in).
-    pub icloud_form: Signal<bool>,
+    /// The "Add account" sheet while open (ui/add_account.rs), with what
+    /// it opened on.
+    pub add_account: Signal<Option<crate::ui::add_account::Opening>>,
+    /// Counts finished sign-ins (`Delta::SignedIn`); the sheet closes on a new one.
+    pub signed_in: Signal<u64>,
+    /// The latest `Delta::ProviderDetected`, as (token, result).
+    pub detected: Signal<Option<(u64, pigeon_core::provider_detect::Detection)>>,
     /// Last OAuth sign-in failure (provider, message), shown by onboarding.
     pub login_error: Signal<Option<(pigeon_core::model::ProviderKind, String)>>,
     /// This session started with no accounts: show first-sync progress
@@ -311,7 +316,9 @@ impl AppState {
             reply_to_window: Signal::new(None),
             window_focused: Signal::new(true),
             outgoing: Signal::new(Vec::new()),
-            icloud_form: Signal::new(false),
+            add_account: Signal::new(None),
+            signed_in: Signal::new(0),
+            detected: Signal::new(None),
             login_error: Signal::new(None),
             first_run: Signal::new(false),
             reopening: Signal::new(None),
@@ -641,6 +648,11 @@ fn apply(s: &mut AppState, delta: Delta) {
                 s.login_error.set(Some((provider, error)));
             }
             Delta::Zoom(z) => s.zoom.set(z),
+            Delta::SignedIn { .. } => {
+                let n = *s.signed_in.peek();
+                s.signed_in.set(n + 1);
+            }
+            Delta::ProviderDetected { token, result } => s.detected.set(Some((token, result))),
             Delta::Accounts(a) => {
                 if a.is_empty() && !*s.loaded.peek() {
                     s.first_run.set(true);

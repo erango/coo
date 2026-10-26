@@ -130,6 +130,13 @@ impl OAuthApp {
         }
     }
 
+    /// Pre-fill the sign-in page with the address typed in "Add account"
+    /// (`login_hint`; Google and Microsoft both take it). Blank is no hint.
+    pub fn with_login_hint(self, email: Option<&str>) -> Self {
+        let hint = email.map(str::trim).filter(|e| !e.is_empty()).map(String::from);
+        OAuthApp { login_hint: hint.or(self.login_hint.clone()), ..self }
+    }
+
     /// Zoom (meetings). Scopes come from the Marketplace app's configuration.
     pub fn zoom(client_id: impl Into<String>) -> Self {
         OAuthApp {
@@ -593,6 +600,20 @@ mod tests {
         let err = authorize(&OAuthApp::zoom("cid"), |_| opened = true).await.unwrap_err();
         assert!(err.to_string().contains("port 47821"), "{err}");
         assert!(!opened, "must fail before opening the browser");
+    }
+
+    #[test]
+    fn typed_address_becomes_the_login_hint() {
+        let q = |app: OAuthApp| -> std::collections::HashMap<String, String> {
+            app.authorize_url("http://localhost:5000", "st", "ch").unwrap().query_pairs().into_owned().collect()
+        };
+        let ms = q(OAuthApp::microsoft("cid").with_login_hint(Some(" dana@acme.co.il ")));
+        assert_eq!(ms["login_hint"], "dana@acme.co.il");
+        assert_eq!(ms["prompt"], "select_account");
+        let g = q(OAuthApp::google("cid", "secret").with_login_hint(Some("me@gmail.com")));
+        assert_eq!(g["login_hint"], "me@gmail.com");
+        assert!(!q(OAuthApp::google("cid", "secret").with_login_hint(Some("  "))).contains_key("login_hint"));
+        assert!(!q(OAuthApp::microsoft("cid").with_login_hint(None)).contains_key("login_hint"));
     }
 
     #[test]

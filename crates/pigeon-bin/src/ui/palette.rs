@@ -32,6 +32,7 @@ enum Action {
     Settings,
     AgentSetup,
     ReportBug,
+    AddAccount,
 }
 
 #[derive(Clone, PartialEq)]
@@ -89,6 +90,10 @@ fn build(s: &AppState, query: &str) -> Vec<Item> {
         item("Actions", "edit", "New message", "C", Action::Compose),
         item("Actions", "sync", "Sync now", "⇧⌘N", Action::Sync),
         item("Actions", "settings", "Settings", "⌘,", Action::Settings),
+        Item {
+            meta: "Google, Microsoft 365, iCloud".into(),
+            ..item("Actions", "plus", "Add account…", "", Action::AddAccount)
+        },
         Item {
             meta: "Claude Code, Claude Desktop, MCP".into(),
             ..item("Actions", "link", "Connect an AI agent…", "", Action::AgentSetup)
@@ -200,6 +205,7 @@ fn run(mut s: AppState, action: Action) {
         Action::Settings => s.settings_open.set(true),
         Action::AgentSetup => s.agent_setup_open.set(true),
         Action::ReportBug => super::report_bug(s),
+        Action::AddAccount => super::add_account::open(s, ""),
         Action::Theme(t) => s.theme.set(t),
         Action::Threads(t) => s.threaded.set(t),
         Action::Search(q, scope) => {

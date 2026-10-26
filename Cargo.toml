@@ -48,6 +48,7 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 url = "2.5"
 idna = "1.1"
+hickory-resolver = "0.26"
 
 [profile.release]
 # Smaller, faster release builds. Line tables are kept in a separate dSYM
