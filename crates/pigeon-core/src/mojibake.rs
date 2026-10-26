@@ -241,6 +241,9 @@ fn word_bounds(cs: &[char], at: usize) -> (usize, usize) {
     (from, to)
 }
 
+/// Punctuation that never follows a space (unlike "-" or "(").
+const CLOSING: &[char] = &[',', '.', ':', ';', '?', '!', ')', ']'];
+
 /// More slots than this in one stretch: no search, best guesses only.
 const MAX_CLUSTER: usize = 5;
 
@@ -289,7 +292,15 @@ fn fill_slots(text: &str, slots: &[(usize, Slot)], judge: Option<fn(&str) -> boo
                 if k < cluster.len() && from + off == cluster[k].0 {
                     let (letter, takes) = cluster[k].1.options()[pick[k]];
                     out.push(letter);
-                    skip_space = takes;
+                    // A lost letter ending a word (ם always, א here) whose
+                    // byte became a space: that space, when followed by
+                    // another space, punctuation or the end, was the
+                    // letter's byte, not a word break, so it goes.
+                    let at = from + off;
+                    let byte_space = matches!(letter, 'ם' | 'א')
+                        && cs.get(at + 1) == Some(&' ')
+                        && cs.get(at + 2).is_none_or(|&c| c.is_whitespace() || CLOSING.contains(&c));
+                    skip_space = takes || byte_space;
                     k += 1;
                 } else {
                     out.push(c);
@@ -434,6 +445,15 @@ mod tests {
             .replace('\u{9d}', "") // ם's byte dropped
             .replace('\u{a0}', " "); // נ's nbsp became a plain space
         assert_eq!(repair_with(&broken, &tables()[0], Some(judge)).0, original);
+    }
+
+    #[test]
+    fn final_mem_whose_byte_became_a_space_adds_no_space() {
+        // ם's byte turned into a space: "שלום," must not become "שלום ,",
+        // nor "שלום אני" get two spaces.
+        let original = "שלום, שלום אני";
+        let broken = garble(original, WINDOWS_1255).replace('\u{9d}', " ");
+        assert_eq!(repair(&format!("{broken} {broken}")).as_deref(), Some(format!("{original} {original}").as_str()));
     }
 
     #[test]
