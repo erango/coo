@@ -36,8 +36,13 @@ mod imp {
     use objc2_app_kit::NSSpellChecker;
     use objc2_foundation::{NSNotFound, NSString};
 
+    /// Hebrew listed and actually working (a listed language can lack its
+    /// dictionary, as on CI runners): a known word passes, a misspelling
+    /// doesn't.
     pub fn has_hebrew() -> bool {
         NSSpellChecker::sharedSpellChecker().availableLanguages().iter().any(|l| l.to_string() == "he")
+            && check("שלום")
+            && !check("שלוא")
     }
 
     pub fn check(word: &str) -> bool {
