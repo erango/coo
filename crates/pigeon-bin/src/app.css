@@ -1097,3 +1097,8 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .nav-item:hover .nav-item__pin, .nav-item__pin:focus-visible { display: grid; }
 .nav-item:hover > .count:has(+ .nav-item__pin) { display: none; }
 .nav-item[data-pinned] .nav-item__pin { color: var(--accent); }
+
+/* Settings › Notifications › Sounds: a switch and Play per sound. */
+.sound-kinds { display: grid; grid-template-columns: auto auto; justify-content: start; align-items: center; column-gap: 12px; row-gap: 6px; }
+.sound-kind { display: flex; align-items: center; gap: 8px; font-size: var(--fs-ui); color: var(--text-1); cursor: pointer; }
+.sound-kind > .icon { color: var(--text-3); }

@@ -94,7 +94,7 @@ pub fn App() -> Element {
                 crate::menubar::show_main();
                 crate::updater::check_background(false);
             }
-            // Coming back to the foreground: a silent update check, at most hourly.
+            // Coming back to the foreground: a silent update check, at most every 10 minutes.
             Event::WindowEvent { event: WindowEvent::Focused(true), .. } => crate::updater::check_background(false),
             _ => {}
         }
@@ -595,7 +595,7 @@ async fn reminder_loop(s: AppState) {
         let now = pigeon_core::now_ms();
         let prefs = crate::prefs::get();
         let due = crate::notify::due_reminders(&events, now, &prefs, &reminded);
-        if !due.is_empty() {
+        if !due.is_empty() && prefs.meeting_sound {
             crate::sound::alert(&prefs.sound_theme, crate::sound::Kind::Meeting, prefs.sound_volume);
         }
         for e in due {

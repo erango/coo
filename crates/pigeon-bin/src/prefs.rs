@@ -77,6 +77,10 @@ pub struct Prefs {
     pub sound_theme: String,
     /// Sound volume, 0–100.
     pub sound_volume: u8,
+    /// Play the theme's new-mail sound.
+    pub mail_sound: bool,
+    /// Play the theme's meeting-reminder sound.
+    pub meeting_sound: bool,
     /// Where new messages open: "window" (their own window) or "docked"
     /// (in the reading pane).
     pub compose_mode: String,
@@ -152,6 +156,8 @@ impl Default for Prefs {
             reminders_time_sensitive: true,
             sound_theme: crate::sound::DEFAULT.into(),
             sound_volume: 60,
+            mail_sound: true,
+            meeting_sound: true,
         }
     }
 }
