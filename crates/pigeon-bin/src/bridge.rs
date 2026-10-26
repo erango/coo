@@ -84,6 +84,8 @@ pub const JS: &str = r#"
       return;
     }
     if (['j','k','ArrowUp','ArrowDown'].includes(key)) listFocus = true;
+    // Enter on a focused button or link presses it, as anywhere else.
+    if (key === 'Enter' && e.target.closest && e.target.closest('button, a[href]')) return;
     if (KEYS.has(key)) { e.preventDefault(); send('key', key); }
   }, true);
 

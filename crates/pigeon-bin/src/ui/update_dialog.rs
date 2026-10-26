@@ -88,6 +88,20 @@ pub fn view(status: &Status, version: &str, composing: bool) -> View {
     }
 }
 
+/// Enter in the dialog: its primary button (Restart now, Try again, OK).
+pub fn confirm(s: AppState) {
+    let status = s.update_status.peek().clone();
+    let (version, _) = crate::updater::version();
+    match view(&status, &version, super::update_would_interrupt(s)).action {
+        Action::Restart => super::restart_to_update(),
+        Action::Retry => super::check_for_updates(s),
+        Action::None => {
+            let mut open = s.update_dialog;
+            open.set(false);
+        }
+    }
+}
+
 #[component]
 pub fn UpdateDialog() -> Element {
     let s = use_context::<AppState>();

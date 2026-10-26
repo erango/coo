@@ -1107,6 +1107,8 @@ fn on_key(s: AppState, key: &str) {
         }
         // Open (not toggle): the menu's ⌘, accelerator may fire as well.
         "meta+," => return settings.set(true),
+        // The update dialog's primary button looks focused; Enter presses it.
+        "Enter" if *s.update_dialog.read() => return update_dialog::confirm(s),
         "Escape" => {
             // A docked draft set aside behind the "Draft:" chip isn't being edited.
             let composing = draft.read().is_some() && !*s.docked_hidden.read();
