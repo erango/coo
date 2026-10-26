@@ -68,6 +68,9 @@ cp "$TARGET/pigeon-app" "$APP/Contents/MacOS/Coo"
 ditto "$SPARKLE/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 cp "$TARGET/coo" "$APP/Contents/Helpers/coo"
 cp "$ICNS" "$APP/Contents/Resources/Coo.icns"
+# Alert sounds: notifications name them (UNNotificationSound looks in the
+# bundle's Resources), so macOS plays them and Focus can silence them.
+cp "$ROOT"/crates/pigeon-bin/assets/sounds/*.wav "$APP/Contents/Resources/"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

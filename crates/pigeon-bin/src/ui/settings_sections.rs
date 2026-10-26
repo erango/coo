@@ -441,7 +441,6 @@ pub fn Notifications() -> Element {
                     for (v, label) in [
                         ("banner", if cur.mail_sound { "Banner and sound" } else { "Banner" }),
                         ("background", "Banner when Coo is in the background"),
-                        ("sound", "Sound only"),
                     ] {
                         button { role: "radio", key: "{v}", disabled: !cur.notify_new_mail,
                             "aria-checked": "{cur.mail_alert == v}", "aria-selected": "{cur.mail_alert == v}",
@@ -502,7 +501,7 @@ pub fn Notifications() -> Element {
                                         title: "Click to hear the new-mail sound",
                                         onclick: move |_| {
                                             prefs::update(move |x| x.sound_theme = id.to_string());
-                                            crate::sound::play(id, crate::sound::Kind::Mail, prefs::get().sound_volume);
+                                            crate::sound::play(id, crate::sound::Kind::Mail);
                                             p.set(prefs::get());
                                         },
                                         "{label}"
@@ -521,7 +520,7 @@ pub fn Notifications() -> Element {
                             span { "New mail" }
                         }
                         button { class: "btn btn--ghost btn--sm", disabled: cur.sound_theme == crate::sound::NONE, title: "Play the new-mail sound",
-                            onclick: move |_| { let p = prefs::get(); crate::sound::play(&p.sound_theme, crate::sound::Kind::Mail, p.sound_volume); },
+                            onclick: move |_| { let p = prefs::get(); crate::sound::play(&p.sound_theme, crate::sound::Kind::Mail); },
                             "Play" }
                         label { class: "sound-kind",
                             input { class: "switch", r#type: "checkbox", checked: cur.meeting_sound, disabled: cur.sound_theme == crate::sound::NONE,
@@ -531,22 +530,10 @@ pub fn Notifications() -> Element {
                             span { "Meeting reminders" }
                         }
                         button { class: "btn btn--ghost btn--sm", disabled: cur.sound_theme == crate::sound::NONE, title: "Play the meeting-reminder sound",
-                            onclick: move |_| { let p = prefs::get(); crate::sound::play(&p.sound_theme, crate::sound::Kind::Meeting, p.sound_volume); },
+                            onclick: move |_| { let p = prefs::get(); crate::sound::play(&p.sound_theme, crate::sound::Kind::Meeting); },
                             "Play" }
                     }
-                    div { style: "display:flex;gap:8px;align-items:center",
-                        span { class: "settings-field__hint", style: "margin:0", "Volume" }
-                        input { r#type: "range", min: "10", max: "100", step: "5", class: "settings-range", "aria-label": "Volume",
-                            value: "{cur.sound_volume}", disabled: cur.sound_theme == crate::sound::NONE,
-                            onchange: move |e| {
-                                let v: u8 = e.value().parse().unwrap_or(60);
-                                prefs::update(move |x| x.sound_volume = v);
-                                crate::sound::play(&prefs::get().sound_theme, crate::sound::Kind::Mail, v);
-                                p.set(prefs::get());
-                            }
-                        }
-                    }
-                    span { class: "settings-field__hint", "Each theme pairs a new-mail sound with a matching meeting reminder; turn either off on its own. Plays once per batch, only for the alerts turned on here." }
+                    span { class: "settings-field__hint", "Each theme pairs a new-mail sound with a matching meeting reminder; turn either off on its own. Plays once per batch, at macOS's alert volume, and stays quiet in Focus and Do Not Disturb like the banner." }
                 }
             }
             div { class: "settings-field",

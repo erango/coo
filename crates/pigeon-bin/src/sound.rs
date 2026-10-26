@@ -76,34 +76,67 @@ pub fn due(last: Option<std::time::Instant>, now: std::time::Instant) -> bool {
     last.is_none_or(|t| now.saturating_duration_since(t) >= ALERT_GAP)
 }
 
-/// A new-mail or reminder alert: like `play`, but at most once per
-/// `ALERT_GAP` for each kind, and never while the screen is locked or every
-/// screen is off (asleep, or a closed lid with nothing else attached).
-/// Previews in Settings use `play`.
-pub fn alert(theme: &str, kind: Kind, volume: u8) {
+/// Whether a new-mail or reminder alert of `kind` should carry its sound:
+/// at most once per `ALERT_GAP` for each kind, and never while the screen
+/// is locked or every screen is off (asleep, or a closed lid with nothing
+/// else attached). Focus and Do Not Disturb are macOS's call: the sound
+/// rides on the notification (`notification_sound`).
+pub fn take_alert(kind: Kind) -> bool {
     if imp::screens_off() {
-        return;
+        return false;
     }
     static LAST: std::sync::Mutex<[Option<std::time::Instant>; 2]> = std::sync::Mutex::new([None, None]);
     let now = std::time::Instant::now();
     let slot = kind as usize;
-    let Ok(mut last) = LAST.lock() else { return };
+    let Ok(mut last) = LAST.lock() else { return false };
     if !due(last[slot], now) {
-        return;
+        return false;
     }
     last[slot] = Some(now);
-    drop(last);
-    play(theme, kind, volume);
+    true
 }
 
-/// Play `kind` from `theme` at `volume` (0–100). Unknown themes and "none"
-/// are silent.
-pub fn play(theme: &str, kind: Kind, volume: u8) {
-    let volume = f32::from(volume.min(100)) / 100.0;
+/// The file name a notification plays `kind` of `theme` by, for
+/// UNNotificationSound: bundled themes sit in Coo.app's Resources
+/// (scripts/bundle.sh); macOS's own sounds are copied once into
+/// ~/Library/Sounds, the other place macOS looks. None: silent.
+pub fn notification_sound(theme: &str, kind: Kind) -> Option<String> {
+    if wav(theme, kind).is_some() {
+        return Some(bundled_name(theme, kind));
+    }
+    let src = system_file(theme, kind)?;
+    let name = format!("Coo {}", std::path::Path::new(src).file_name()?.to_str()?);
+    let dir = std::path::PathBuf::from(std::env::var_os("HOME")?).join("Library/Sounds");
+    let dest = dir.join(&name);
+    if !dest.exists() {
+        let copied = std::fs::create_dir_all(&dir).and_then(|_| std::fs::copy(src, &dest));
+        if let Err(e) = copied {
+            tracing::warn!(error = %e, "could not copy a macOS sound for notifications");
+            return None;
+        }
+    }
+    Some(name)
+}
+
+/// `<theme>-<kind>.wav`, as in assets/sounds.
+fn bundled_name(theme: &str, kind: Kind) -> String {
+    let kind = match kind {
+        Kind::Mail => "mail",
+        Kind::Meeting => "meeting",
+    };
+    format!("{theme}-{kind}.wav")
+}
+
+/// About where macOS's alert volume sits, so previews sound like alerts.
+const PREVIEW_VOLUME: f32 = 0.75;
+
+/// Play `kind` from `theme` now (Settings previews; alerts without a
+/// Coo.app bundle). Unknown themes and "none" are silent.
+pub fn play(theme: &str, kind: Kind) {
     if let Some(bytes) = wav(theme, kind) {
-        imp::play(bytes, volume);
+        imp::play(bytes, PREVIEW_VOLUME);
     } else if let Some(path) = system_file(theme, kind) {
-        imp::play_file(path, volume);
+        imp::play_file(path, PREVIEW_VOLUME);
     }
 }
 
@@ -221,5 +254,17 @@ mod tests {
         assert!(wav(NONE, Kind::Mail).is_none());
         assert_eq!(system_file(MACOS, Kind::Mail), Some(MACOS_MAIL));
         assert_eq!(system_file(DEFAULT, Kind::Mail), None);
+    }
+
+    #[test]
+    fn bundled_notification_sounds_match_the_asset_files() {
+        let assets = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/sounds");
+        for t in THEMES {
+            for kind in [Kind::Mail, Kind::Meeting] {
+                let name = notification_sound(t.id, kind).unwrap();
+                assert!(assets.join(&name).exists(), "{name}");
+            }
+        }
+        assert_eq!(notification_sound(NONE, Kind::Mail), None);
     }
 }

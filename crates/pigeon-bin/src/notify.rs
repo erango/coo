@@ -39,6 +39,12 @@ pub struct Note {
     pub target: Target,
     /// Event reminders with a meeting link get a "Join" action.
     pub join_url: Option<String>,
+    /// The theme sound it plays (macOS plays it, so Focus and Do Not
+    /// Disturb silence it with the banner).
+    pub sound: Option<crate::sound::Kind>,
+    /// false: only the sound, for Coo in front with banners set to the
+    /// background (macOS can't sound without a banner otherwise).
+    pub banner: bool,
 }
 
 /// What a click asked for.
@@ -173,6 +179,8 @@ pub fn mail_notes(rows: &[MessageRow], prefs: &Prefs) -> Vec<Note> {
                 message: r.header.id.clone(),
             },
             join_url: None,
+            sound: None,
+            banner: true,
         }],
         many => {
             let mut names: Vec<String> = Vec::new();
@@ -187,7 +195,14 @@ pub fn mail_notes(rows: &[MessageRow], prefs: &Prefs) -> Vec<Note> {
                 2 => format!("From {} and {}", names[0], names[1]),
                 n => format!("From {}, {} and {} more", names[0], names[1], n - 2),
             };
-            vec![Note { title: format!("{} new messages", many.len()), body, target: Target::Inbox, join_url: None }]
+            vec![Note {
+                title: format!("{} new messages", many.len()),
+                body,
+                target: Target::Inbox,
+                join_url: None,
+                sound: None,
+                banner: true,
+            }]
         }
     }
 }
@@ -228,6 +243,8 @@ pub fn event_note(e: &EventRow, now: i64) -> Note {
         // Links in the location count too; Zoom etc. open in their app.
         join_url: pigeon_core::meeting::meeting_link(&e.event)
             .map(|l| pigeon_core::meeting::native_url(&l).unwrap_or(l.url)),
+        sound: None,
+        banner: true,
     }
 }
 
@@ -325,7 +342,7 @@ mod mac {
         UNAuthorizationOptions, UNMutableNotificationContent, UNNotification, UNNotificationAction,
         UNNotificationActionOptions, UNNotificationCategory, UNNotificationCategoryOptions,
         UNNotificationInterruptionLevel, UNNotificationPresentationOptions, UNNotificationRequest,
-        UNNotificationResponse, UNUserNotificationCenter, UNUserNotificationCenterDelegate,
+        UNNotificationResponse, UNNotificationSound, UNUserNotificationCenter, UNUserNotificationCenterDelegate,
     };
 
     use super::{EVENT_CATEGORY, JOIN_ACTION, MAIL_CATEGORY, MailNoteAction, Note, on_click};
@@ -339,17 +356,23 @@ mod mac {
 
         unsafe impl UNUserNotificationCenterDelegate for Delegate {
             // Show banners even while Coo is frontmost (Settings decides
-            // whether to post at all).
+            // whether to post at all); sound-only notes just play.
             #[unsafe(method(userNotificationCenter:willPresentNotification:withCompletionHandler:))]
             fn will_present(
                 &self,
                 _center: &UNUserNotificationCenter,
-                _notification: &UNNotification,
+                notification: &UNNotification,
                 handler: &block2::DynBlock<dyn Fn(UNNotificationPresentationOptions)>,
             ) {
-                handler.call((UNNotificationPresentationOptions::Banner
-                    | UNNotificationPresentationOptions::List
-                    | UNNotificationPresentationOptions::Sound,));
+                let id = notification.request().identifier().to_string();
+                let quiet = QUIET.lock().is_ok_and(|mut q| q.remove(&id));
+                handler.call((if quiet {
+                    UNNotificationPresentationOptions::Sound
+                } else {
+                    UNNotificationPresentationOptions::Banner
+                        | UNNotificationPresentationOptions::List
+                        | UNNotificationPresentationOptions::Sound
+                },));
             }
 
             #[unsafe(method(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:))]
@@ -376,6 +399,9 @@ mod mac {
     }
 
     static BUNDLED: AtomicBool = AtomicBool::new(false);
+    /// Identifiers of posted sound-only notes, until macOS presents them.
+    static QUIET: std::sync::Mutex<std::collections::BTreeSet<String>> =
+        std::sync::Mutex::new(std::collections::BTreeSet::new());
     /// 0 unknown, 1 allowed, 2 denied.
     pub static PERMISSION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 
@@ -469,16 +495,32 @@ mod mac {
     }
 
     pub fn post(note: &Note, id: &str) {
+        let theme = crate::prefs::get().sound_theme;
         if !BUNDLED.load(Ordering::Relaxed) {
-            return osascript(note);
+            // No bundle, no notification sounds: play it ourselves.
+            if let Some(kind) = note.sound {
+                crate::sound::play(&theme, kind);
+            }
+            if note.banner {
+                osascript(note);
+            }
+            return;
         }
         let center = UNUserNotificationCenter::currentNotificationCenter();
         ask_once(&center);
         let content = UNMutableNotificationContent::new();
         content.setTitle(&NSString::from_str(&note.title));
         content.setBody(&NSString::from_str(&note.body));
-        // Banners are silent: Coo plays its own theme sound for mail and
-        // reminders (sound.rs).
+        // macOS plays the theme sound, so Focus / Do Not Disturb silences
+        // it along with the banner.
+        if let Some(name) = note.sound.and_then(|k| crate::sound::notification_sound(&theme, k)) {
+            content.setSound(Some(&UNNotificationSound::soundNamed(&NSString::from_str(&name))));
+        }
+        if !note.banner
+            && let Ok(mut q) = QUIET.lock()
+        {
+            q.insert(id.to_string());
+        }
         // Meeting reminders are Time Sensitive, so Focus / Do Not Disturb
         // lets them through. Needs the time-sensitive entitlement (signed
         // builds with a provisioning profile); without it macOS treats the

@@ -68,15 +68,13 @@ pub struct Prefs {
     /// Per address: "default", "own" or "none". Missing: "own" when the
     /// address has its own signature, else "default".
     pub signature_modes: std::collections::BTreeMap<String, String>,
-    /// New-mail alert: "banner" (always), "background" (only when Coo isn't
-    /// the active app) or "sound" (no banner).
+    /// New-mail alert: "banner" (always) or "background" (only when Coo isn't
+    /// the active app; in front, just the sound).
     pub mail_alert: String,
     /// Meeting reminders break through Focus / Do Not Disturb.
     pub reminders_time_sensitive: bool,
     /// Sound theme id (`sound::THEMES`: new mail + meeting reminder) or "none".
     pub sound_theme: String,
-    /// Sound volume, 0–100.
-    pub sound_volume: u8,
     /// Play the theme's new-mail sound.
     pub mail_sound: bool,
     /// Play the theme's meeting-reminder sound.
@@ -155,7 +153,6 @@ impl Default for Prefs {
             mail_alert: "banner".into(),
             reminders_time_sensitive: true,
             sound_theme: crate::sound::DEFAULT.into(),
-            sound_volume: 60,
             mail_sound: true,
             meeting_sound: true,
         }
@@ -173,13 +170,19 @@ fn cell() -> &'static Mutex<Prefs> {
 
 fn load() -> Prefs {
     let Some(p) = path() else { return Prefs::default() };
-    match std::fs::read(&p) {
+    let mut prefs = match std::fs::read(&p) {
         Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|e| {
             tracing::warn!(error = %e, "prefs.json unreadable; using defaults");
             Prefs::default()
         }),
         Err(_) => Prefs::default(),
+    };
+    // "Sound only" went away when macOS took over playing alert sounds (it
+    // only sounds with a banner); the closest is no banner while in front.
+    if prefs.mail_alert == "sound" {
+        prefs.mail_alert = "background".into();
     }
+    prefs
 }
 
 /// Current settings (loaded once, on first use).

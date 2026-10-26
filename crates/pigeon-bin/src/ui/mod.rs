@@ -595,11 +595,11 @@ async fn reminder_loop(s: AppState) {
         let now = pigeon_core::now_ms();
         let prefs = crate::prefs::get();
         let due = crate::notify::due_reminders(&events, now, &prefs, &reminded);
-        if !due.is_empty() && prefs.meeting_sound {
-            crate::sound::alert(&prefs.sound_theme, crate::sound::Kind::Meeting, prefs.sound_volume);
-        }
+        let mut sound = !due.is_empty() && prefs.meeting_sound && crate::sound::take_alert(crate::sound::Kind::Meeting);
         for e in due {
-            crate::notify::post(&crate::notify::event_note(e, now));
+            let mut note = crate::notify::event_note(e, now);
+            note.sound = std::mem::take(&mut sound).then_some(crate::sound::Kind::Meeting);
+            crate::notify::post(&note);
             reminded.insert(crate::notify::reminder_key(e));
         }
     }

@@ -648,21 +648,16 @@ fn apply(s: &mut AppState, delta: Delta) {
         match delta {
             Delta::NewMail(rows) => {
                 let prefs = crate::prefs::get();
+                let banner = prefs.mail_alert != "background" || !crate::notify::app_is_active();
+                let notes = crate::notify::mail_notes(&rows, &prefs);
                 // One soft sound per burst (all accounts' batches), even with
                 // the window in front.
-                if prefs.notify_new_mail
-                    && prefs.mail_sound
-                    && rows.iter().any(|r| !prefs.notify_accounts_muted.contains(&r.account_id))
-                {
-                    crate::sound::alert(&prefs.sound_theme, crate::sound::Kind::Mail, prefs.sound_volume);
-                }
-                let show = match prefs.mail_alert.as_str() {
-                    "sound" => false,
-                    "background" => !crate::notify::app_is_active(),
-                    _ => true,
-                };
-                if show {
-                    for note in crate::notify::mail_notes(&rows, &prefs) {
+                let mut sound =
+                    !notes.is_empty() && prefs.mail_sound && crate::sound::take_alert(crate::sound::Kind::Mail);
+                for mut note in notes {
+                    note.sound = std::mem::take(&mut sound).then_some(crate::sound::Kind::Mail);
+                    note.banner = banner;
+                    if banner || note.sound.is_some() {
                         crate::notify::post(&note);
                     }
                 }
