@@ -2,7 +2,8 @@
 //! event reminders, plus where a click should take the user.
 //!
 //! A bundled, signed Coo.app posts through UNUserNotificationCenter (click
-//! opens the thread/event, "Join" opens the meeting link). An unbundled
+//! opens the thread/event, "Join" opens the meeting link; a single new
+//! message offers Archive, Delete, Mark as Read and Reply). An unbundled
 //! binary (`cargo app`) has no bundle identity, which UNUserNotificationCenter
 //! requires, so it falls back to `osascript display notification` (no click
 //! routing).
@@ -17,9 +18,18 @@ use crate::prefs::Prefs;
 /// no untyped userInfo dictionary is needed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Target {
-    Thread { account: String, thread: String },
+    /// `message`: the new message itself (what the mail actions act on).
+    Thread {
+        account: String,
+        thread: String,
+        message: String,
+    },
     Inbox,
-    Event { account: String, event: String, start_at: i64 },
+    Event {
+        account: String,
+        event: String,
+        start_at: i64,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,6 +46,50 @@ pub struct Note {
 pub enum Click {
     Open(Target),
     Join(String),
+    /// A mail action button on a new-message banner.
+    Mail {
+        account: String,
+        thread: String,
+        message: String,
+        action: MailNoteAction,
+    },
+}
+
+/// The buttons on a single new-message banner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MailNoteAction {
+    Archive,
+    Delete,
+    MarkRead,
+    /// Opens Coo on the thread with a reply started.
+    Reply,
+}
+
+impl MailNoteAction {
+    pub const ALL: [MailNoteAction; 4] =
+        [MailNoteAction::Archive, MailNoteAction::Delete, MailNoteAction::MarkRead, MailNoteAction::Reply];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            MailNoteAction::Archive => "archive",
+            MailNoteAction::Delete => "delete",
+            MailNoteAction::MarkRead => "read",
+            MailNoteAction::Reply => "reply",
+        }
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            MailNoteAction::Archive => "Archive",
+            MailNoteAction::Delete => "Delete",
+            MailNoteAction::MarkRead => "Mark as Read",
+            MailNoteAction::Reply => "Reply",
+        }
+    }
+
+    fn from_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|a| a.id() == id)
+    }
 }
 
 const SEP: char = '\u{1f}';
@@ -43,7 +97,9 @@ const SEP: char = '\u{1f}';
 /// `coo␟kind␟fields…␟nonce`: unique per post, decodable on click.
 pub fn encode(target: &Target, join: Option<&str>, nonce: u64) -> String {
     let fields: Vec<String> = match target {
-        Target::Thread { account, thread } => vec!["thread".into(), account.clone(), thread.clone()],
+        Target::Thread { account, thread, message } => {
+            vec!["thread".into(), account.clone(), thread.clone(), message.clone()]
+        }
         Target::Inbox => vec!["inbox".into()],
         Target::Event { account, event, start_at } => vec![
             "event".into(),
@@ -63,7 +119,17 @@ pub fn decode(id: &str, action: &str) -> Option<Click> {
         return None;
     }
     let target = match *parts.get(1)? {
-        "thread" => Target::Thread { account: parts.get(2)?.to_string(), thread: parts.get(3)?.to_string() },
+        "thread" => {
+            let (account, thread) = (parts.get(2)?.to_string(), parts.get(3)?.to_string());
+            // Older identifiers (before the actions) end at the thread.
+            let message = parts.get(4).filter(|_| parts.len() > 5).map(|m| m.to_string()).unwrap_or_default();
+            if let Some(action) = MailNoteAction::from_id(action)
+                && !message.is_empty()
+            {
+                return Some(Click::Mail { account, thread, message, action });
+            }
+            Target::Thread { account, thread, message }
+        }
         "inbox" => Target::Inbox,
         "event" => {
             let url = parts.get(5).filter(|u| !u.is_empty());
@@ -85,6 +151,7 @@ pub fn decode(id: &str, action: &str) -> Option<Click> {
 
 pub const JOIN_ACTION: &str = "join";
 const EVENT_CATEGORY: &str = "event";
+const MAIL_CATEGORY: &str = "mail";
 
 /// Notifications for newly arrived mail, honoring prefs. One message gets
 /// its own notification; a burst is coalesced ("5 new messages").
@@ -100,7 +167,11 @@ pub fn mail_notes(rows: &[MessageRow], prefs: &Prefs) -> Vec<Note> {
         [r] => vec![Note {
             title: who(r),
             body: if r.header.subject.is_empty() { r.header.snippet.clone() } else { r.header.subject.clone() },
-            target: Target::Thread { account: r.account_id.clone(), thread: r.header.thread_id.clone() },
+            target: Target::Thread {
+                account: r.account_id.clone(),
+                thread: r.header.thread_id.clone(),
+                message: r.header.id.clone(),
+            },
             join_url: None,
         }],
         many => {
@@ -257,7 +328,7 @@ mod mac {
         UNNotificationResponse, UNUserNotificationCenter, UNUserNotificationCenterDelegate,
     };
 
-    use super::{EVENT_CATEGORY, JOIN_ACTION, Note, on_click};
+    use super::{EVENT_CATEGORY, JOIN_ACTION, MAIL_CATEGORY, MailNoteAction, Note, on_click};
 
     define_class!(
         #[unsafe(super(NSObject))]
@@ -356,7 +427,30 @@ mod mac {
             &NSArray::new(),
             UNNotificationCategoryOptions::empty(),
         );
-        center.setNotificationCategories(&NSSet::from_retained_slice(&[category]));
+        // Archive / Delete / Mark as Read run in the background; Reply
+        // brings Coo forward.
+        let mail_actions: Vec<_> = MailNoteAction::ALL
+            .into_iter()
+            .map(|a| {
+                let options = match a {
+                    MailNoteAction::Reply => UNNotificationActionOptions::Foreground,
+                    MailNoteAction::Delete => UNNotificationActionOptions::Destructive,
+                    _ => UNNotificationActionOptions::empty(),
+                };
+                UNNotificationAction::actionWithIdentifier_title_options(
+                    &NSString::from_str(a.id()),
+                    &NSString::from_str(a.title()),
+                    options,
+                )
+            })
+            .collect();
+        let mail = UNNotificationCategory::categoryWithIdentifier_actions_intentIdentifiers_options(
+            &NSString::from_str(MAIL_CATEGORY),
+            &NSArray::from_retained_slice(&mail_actions),
+            &NSArray::new(),
+            UNNotificationCategoryOptions::empty(),
+        );
+        center.setNotificationCategories(&NSSet::from_retained_slice(&[category, mail]));
     }
 
     fn ask_once(center: &UNUserNotificationCenter) {
@@ -394,6 +488,9 @@ mod mac {
         }
         if note.join_url.is_some() {
             content.setCategoryIdentifier(&NSString::from_str(EVENT_CATEGORY));
+        }
+        if matches!(&note.target, super::Target::Thread { message, .. } if !message.is_empty()) {
+            content.setCategoryIdentifier(&NSString::from_str(MAIL_CATEGORY));
         }
         let request =
             UNNotificationRequest::requestWithIdentifier_content_trigger(&NSString::from_str(id), &content, None);
@@ -436,7 +533,10 @@ mod tests {
         let notes = mail_notes(&[row("a", "m1", "Dana Cohen", "הזמנה 4471")], &Prefs::default());
         assert_eq!(notes.len(), 1);
         assert_eq!((notes[0].title.as_str(), notes[0].body.as_str()), ("Dana Cohen", "הזמנה 4471"));
-        assert_eq!(notes[0].target, Target::Thread { account: "a".into(), thread: "t-m1".into() });
+        assert_eq!(
+            notes[0].target,
+            Target::Thread { account: "a".into(), thread: "t-m1".into(), message: "m1".into() }
+        );
     }
 
     #[test]
@@ -507,10 +607,23 @@ mod tests {
 
     #[test]
     fn identifiers_roundtrip_and_join_action() {
-        let t = Target::Thread { account: "google:a@b.c".into(), thread: "t|1".into() };
+        let t = Target::Thread { account: "google:a@b.c".into(), thread: "t|1".into(), message: "m9".into() };
+        let id = encode(&t, None, 7);
+        assert_eq!(decode(&id, "com.apple.UNNotificationDefaultActionIdentifier"), Some(Click::Open(t)));
         assert_eq!(
-            decode(&encode(&t, None, 7), "com.apple.UNNotificationDefaultActionIdentifier"),
-            Some(Click::Open(t))
+            decode(&id, "archive"),
+            Some(Click::Mail {
+                account: "google:a@b.c".into(),
+                thread: "t|1".into(),
+                message: "m9".into(),
+                action: MailNoteAction::Archive
+            })
+        );
+        // An identifier from before the actions (no message field).
+        let old = format!("coo{SEP}thread{SEP}a{SEP}t{SEP}3");
+        assert_eq!(
+            decode(&old, "archive"),
+            Some(Click::Open(Target::Thread { account: "a".into(), thread: "t".into(), message: String::new() }))
         );
         let e = Target::Event { account: "a".into(), event: "e1".into(), start_at: 42 };
         let id = encode(&e, Some("https://zoom.us/j/1"), 1);

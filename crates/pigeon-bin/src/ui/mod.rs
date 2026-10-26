@@ -758,10 +758,17 @@ async fn menubar_loop(s: AppState) {
 }
 
 async fn click_loop(s: AppState) {
-    use crate::notify::{Click, Target};
+    use crate::notify::{Click, MailNoteAction, Target};
     let Some(mut rx) = crate::notify::take_clicks() else { return };
     while let Some(click) = rx.recv().await {
-        if !matches!(click, Click::Join(_)) {
+        // Join opens the browser; Archive / Delete / Mark as Read stay in
+        // the background.
+        let background = match &click {
+            Click::Join(_) => true,
+            Click::Mail { action, .. } => *action != MailNoteAction::Reply,
+            Click::Open(_) => false,
+        };
+        if !background {
             crate::menubar::show_main();
         }
         let (mut mode, mut settings, mut search) = (s.mode, s.settings_open, s.search);
@@ -769,7 +776,30 @@ async fn click_loop(s: AppState) {
             Click::Join(url) => {
                 let _ = open::that_detached(&url);
             }
-            Click::Open(Target::Thread { account, thread }) => {
+            Click::Mail { account, thread, message, action: MailNoteAction::Reply } => {
+                mode.set(Mode::Mail);
+                settings.set(false);
+                search.set(None);
+                let mut sel = s.selected;
+                sel.set(Some(format!("{account}|{thread}")));
+                send_cmd(Cmd::OpenThread { account_id: account.clone(), thread_id: thread });
+                send_cmd(Cmd::StartReply { account_id: account, message_id: message, kind: ReplyKind::Reply });
+            }
+            Click::Mail { account, message, action, .. } => {
+                let (mail_action, label) = match action {
+                    MailNoteAction::Archive => (MailAction::Archive, "Archived from the notification"),
+                    MailNoteAction::Delete => (MailAction::Trash, "Deleted from the notification"),
+                    _ => (MailAction::MarkRead, ""),
+                };
+                send_cmd(Cmd::Act {
+                    account_id: account,
+                    ids: vec![message],
+                    thread_id: None,
+                    action: mail_action,
+                    label: label.into(),
+                });
+            }
+            Click::Open(Target::Thread { account, thread, .. }) => {
                 mode.set(Mode::Mail);
                 settings.set(false);
                 search.set(None);

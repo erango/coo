@@ -31,6 +31,29 @@ pub const THEMES: &[Theme] = &[
 pub const NONE: &str = "none";
 pub const DEFAULT: &str = "droplet";
 
+/// macOS's own sounds, played from the system (not bundled): Mail's New
+/// Mail sound for mail and the Glass alert for meeting reminders.
+pub const MACOS: &str = "macos";
+const MACOS_MAIL: &str = "/System/Applications/Mail.app/Contents/Resources/New Mail.aiff";
+const MACOS_MEETING: &str = "/System/Library/Sounds/Glass.aiff";
+
+fn system_file(theme: &str, kind: Kind) -> Option<&'static str> {
+    (theme == MACOS).then_some(match kind {
+        Kind::Mail => MACOS_MAIL,
+        Kind::Meeting => MACOS_MEETING,
+    })
+}
+
+/// Theme choices for Settings: (id, label), the macOS one only when this
+/// Mac has its sound file.
+pub fn choices() -> Vec<(&'static str, &'static str)> {
+    let mut v: Vec<_> = THEMES.iter().map(|t| (t.id, t.label)).collect();
+    if std::path::Path::new(MACOS_MAIL).exists() {
+        v.push((MACOS, "macOS Mail"));
+    }
+    v
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     Mail,
@@ -76,8 +99,11 @@ pub fn alert(theme: &str, kind: Kind, volume: u8) {
 /// Play `kind` from `theme` at `volume` (0–100). Unknown themes and "none"
 /// are silent.
 pub fn play(theme: &str, kind: Kind, volume: u8) {
+    let volume = f32::from(volume.min(100)) / 100.0;
     if let Some(bytes) = wav(theme, kind) {
-        imp::play(bytes, f32::from(volume.min(100)) / 100.0);
+        imp::play(bytes, volume);
+    } else if let Some(path) = system_file(theme, kind) {
+        imp::play_file(path, volume);
     }
 }
 
@@ -143,6 +169,17 @@ mod imp {
     pub fn play(bytes: &[u8], volume: f32) {
         let data = NSData::with_bytes(bytes);
         let Some(sound) = NSSound::initWithData(NSSound::alloc(), &data) else { return };
+        start(sound, volume);
+    }
+
+    /// A sound file on this Mac (missing or unreadable: silent).
+    pub fn play_file(path: &str, volume: f32) {
+        let path = objc2_foundation::NSString::from_str(path);
+        let Some(sound) = NSSound::initWithContentsOfFile_byReference(NSSound::alloc(), &path, true) else { return };
+        start(sound, volume);
+    }
+
+    fn start(sound: Retained<NSSound>, volume: f32) {
         sound.setVolume(volume);
         sound.play();
         CURRENT.with(|c| *c.borrow_mut() = Some(sound));
@@ -152,6 +189,7 @@ mod imp {
 #[cfg(not(target_os = "macos"))]
 mod imp {
     pub fn play(_bytes: &[u8], _volume: f32) {}
+    pub fn play_file(_path: &str, _volume: f32) {}
     pub fn screens_off() -> bool {
         false
     }
@@ -181,5 +219,7 @@ mod tests {
             assert!(t.meeting.len() > t.mail.len(), "{}: reminder should be the longer of the pair", t.id);
         }
         assert!(wav(NONE, Kind::Mail).is_none());
+        assert_eq!(system_file(MACOS, Kind::Mail), Some(MACOS_MAIL));
+        assert_eq!(system_file(DEFAULT, Kind::Mail), None);
     }
 }

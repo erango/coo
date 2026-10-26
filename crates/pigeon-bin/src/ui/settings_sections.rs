@@ -490,7 +490,7 @@ pub fn Notifications() -> Element {
                 div { style: "display:flex;flex-direction:column;gap:8px",
                     div { class: "segmented", role: "radiogroup", "aria-label": "Sound theme",
                         {
-                            let choices = std::iter::once((crate::sound::NONE, "None")).chain(crate::sound::THEMES.iter().map(|t| (t.id, t.label)));
+                            let choices = std::iter::once((crate::sound::NONE, "None")).chain(crate::sound::choices());
                             rsx! {
                                 for (id, label) in choices {
                                     button { role: "radio", key: "{id}",
