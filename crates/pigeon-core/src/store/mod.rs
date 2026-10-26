@@ -414,7 +414,13 @@ impl Store {
         Ok(true)
     }
 
+    /// A stored body, with mis-decoded text repaired (`mojibake`): every
+    /// reader (the reading pane, replies' quotes, the CLI) gets it fixed.
     pub fn body(&self, account_id: &str, message_id: &str) -> Result<Option<StoredBody>> {
+        Ok(self.body_raw(account_id, message_id)?.map(crate::bodies::unmangle))
+    }
+
+    fn body_raw(&self, account_id: &str, message_id: &str) -> Result<Option<StoredBody>> {
         let Some(pk) = message_pk(&self.conn, account_id, message_id)? else { return Ok(None) };
         let body = self
             .conn

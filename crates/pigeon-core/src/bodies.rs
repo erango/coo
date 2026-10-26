@@ -21,7 +21,7 @@ pub async fn load_body<P: BodyProvider>(
     cache_dir: &Path,
 ) -> Result<StoredBody> {
     if let Some(body) = lock(store).body(account_id, message_id)? {
-        return Ok(unmangle(body));
+        return Ok(body);
     }
     let raw = p.body(message_id).await?;
     let sanitized = raw.html.as_deref().map(html::sanitize);
@@ -50,7 +50,7 @@ pub async fn load_body<P: BodyProvider>(
 
 /// Text decoded in the wrong charset on its way here, repaired at read time
 /// (best guess, see `mojibake`), so bodies already stored are fixed too.
-fn unmangle(mut body: StoredBody) -> StoredBody {
+pub(crate) fn unmangle(mut body: StoredBody) -> StoredBody {
     for part in [&mut body.html, &mut body.text] {
         if let Some(fixed) = part.as_deref().and_then(crate::mojibake::repair) {
             *part = Some(fixed);

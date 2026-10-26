@@ -83,6 +83,59 @@ fn signs(s: &str, map: &HashMap<char, u8>) -> usize {
     n
 }
 
+/// Hebrew letters are D7 90..D7 AA. 0x90 (א) and 0x9D (ם) are undefined in
+/// both Windows charsets, so mail often drops them, leaving a bare lead
+/// byte: mid-word that was almost always א, at the end of a word ם.
+fn lost_hebrew_byte(bytes: &[u8], next: Option<char>) -> Option<u8> {
+    if bytes.last() != Some(&0xD7) {
+        return None;
+    }
+    let word_end = next.is_none_or(|c| c.is_whitespace() || c.is_ascii_punctuation());
+    if !word_end {
+        return Some(0x90);
+    }
+    // Word-final: ם, unless that makes one of the common words ending in א.
+    let mut with_alef = bytes.to_vec();
+    with_alef.push(0x90);
+    let alef_word = std::str::from_utf8(&with_alef)
+        .ok()
+        .and_then(|s| s.rsplit(|c: char| !('\u{5d0}'..='\u{5ea}').contains(&c)).next())
+        .is_some_and(|w| ENDS_IN_ALEF.contains(&w));
+    Some(if alef_word { 0x90 } else { 0x9D })
+}
+
+/// Frequent words ending in א (otherwise a lost word-final byte is ם).
+const ENDS_IN_ALEF: &[&str] = &[
+    "לא",
+    "הוא",
+    "היא",
+    "אבא",
+    "אמא",
+    "סבא",
+    "בא",
+    "נא",
+    "מלא",
+    "קרא",
+    "יצא",
+    "מצא",
+    "נמצא",
+    "נמצאת",
+    "שוא",
+    "דווקא",
+    "אלא",
+    "רופא",
+    "ממילא",
+    "הבא",
+    "תא",
+    "מבוא",
+    "שלא",
+    "ולא",
+    "כשלא",
+    "פלא",
+    "חטא",
+    "דוא",
+];
+
 fn repair_with(s: &str, map: &HashMap<char, u8>) -> (String, usize) {
     let mut out = String::with_capacity(s.len());
     let mut fixed = 0;
@@ -101,6 +154,12 @@ fn repair_with(s: &str, map: &HashMap<char, u8>) -> (String, usize) {
             if let Some(c) = r.chars().next()
                 && let Some(&b) = map.get(&c)
             {
+                // Two lead bytes in a row: the letter between lost its byte.
+                if b == 0xD7
+                    && let Some(lost) = lost_hebrew_byte(&bytes, Some('x'))
+                {
+                    bytes.push(lost);
+                }
                 bytes.push(b);
                 end += c.len_utf8();
                 continue;
@@ -111,10 +170,8 @@ fn repair_with(s: &str, map: &HashMap<char, u8>) -> (String, usize) {
                     end += "&nbsp;".len();
                     continue;
                 }
-                if r.starts_with(' ') {
-                    bytes.push(0xA0);
-                    end += 1;
-                    continue;
+                if let Some(lost) = lost_hebrew_byte(&bytes, r.chars().next()) {
+                    bytes.push(lost);
                 }
             }
             break;
@@ -164,10 +221,20 @@ mod tests {
         let broken = garble(original, WINDOWS_1255).replace('\u{9c}', "œ").replace('\u{9e}', "ž");
         assert_ne!(broken, original);
         assert_eq!(repair(&broken).as_deref(), Some(original));
-        // In HTML, with the 0xA0 byte of "נ" turned into &nbsp; or a space.
+        // In HTML, with the 0xA0 byte of "נ" written as &nbsp;.
         let html = format!("<p dir=\"rtl\">{}</p>", broken.replace('\u{a0}', "&nbsp;"));
         assert_eq!(repair(&html), Some(format!("<p dir=\"rtl\">{original}</p>")));
-        assert_eq!(repair(&broken.replace('\u{a0}', " ")).as_deref(), Some(original));
+    }
+
+    #[test]
+    fn dropped_alef_and_final_mem_are_restored() {
+        // א (D7 90) and ם (D7 9D) have bytes neither charset defines; mail
+        // often loses them entirely.
+        let original = "שלום אבא, מה שלומם היום? אני בבית";
+        let broken: String =
+            garble(original, WINDOWS_1255).chars().filter(|c| !matches!(c, '\u{90}' | '\u{9d}')).collect();
+        assert_ne!(broken, garble(original, WINDOWS_1255));
+        assert_eq!(repair(&broken).as_deref(), Some(original));
     }
 
     #[test]
