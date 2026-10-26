@@ -161,14 +161,37 @@ const ENDS_IN_ALEF: &[&str] = &[
     "קורא",
     "סבתא",
     "מבטא",
+    "נושא",
+    "מושא",
+    "נשיא",
+    "מקרא",
+    "צבא",
+    "כסא",
+    "פרא",
 ];
+
+/// One of the common words ending in א, maybe behind up to two one-letter
+/// prefixes ("בנושא", "ולא").
+fn common_alef_word(w: &str) -> bool {
+    let mut w = w;
+    for _ in 0..=2 {
+        if ENDS_IN_ALEF.contains(&w) {
+            return true;
+        }
+        match w.strip_prefix(['ב', 'ה', 'ו', 'כ', 'ל', 'מ', 'ש']) {
+            Some(rest) if rest.chars().count() >= 2 => w = rest,
+            _ => return false,
+        }
+    }
+    false
+}
 
 /// A word ending in א that isn't a common one, or in ם where the common
 /// word has א.
 fn unlikely_ending(w: &str) -> bool {
     match w.strip_suffix('ם') {
-        Some(stem) => ENDS_IN_ALEF.contains(&format!("{stem}א").as_str()),
-        None => w.ends_with('א') && !ENDS_IN_ALEF.contains(&w),
+        Some(stem) => common_alef_word(&format!("{stem}א")),
+        None => w.ends_with('א') && !common_alef_word(w),
     }
 }
 
@@ -362,7 +385,7 @@ fn fill_slots(text: &str, slots: &[(usize, Slot)], judge: Option<fn(&str) -> boo
                     cs[wf..at].iter().map(|&c| if c == SLOT { 'א' } else { c }).chain(std::iter::once('א')).collect();
                 let alef = kind.options().iter().position(|o| *o == ('א', false));
                 match alef {
-                    Some(a) if kind != Slot::Mid && ENDS_IN_ALEF.contains(&word.as_str()) => a,
+                    Some(a) if kind != Slot::Mid && common_alef_word(&word) => a,
                     _ => 0,
                 }
             })
@@ -541,6 +564,10 @@ mod tests {
             "נא",
             "אשרו",
             "שרו",
+            "נושא",
+            "נושם",
+            "בנושא",
+            "בנושם",
         ];
         fn judge(w: &str) -> bool {
             WORDS.contains(&w)
@@ -552,6 +579,8 @@ mod tests {
             "אתם תוסיפו ציטוט",
             "בוקר טוב, האם המאמר מאושר לפרסום?",
             "אנא אשרו את המאמר",
+            "נושא: המאמר",
+            "בנושא המאמר",
         ] {
             let broken = garble(original, WINDOWS_1255).replace(['\u{90}', '\u{9d}'], " ");
             assert_eq!(repair_with(&broken, &tables()[0], Some(judge)).0, original);
