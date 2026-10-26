@@ -702,6 +702,12 @@ pub fn AboutUpdates() -> Element {
                     span { class: "settings-field__hint", "Updates are off in development builds." }
                 }
             }
+            div { class: "settings-field",
+                span { class: "settings-field__label", "Something wrong?" }
+                button { class: "btn btn--secondary btn--sm", r#type: "button",
+                    onclick: move |_| super::report_bug(s), "Report a bug…" }
+                span { class: "settings-field__hint", "Goes straight to the developer. Also in the Help menu." }
+            }
         }
     }
 }

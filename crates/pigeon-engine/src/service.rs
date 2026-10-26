@@ -92,6 +92,9 @@ pub const BULK_UNDO: &str = "*";
 
 #[derive(Debug, Clone)]
 pub enum Cmd {
+    /// Send a bug report the user wrote (the engine adds which providers
+    /// are connected and the macOS version).
+    ReportBug(crate::telemetry::BugReport),
     /// Send `draft` at `at` (ms). `undo_window`: the undo-send grace period
     /// rather than a chosen time.
     Schedule {
@@ -824,6 +827,25 @@ impl Service {
                     v.limit = (v.limit + LIST_PAGE).min(LIST_MAX);
                 }
                 self.publish().await;
+            }
+            Cmd::ReportBug(mut report) => {
+                let mut kinds: Vec<&str> =
+                    self.app.accounts().unwrap_or_default().iter().map(|a| a.provider.as_str()).collect();
+                kinds.sort_unstable();
+                report.details.push(("accounts".into(), kinds.join(", ")));
+                let release = concat!("coo-app@", env!("CARGO_PKG_VERSION"));
+                let sent = tokio::task::spawn_blocking(move || {
+                    if let Ok(out) = std::process::Command::new("sw_vers").arg("-productVersion").output() {
+                        report.details.push(("macos".into(), String::from_utf8_lossy(&out.stdout).trim().to_string()));
+                    }
+                    crate::telemetry::send_report(release, &report)
+                })
+                .await
+                .unwrap_or_else(|_| Err("Couldn't send the report.".into()));
+                match sent {
+                    Ok(()) => self.toast("Thanks! Your report was sent.", false, None),
+                    Err(e) => self.toast(e, true, None),
+                }
             }
             Cmd::LoadAll => {
                 {

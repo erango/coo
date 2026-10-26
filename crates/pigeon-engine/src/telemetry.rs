@@ -26,6 +26,71 @@ fn dsn() -> Option<String> {
         .filter(|d| !d.trim().is_empty())
 }
 
+/// A bug report the user wrote and chose to send (Help › Report a Bug…).
+#[derive(Debug, Clone, PartialEq)]
+pub struct BugReport {
+    /// Their description, sent as written.
+    pub what: String,
+    /// Where to reply, if they gave one (sent as the event's user email).
+    pub reply_to: Option<String>,
+    /// App and environment details (version, macOS, settings; no content).
+    pub details: Vec<(String, String)>,
+}
+
+/// Can bug reports be sent from this build (a DSN is configured)? Unlike
+/// crash reports these go out even with Settings › Privacy › Crash reports
+/// off: the user sends each one on purpose.
+pub fn reports_available() -> bool {
+    report_dsn().is_some()
+}
+
+fn report_dsn() -> Option<String> {
+    std::env::var("PIGEON_SENTRY_DSN")
+        .ok()
+        .or(option_env!("PIGEON_SENTRY_DSN").map(String::from))
+        .filter(|d| !d.trim().is_empty())
+}
+
+/// The Sentry event for a report: its own issue (fingerprinted by id),
+/// tagged `user_report`, title from the first line.
+pub fn report_event(r: &BugReport) -> Event<'static> {
+    let id = Event::default().event_id;
+    let first = r.what.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("(no description)");
+    let title: String = first.chars().take(80).collect();
+    let mut e = Event {
+        event_id: id,
+        level: sentry::Level::Info,
+        message: Some(format!("Bug report: {title}")),
+        fingerprint: Cow::Owned(vec![Cow::Borrowed("user-report"), Cow::Owned(id.to_string())]),
+        ..Default::default()
+    };
+    e.tags.insert("kind".into(), "user_report".into());
+    e.extra.insert("description".into(), Value::String(r.what.clone()));
+    for (k, v) in &r.details {
+        e.extra.insert(k.clone(), Value::String(v.clone()));
+    }
+    if let Some(email) = r.reply_to.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        e.user = Some(sentry::User { email: Some(email.to_string()), ..Default::default() });
+    }
+    e
+}
+
+/// Send a report on a one-off client (blocking; run off the UI thread).
+pub fn send_report(release: &'static str, r: &BugReport) -> Result<(), String> {
+    let dsn = report_dsn().ok_or("Bug reports aren't set up in this build.")?;
+    let mut opts = sentry::ClientOptions::default();
+    opts.release = Some(Cow::Borrowed(release));
+    opts.environment = Some(Cow::Borrowed(if cfg!(debug_assertions) { "development" } else { "production" }));
+    opts.send_default_pii = false;
+    let client = sentry::Client::from((dsn, opts));
+    client.capture_event(report_event(r), None);
+    if client.flush(Some(std::time::Duration::from_secs(10))) {
+        Ok(())
+    } else {
+        Err("Couldn't send the report. Check your internet connection and try again.".into())
+    }
+}
+
 /// Whether a Sentry client is active in this process.
 pub fn enabled() -> bool {
     sentry::Hub::current().client().is_some_and(|c| c.is_enabled())
@@ -279,5 +344,22 @@ mod tests {
         assert_eq!(e.message.as_deref(), Some("failed for <email>"));
         assert_eq!(e.extra["account"], Value::String("google:<email>".into()));
         assert_eq!(e.breadcrumbs.values[0].message.as_deref(), Some("to <email>"));
+    }
+
+    #[test]
+    fn bug_reports_are_their_own_issue_with_the_reply_address() {
+        let r = BugReport {
+            what: "\n  List jumps when archiving\nsteps: …".into(),
+            reply_to: Some(" me@example.com ".into()),
+            details: vec![("version".into(), "0.1.12 (190)".into())],
+        };
+        let e = report_event(&r);
+        assert_eq!(e.message.as_deref(), Some("Bug report: List jumps when archiving"));
+        assert_eq!(e.tags.get("kind").map(String::as_str), Some("user_report"));
+        assert_eq!(e.fingerprint.len(), 2);
+        assert_eq!(e.user.as_ref().and_then(|u| u.email.as_deref()), Some("me@example.com"));
+        assert_eq!(e.extra.get("version"), Some(&Value::String("0.1.12 (190)".into())));
+        let anon = report_event(&BugReport { reply_to: Some("  ".into()), ..r });
+        assert!(anon.user.is_none());
     }
 }

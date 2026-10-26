@@ -1,6 +1,7 @@
 pub mod account_menu;
 mod agent_setup;
 mod avatar;
+mod bug_report;
 pub mod calendar;
 pub mod compose;
 pub mod compose_window;
@@ -351,6 +352,8 @@ pub fn App() -> Element {
                 }
                 // Ask Sparkle to check now (update tests; release builds only).
                 "check-updates" => crate::updater::check_now(),
+                // bug-report: the Report a Bug form (screenshots)
+                "bug-report" => report_bug(s),
                 // update-ready:<version>: pretend an update downloaded (the pill, menus)
                 "update-ready" => crate::updater::fake_ready(if arg.is_empty() { "9.9.9" } else { arg }),
                 // update-dialog:<checking|uptodate|downloading|ready|failed>: the Check
@@ -572,6 +575,7 @@ pub fn App() -> Element {
         {body}
         if *s.agent_setup_open.read() { agent_setup::AgentSetup {} }
         if *s.update_dialog.read() { update_dialog::UpdateDialog {} }
+        if *s.bug_report_open.read() { bug_report::BugReportDialog {} }
     }
 }
 
@@ -614,6 +618,7 @@ fn on_menu(s: AppState, id: &str) {
             let mut o = s.agent_setup_open;
             o.set(true);
         }
+        crate::menu::REPORT_BUG => report_bug(s),
         crate::menu::ABOUT => crate::about::show(),
         crate::menu::RESTART_TO_UPDATE => restart_to_update(),
         crate::menu::CHECK_UPDATES => check_for_updates(s),
@@ -1002,6 +1007,12 @@ pub fn act(s: AppState, item: &ListItem, action: MailAction) {
 
 /// A new message from the default account (Settings › Accounts; else the
 /// top account in the sidebar).
+/// Open the Report a Bug form.
+pub fn report_bug(s: AppState) {
+    let mut o = s.bug_report_open;
+    o.set(true);
+}
+
 pub fn new_message(s: AppState) {
     send_cmd(Cmd::NewDraft { from_account: s.default_from() });
 }

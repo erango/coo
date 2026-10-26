@@ -14,6 +14,7 @@ use dioxus::desktop::muda::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 
 pub const SETTINGS: &str = "pigeon-settings";
 pub const AGENT_SETUP: &str = "pigeon-agent-setup";
+pub const REPORT_BUG: &str = "pigeon-report-bug";
 pub const CHECK_UPDATES: &str = "pigeon-check-updates";
 pub const ABOUT: &str = "pigeon-about";
 pub const RESTART_TO_UPDATE: &str = "pigeon-restart-to-update";
@@ -187,9 +188,16 @@ pub fn build() -> Menu {
         ],
     )
     .expect("window menu");
-    let help =
-        Submenu::with_items("Help", true, &[&MenuItem::with_id(AGENT_SETUP, "Connect an AI Agent…", true, None)])
-            .expect("help menu");
+    let help = Submenu::with_items(
+        "Help",
+        true,
+        &[
+            &MenuItem::with_id(REPORT_BUG, "Report a Bug…", true, None),
+            &PredefinedMenuItem::separator(),
+            &MenuItem::with_id(AGENT_SETUP, "Connect an AI Agent…", true, None),
+        ],
+    )
+    .expect("help menu");
 
     let menu = Menu::new();
     menu.append_items(&[&app, &edit, &view, &message, &calendar, &window, &help]).expect("menu bar");

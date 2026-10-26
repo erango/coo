@@ -279,6 +279,8 @@ pub struct AppState {
     pub zoom: Signal<Option<pigeon_core::model::ConnectedService>>,
     /// "Connect an AI agent" popup.
     pub agent_setup_open: Signal<bool>,
+    /// Help › Report a Bug… (ui/bug_report.rs).
+    pub bug_report_open: Signal<bool>,
     /// A downloaded update waiting for a restart (its version).
     pub update_ready: Signal<Option<String>>,
     /// The updater's latest status, and whether the Check for Updates dialog is open.
@@ -368,6 +370,7 @@ impl AppState {
             settings_page: Signal::new("General".into()),
             zoom: Signal::new(None),
             agent_setup_open: Signal::new(false),
+            bug_report_open: Signal::new(false),
             update_ready: Signal::new(None),
             update_status: Signal::new(crate::updater::Status::Idle),
             update_dialog: Signal::new(false),

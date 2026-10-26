@@ -917,3 +917,15 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .elsewhere .btn { flex: none; }
 /* Palette footer hints stay on one line each. */
 .palette__footer > span { white-space: nowrap; }
+
+/* Report a Bug (ui/bug_report.rs). */
+.bug-dialog { width: min(460px, 100%); animation: pg-pop-in var(--dur-base) var(--ease-standard); display: flex; flex-direction: column; gap: 12px; }
+.bug-dialog__field { display: flex; flex-direction: column; gap: 6px; font-size: var(--fs-ui); font-weight: var(--fw-medium); }
+.bug-dialog__field textarea, .bug-dialog__field input {
+  font: inherit; font-weight: var(--fw-regular); color: var(--text-1); background: var(--bg-1);
+  border: 0; border-radius: var(--radius-md); box-shadow: inset 0 0 0 1px var(--line-strong); padding: 8px 10px; resize: vertical;
+}
+.bug-dialog__field textarea:focus, .bug-dialog__field input:focus { outline: none; box-shadow: inset 0 0 0 1.5px var(--focus-ring), 0 0 0 4px var(--focus-halo); }
+.bug-dialog__sent { font-size: var(--fs-caption); color: var(--text-2); }
+.bug-dialog__sent ul { margin: 6px 0 0; padding-left: 16px; display: flex; flex-direction: column; gap: 2px; }
+.bug-dialog__sent p { margin: 6px 0 0; }
