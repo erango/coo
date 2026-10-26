@@ -836,7 +836,8 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
    change the bg tokens these mix). Dark: cards sit lighter than the ground
    and unread ones lighter still; light: white cards on bg-1. */
 :root, :root[data-theme="dark"] {
-  --list-ground: var(--bg-0);
+  /* A shade below the reader, so the panes read apart and cards lift. */
+  --list-ground: color-mix(in oklab, var(--bg-0) 84%, #000);
   --card: color-mix(in srgb, var(--bg-1) 40%, var(--bg-2));
   --card-unread: color-mix(in srgb, var(--bg-2) 55%, var(--bg-3));
   --card-edge: 0 0 0 1px color-mix(in srgb, var(--text-1) 5%, transparent);
@@ -861,7 +862,6 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .list[data-style="cards"], .list[data-style="bands"] {
   --card-hover: color-mix(in srgb, var(--text-1) 3%, var(--card));
   --card-selected: color-mix(in srgb, var(--accent) 9%, var(--card));
-  background: var(--list-ground);
 }
 /* Cards: 72 px boxes, 6 px apart (a bottom margin only: vertical margins
    between rows collapse), as in the design. Hover lifts the card; the
@@ -1060,6 +1060,10 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
    sits on the list's ground, so the header doesn't read as a separate
    strip; the search box becomes a card on it. */
 .pane--list:is([data-list-style="cards"], [data-list-style="bands"]) { background: var(--list-ground); }
+/* The pane's divider is an inset shadow: anything inside with a background
+   (the scrolling list) would cover it below the header. */
+.pane--list::after { content: ""; position: absolute; top: 0; right: 0; bottom: 0; width: 1px; background: var(--line); pointer-events: none; z-index: 1; }
+.app[data-reader="off"] .pane--list::after { display: none; }
 .pane--list:is([data-list-style="cards"], [data-list-style="bands"]) .list-search { background: var(--card); box-shadow: var(--card-edge); }
 .pane--list:is([data-list-style="cards"], [data-list-style="bands"]) .list-search:hover { box-shadow: var(--card-lift); }
 .pane--list:is([data-list-style="cards"], [data-list-style="bands"]) .pane-header .segmented { background: color-mix(in srgb, var(--text-1) 6%, var(--list-ground)); }
