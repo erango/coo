@@ -15,14 +15,15 @@
 //! once nothing is being written or sent (see `silent_install_due`).
 //!
 //! Besides Sparkle's own schedule, Coo checks in the background when it comes
-//! to the foreground (at most hourly, `check_due`) and whenever About opens.
+//! to the foreground (at most every 10 minutes, `check_due`: the appcast is
+//! one small request) and whenever About opens.
 //!
 //! Everything here runs on the main thread (Dioxus desktop's UI thread).
 
 use std::time::{Duration, SystemTime};
 
 /// Foreground checks run at most this often (any check resets the clock).
-pub const FOREGROUND_INTERVAL: Duration = Duration::from_secs(60 * 60);
+pub const FOREGROUND_INTERVAL: Duration = Duration::from_secs(10 * 60);
 /// A downloaded update installs by itself, in menu-bar mode, after this long.
 pub const SILENT_INSTALL_AFTER: Duration = Duration::from_secs(10 * 60);
 
@@ -270,7 +271,7 @@ mod imp {
     }
 
     /// The user asked (menu, Settings) with automatic updates on: look now,
-    /// skipping the hourly debounce, and report through the status (Coo's
+    /// skipping the foreground debounce, and report through the status (Coo's
     /// update dialog shows it). Sparkle's own UI stayed silent when a
     /// background session was already running.
     pub fn check_user() {
@@ -308,7 +309,7 @@ mod imp {
         sparkle.max(ours)
     }
 
-    /// A silent background check. `force` skips the hourly debounce (About).
+    /// A silent background check. `force` skips the foreground debounce (About).
     pub fn check_background(force: bool) {
         let _ = with(|c| {
             let Some(u) = updater(c) else { return };
@@ -420,11 +421,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn foreground_checks_are_hourly() {
+    fn foreground_checks_are_every_ten_minutes() {
         let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_000);
         assert!(check_due(None, t0));
-        assert!(!check_due(Some(t0), t0 + Duration::from_secs(59 * 60)));
-        assert!(check_due(Some(t0), t0 + Duration::from_secs(60 * 60)));
+        assert!(!check_due(Some(t0), t0 + Duration::from_secs(9 * 60)));
+        assert!(check_due(Some(t0), t0 + Duration::from_secs(10 * 60)));
         // A clock that went backwards doesn't block checks forever.
         assert!(check_due(Some(t0 + Duration::from_secs(3600)), t0));
     }
