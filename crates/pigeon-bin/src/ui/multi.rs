@@ -68,8 +68,26 @@ pub fn next_selection(
     }
 }
 
+/// ⌘A in the list: select every row in the view. In a folder (not a
+/// search) the rest of it loads and joins the selection as it arrives.
+pub fn select_all(s: AppState) {
+    let keys: Vec<String> = s.visible_items().iter().map(AppState::key).collect();
+    if keys.len() < 2 {
+        return;
+    }
+    let (mut m, mut all) = (s.multi, s.select_all);
+    m.set(keys);
+    close_reader(s);
+    if s.search.peek().is_none() {
+        all.set(true);
+        send_cmd(Cmd::LoadAll);
+    }
+}
+
 /// Apply a click on a list row.
 pub fn click(s: AppState, item: &ListItem, how: How) {
+    let mut all = s.select_all;
+    all.set(false);
     let list = s.visible_items();
     let keys: Vec<String> = list.iter().map(AppState::key).collect();
     let (open, multi, anchor) = (s.selected.read().clone(), s.multi.read().clone(), s.anchor.read().clone());
@@ -102,8 +120,9 @@ fn close_reader(s: AppState) {
 
 /// Drop the multi-selection.
 pub fn clear(s: AppState) {
-    let mut m = s.multi;
+    let (mut m, mut all) = (s.multi, s.select_all);
     m.set(Vec::new());
+    all.set(false);
 }
 
 /// The selected rows still in the list (a sync may have removed some).

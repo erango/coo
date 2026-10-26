@@ -97,6 +97,8 @@ pub enum Cmd {
     LoadMore {
         have: u32,
     },
+    /// Select all (⌘A): list the whole view, up to the cap.
+    LoadAll,
     /// Recipient autocomplete; `token` lets the UI drop stale results.
     SuggestContacts {
         query: String,
@@ -791,6 +793,16 @@ impl Service {
                         return Ok(());
                     }
                     v.limit = (v.limit + LIST_PAGE).min(LIST_MAX);
+                }
+                self.publish().await;
+            }
+            Cmd::LoadAll => {
+                {
+                    let mut v = self.view.lock().await;
+                    if v.limit >= LIST_MAX {
+                        return Ok(());
+                    }
+                    v.limit = LIST_MAX;
                 }
                 self.publish().await;
             }

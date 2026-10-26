@@ -17,6 +17,7 @@ pub const SHORTCUTS: &[(&str, &str, &str, &str)] = &[
     ("Write", "meta+shift+r", "⇧⌘R · A", "Reply all"),
     ("Write", "meta+shift+f", "⇧⌘F · F", "Forward"),
     ("Write", "meta+Enter", "⌘↵", "Send"),
+    ("Organize", "meta+a", "⌘A", "Select every message in the folder (list focused)"),
     ("Organize", "ctrl+meta+a", "⌃⌘A · E", "Archive"),
     ("Organize", "meta+Backspace", "⌘⌫ · # · X", "Delete"),
     ("Organize", "v", "V", "Move to folder"),

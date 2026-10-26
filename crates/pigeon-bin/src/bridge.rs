@@ -35,9 +35,13 @@ pub const JS: &str = r#"
                         'meta+1','meta+2','meta+k','meta+n','meta+Enter','meta+shift+z','meta+,',
                         // Apple Mail shortcuts (the single keys above stay as extras).
                         'meta+r','meta+shift+r','meta+shift+f','meta+Backspace','ctrl+meta+a','meta+shift+l',
-                        'meta+shift+u','meta+shift+n','meta+f']);
+                        'meta+shift+u','meta+shift+n','meta+f','meta+a']);
   const editable = (el) => el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
   let lastShift = 0; // 1 = left, 2 = right
+  let listFocus = false;
+  document.addEventListener('mousedown', (e) => {
+    listFocus = !!(e.target.closest && e.target.closest('.pane--list .list'));
+  }, true);
   document.addEventListener('keydown', (e) => {
     // RTL/LTR paragraph override, Outlook style: Ctrl + Right Shift = RTL, Ctrl + Left Shift = LTR.
     if (e.key === 'Shift') lastShift = e.location;
@@ -69,6 +73,15 @@ pub const JS: &str = r#"
       return;
     }
     if (e.altKey || (e.ctrlKey && !e.metaKey)) return;
+    // ⌘A selects every message only while the list has focus (last click or
+    // j/k there, with a row selected); elsewhere it selects text as usual.
+    if (key === 'meta+a') {
+      if (listFocus && document.querySelector('.pane--list .row[aria-selected="true"], .pane--list .row[data-multi]')) {
+        e.preventDefault(); send('key', key);
+      }
+      return;
+    }
+    if (['j','k','ArrowUp','ArrowDown'].includes(key)) listFocus = true;
     if (KEYS.has(key)) { e.preventDefault(); send('key', key); }
   }, true);
 

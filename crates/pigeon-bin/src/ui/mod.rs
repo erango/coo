@@ -1122,6 +1122,7 @@ fn on_key(s: AppState, key: &str) {
         "l" => move_picker::open(s, true),
         // Gmail's "Report spam" key; "Not spam" in the spam folder.
         "!" => spam::toggle(s),
+        "meta+a" => multi::select_all(s),
         "j" | "ArrowDown" => step(s, 1),
         "k" | "ArrowUp" => step(s, -1),
         _ if !multi::items(&s).is_empty() => {

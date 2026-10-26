@@ -325,7 +325,8 @@ mod tests {
     #[test]
     fn every_shortcut_has_a_menu_item() {
         // Esc, Send and the zoom keys live elsewhere (the composer, the bridge).
-        let elsewhere = ["Escape", "meta+Enter", "meta+,", "zoom-in", "zoom-out", "zoom-reset", "c"];
+        // ⌘A is the Edit menu's Select All.
+        let elsewhere = ["Escape", "meta+Enter", "meta+,", "zoom-in", "zoom-out", "zoom-reset", "c", "meta+a"];
         for (_, key, _, what) in crate::shortcuts::SHORTCUTS {
             if elsewhere.contains(key) {
                 continue;

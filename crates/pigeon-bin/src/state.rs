@@ -164,6 +164,9 @@ pub struct AppState {
     /// Keys of a multi-selection (two or more rows, list order); empty
     /// otherwise. See `ui/multi.rs`.
     pub multi: Signal<Vec<String>>,
+    /// ⌘A: the multi-selection is "everything in this view" and grows as
+    /// the rest of the folder loads.
+    pub select_all: Signal<bool>,
     /// Row a ⇧-click range starts from.
     pub anchor: Signal<Option<String>>,
     pub reader: Signal<Option<ReaderView>>,
@@ -269,6 +272,7 @@ impl AppState {
             list: Signal::new(Vec::new()),
             selected: Signal::new(None),
             multi: Signal::new(Vec::new()),
+            select_all: Signal::new(false),
             anchor: Signal::new(None),
             contacts: Signal::new((0, Vec::new())),
             reader: Signal::new(None),
@@ -591,6 +595,13 @@ fn apply(s: &mut AppState, delta: Delta) {
             Delta::List { mailbox, threaded, items } => {
                 if mailbox == *s.mailbox.peek() && threaded == *s.threaded.peek() {
                     crate::perf::mark_list_arrived();
+                    if *s.select_all.peek() {
+                        if s.multi.peek().is_empty() {
+                            s.select_all.set(false);
+                        } else {
+                            s.multi.set(items.iter().map(AppState::key).collect());
+                        }
+                    }
                     s.list.set(items);
                 }
             }
