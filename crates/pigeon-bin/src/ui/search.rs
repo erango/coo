@@ -575,8 +575,21 @@ pub fn SearchPane() -> Element {
             }
         }
         div { class: "list", role: "listbox",
-            for row in st.items.iter() {
-                super::list::Row { key: "{row.account_id}|{row.header.id}", item: ListItem::Message(row.clone()), many }
+            "data-style": s.list_style.read().as_pref(),
+            "data-avatars": s.list_avatars.read().then_some("true"),
+            for (n, row) in st.items.iter().enumerate() {
+                super::list::Row {
+                    key: "{row.account_id}|{row.header.id}",
+                    item: ListItem::Message(row.clone()),
+                    many,
+                    avatar: *s.list_avatars.read(),
+                    edge: match (n == 0, n + 1 == st.items.len()) {
+                        (true, true) => Some("only"),
+                        (true, false) => Some("first"),
+                        (false, true) => Some("last"),
+                        _ => None,
+                    },
+                }
             }
             // An empty box: what the operators are, and a few to try.
             if !has_query {
