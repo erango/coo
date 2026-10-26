@@ -10,8 +10,9 @@ use std::collections::{HashMap, HashSet};
 
 /// More changes than this at once: no animation.
 pub const MAX_ANIMATED: usize = 8;
-/// A little over `--dur-collapse` (240 ms): when ghosts and entering marks go.
-pub const CLEAR_AFTER_MS: u64 = 300;
+/// A little over the longest row animation (app.css, 340 ms): when ghosts
+/// and entering marks go.
+pub const CLEAR_AFTER_MS: u64 = 380;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Plan {

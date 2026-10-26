@@ -199,7 +199,10 @@ pub fn MailList() -> Element {
             .collect()
     };
     // Outgoing (sending/failed) rows sit above the virtualized rows.
-    let out_h = out_display.len() as f64 * vlist::ROW_H;
+    let style = *s.list_style.read();
+    let metrics = style.metrics();
+    let avatars = *s.list_avatars.read();
+    let out_h = out_display.len() as f64 * metrics.row_h;
 
     // Insert/remove motion. Diffed here, during render, against the last
     // list this component drew (a non-reactive cell), so a removed row is
@@ -214,8 +217,8 @@ pub fn MailList() -> Element {
         if m.keys != keys || m.view != view {
             let same_view = m.view == view;
             let list_top = (*scroll_top.peek() - out_h).max(0.0);
-            let at_top = list_top < vlist::ROW_H / 2.0;
-            let old_layout = vlist::layout(m.items.iter().map(|i| format::group(i.header().received_at, now)));
+            let at_top = list_top < metrics.row_h / 2.0;
+            let old_layout = vlist::layout(m.items.iter().map(|i| format::group(i.header().received_at, now)), metrics);
             let first_visible = vlist::first_visible_item(&old_layout, list_top).unwrap_or(0);
             let plan = super::list_motion::plan(&m.keys, &keys, same_view, at_top, first_visible);
             let ghosts: Vec<(usize, ListItem)> = plan.ghosts.iter().map(|&g| (g, m.items[g].clone())).collect();
@@ -228,7 +231,8 @@ pub fn MailList() -> Element {
                     .position(|i| AppState::key(i) == anchor)
                     .and_then(|i| vlist::item_span(&old_layout, i));
                 let merged = merged_items(&items, &order, &ghosts);
-                let new_layout = vlist::layout(merged.iter().map(|(i, _)| format::group(i.header().received_at, now)));
+                let new_layout =
+                    vlist::layout(merged.iter().map(|(i, _)| format::group(i.header().received_at, now)), metrics);
                 let new_top = merged
                     .iter()
                     .position(|(i, _)| AppState::key(i) == anchor)
@@ -271,12 +275,13 @@ pub fn MailList() -> Element {
         (merged_items(&items, &m.order, &m.ghosts), m.entering.clone())
     };
 
-    let layout = vlist::layout(display.iter().map(|(i, _)| format::group(i.header().received_at, now)));
+    let layout = vlist::layout(display.iter().map(|(i, _)| format::group(i.header().received_at, now)), metrics);
     let (start, end, top_pad, bottom_pad) =
         vlist::window(&layout, (*scroll_top.read() - out_h).max(0.0), *viewport.read());
     let rows: Vec<Element> = layout.slots[start..end]
         .iter()
-        .map(|(slot, _)| match *slot {
+        .enumerate()
+        .map(|(n, (slot, _))| match *slot {
             vlist::Slot::Group(g) => rsx! { div { class: "list-group", key: "g-{g}", "{g}" } },
             vlist::Slot::Item(i) => {
                 let (item, ghost) = &display[i];
@@ -289,7 +294,8 @@ pub fn MailList() -> Element {
                     None
                 };
                 let rkey = if *ghost { format!("ghost-{key}") } else { key };
-                rsx! { Row { key: "{rkey}", item: item.clone(), many, motion } }
+                let edge = layout.edge(start + n);
+                rsx! { Row { key: "{rkey}", item: item.clone(), many, motion, edge, avatar: avatars } }
             }
         })
         .collect();
@@ -302,7 +308,7 @@ pub fn MailList() -> Element {
     let span = selected_index.and_then(|i| vlist::item_span(&layout, i)).map(|(t, b)| (t + out_h, b + out_h));
     use_effect(use_reactive!(|span| {
         if let Some((top, bottom)) = span
-            && let Some(y) = vlist::scroll_into_view(*scroll_top.peek(), *viewport.peek(), top, bottom)
+            && let Some(y) = vlist::scroll_into_view(*scroll_top.peek(), *viewport.peek(), top, bottom, metrics.group_h)
         {
             document::eval(&format!(
                 "const l=document.querySelector('.pane--list .list[role=listbox]'); if(l) l.scrollTop={y};"
@@ -352,9 +358,17 @@ pub fn MailList() -> Element {
                 Empty { syncing: s.sync.read().syncing }
             } else {
                 div { class: "list", role: "listbox", "data-auth": (!expired.is_empty()).then_some("expired"),
+                    "data-style": style.as_pref(),
+                    "data-avatars": avatars.then_some("true"),
                     onscroll: on_scroll,
-                    for (o, motion) in out_display.iter() {
+                    for (n, (o, motion)) in out_display.iter().enumerate() {
                         OutgoingRow {
+                            edge: match (n == 0, n + 1 == out_display.len()) {
+                                (true, true) => Some("only"),
+                                (true, false) => Some("first"),
+                                (false, true) => Some("last"),
+                                _ => None,
+                            },
                             key: "{out_key(&o.draft.id, *motion)}",
                             out: o.clone(),
                             many,
@@ -458,7 +472,17 @@ fn Empty(syncing: bool) -> Element {
 }
 
 #[component]
-pub fn Row(item: ListItem, many: bool, #[props(default)] motion: Option<&'static str>) -> Element {
+pub fn Row(
+    item: ListItem,
+    many: bool,
+    #[props(default)] motion: Option<&'static str>,
+    /// Place in its date group (day bands round the ends).
+    #[props(default)]
+    edge: Option<&'static str>,
+    /// Draw the sender avatar column.
+    #[props(default)]
+    avatar: bool,
+) -> Element {
     let s = use_context::<AppState>();
     let key = AppState::key(&item);
     let open = s.selected.read().as_deref() == Some(key.as_str());
@@ -514,6 +538,7 @@ pub fn Row(item: ListItem, many: bool, #[props(default)] motion: Option<&'static
             "aria-selected": "{selected}",
             "data-focused": open.then_some("true"),
             "data-context": menu_on.then_some("true"),
+            "data-edge": edge,
             onclick: move |e| super::multi::click(s, &i1, super::multi::How::of(&e)),
             // Its own window (the first click has opened it here already).
             ondoubleclick: move |e| {
@@ -528,6 +553,14 @@ pub fn Row(item: ListItem, many: bool, #[props(default)] motion: Option<&'static
                     super::row_menu::open(s, &i7, p.x, p.y);
                 }
             },
+            if avatar {
+                match h.from.clone() {
+                    Some(from) => rsx! {
+                        super::avatar::Avatar { email: from.email.clone(), label: from.display().to_string(), hue, class: "avatar--36 row__avatar" }
+                    },
+                    None => rsx! { span { class: "avatar avatar--36 row__avatar", "data-hue": "{hue}", "?" } },
+                }
+            }
             div { class: "row__line",
                 if many { span { class: "pip", "{letter}" } } else { span { class: "dot" } }
                 match h.from.clone().filter(|_| !h.is_draft) {
@@ -583,7 +616,12 @@ pub fn Row(item: ListItem, many: bool, #[props(default)] motion: Option<&'static
 }
 
 #[component]
-fn OutgoingRow(out: Outgoing, many: bool, #[props(default)] motion: Option<&'static str>) -> Element {
+fn OutgoingRow(
+    out: Outgoing,
+    many: bool,
+    #[props(default)] motion: Option<&'static str>,
+    #[props(default)] edge: Option<&'static str>,
+) -> Element {
     let s = use_context::<AppState>();
     let d = out.draft.clone();
     let hue = s.hue(&d.from.account_id);
@@ -597,7 +635,7 @@ fn OutgoingRow(out: Outgoing, many: bool, #[props(default)] motion: Option<&'sta
     let letter = d.from.address.email.chars().next().map(|c| c.to_ascii_uppercase()).unwrap_or('?');
     let (retry, open, cancel) = (d.clone(), d.clone(), d.id.clone());
     rsx! {
-        div { class: "row", role: "option", "data-hue": "{hue}", "data-state": "{state}",
+        div { class: "row", role: "option", "data-hue": "{hue}", "data-state": "{state}", "data-edge": edge,
             "data-entering": (motion == Some("entering")).then_some("true"),
             "data-leaving": (motion == Some("leaving")).then_some("true"),
             "aria-hidden": (motion == Some("leaving")).then_some("true"),
@@ -607,6 +645,9 @@ fn OutgoingRow(out: Outgoing, many: bool, #[props(default)] motion: Option<&'sta
                     dr.set(Some(open.clone()));
                 }
             },
+            if *s.list_avatars.read() {
+                span { class: "avatar avatar--36 avatar--self row__avatar", "{format::initials(&d.from.address.display().to_string())}" }
+            }
             div { class: "row__line",
                 if many { span { class: "pip", "{letter}" } } else { span { class: "dot" } }
                 span { class: "row__who", dir: "auto", "To: {to}" }

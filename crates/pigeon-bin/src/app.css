@@ -471,11 +471,27 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 }
 .thread-order:hover { background: var(--bg-2); color: var(--text-2); }
 .thread-order:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-/* List motion (ui/list_motion.rs): new rows grow in, removed rows use the
-   design's data-leaving collapse. Tokens drop to 0 with reduced motion. */
-.row[data-entering] { overflow: hidden; animation: coo-row-in var(--dur-collapse) var(--ease-standard) both; }
-@keyframes coo-row-in { from { opacity: 0; height: 0; padding-top: 0; padding-bottom: 0; } }
-.row[data-leaving] { overflow: hidden; pointer-events: none; }
+/* List motion (ui/list_motion.rs). In and out get different curves:
+   arriving rows open fast and settle (expo-out height) while the content
+   drops in with a touch of overshoot; leaving rows fade and slip left
+   first (ease-in), then the gap closes with a quick in-out so the rows
+   below snap up instead of drifting. Total ≤ 340 ms; list_motion's
+   CLEAR_AFTER_MS waits for it. */
+.row[data-entering] {
+  overflow: hidden; transform-origin: 50% 0;
+  animation: coo-row-grow 320ms cubic-bezier(0.16, 1, 0.3, 1) both,
+             coo-row-pop 340ms cubic-bezier(0.34, 1.45, 0.64, 1) both;
+}
+@keyframes coo-row-grow { from { height: 0; padding-top: 0; padding-bottom: 0; margin-top: 0; margin-bottom: 0; } }
+@keyframes coo-row-pop { from { opacity: 0; transform: translateY(-10px) scale(0.97); } 40% { opacity: 1; } }
+.row[data-leaving] {
+  overflow: hidden; pointer-events: none;
+  animation: coo-row-fade 150ms cubic-bezier(0.4, 0, 1, 1) forwards,
+             coo-row-shrink 220ms 70ms cubic-bezier(0.7, 0, 0.3, 1) forwards;
+}
+@keyframes coo-row-fade { to { opacity: 0; transform: translateX(-14px) scale(0.98); } }
+@keyframes coo-row-shrink { to { height: 0; padding-top: 0; padding-bottom: 0; margin-top: 0; margin-bottom: 0; } }
+@media (prefers-reduced-motion: reduce) { .row[data-entering], .row[data-leaving] { animation: none; } }
 /* Sending row: an indeterminate bar after "Sending…" (ui/list.rs). */
 .row__snippet--sending { display: flex; align-items: center; gap: 10px; }
 .progress--indeterminate { position: relative; flex: 1; max-width: 160px; background: var(--bg-2); }
@@ -818,3 +834,51 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .search-tips__op { height: 26px; display: flex; align-items: center; gap: 10px; padding: 0 6px; margin: 0 -6px; border: 0; border-radius: var(--radius-sm); background: transparent; text-align: left; cursor: pointer; min-width: 0; }
 .search-tips__op:hover { background: var(--bg-2); }
 .search-tips__op .suggest__op { width: 120px; flex: none; color: var(--text-2); }
+
+/* List styles (Settings › Appearance; state::ListStyle). Row heights must
+   match ListStyle::metrics: the list is virtualized on them. */
+.list[data-style="cards"], .list[data-style="bands"] {
+  --card: color-mix(in srgb, var(--bg-3) 60%, var(--bg-0));
+  --card-hover: color-mix(in srgb, var(--bg-2) 60%, var(--card));
+  --card-selected: color-mix(in srgb, var(--accent) 9%, var(--card));
+  background: var(--bg-1);
+}
+.list[data-style="cards"] .list-group { height: 32px; padding-left: 22px; }
+.list[data-style="cards"] .row {
+  height: 72px; margin: 3px 10px; padding: 9px 14px 0 24px; border-radius: 12px;
+  background: var(--card); box-shadow: 0 0 0 1px var(--line);
+}
+.list[data-style="cards"] .row:hover { background: var(--card-hover); }
+.list[data-style="cards"] .row[aria-selected="true"] { background: var(--card-selected); }
+.list[data-style="cards"] .row[data-focused] { box-shadow: inset 0 0 0 1.5px var(--focus-ring); }
+.list[data-style="cards"] .row[data-unread]::before { left: 10px; top: 16px; }
+
+.list[data-style="bands"] .list-group { height: 34px; padding: 0 22px 6px; }
+.list[data-style="bands"] .row {
+  height: 60px; margin: 0 10px; padding: 9px 14px 0 26px; border-radius: 0;
+  display: grid; grid-template-columns: fit-content(62%) minmax(0, 1fr); grid-template-rows: 20px 18px; row-gap: 2px;
+  background: var(--card); box-shadow: inset 1px 0 0 var(--line), inset -1px 0 0 var(--line);
+}
+.list[data-style="bands"] .row__line { grid-column: 1 / -1; }
+.list[data-style="bands"] .row__snippet { padding-left: 6px; }
+.list[data-style="bands"] .row__snippet::before { content: "\2014"; color: var(--text-3); }
+.list[data-style="bands"] .row::after {
+  content: ""; position: absolute; left: 26px; right: 0; bottom: 0; height: 1px; background: var(--line);
+}
+.list[data-style="bands"] .row[data-edge="first"] { border-radius: 12px 12px 0 0; box-shadow: inset 1px 0 0 var(--line), inset -1px 0 0 var(--line), inset 0 1px 0 var(--line); }
+.list[data-style="bands"] .row[data-edge="last"] { border-radius: 0 0 12px 12px; box-shadow: inset 1px 0 0 var(--line), inset -1px 0 0 var(--line), inset 0 -1px 0 var(--line); }
+.list[data-style="bands"] .row[data-edge="only"] { border-radius: 12px; box-shadow: inset 0 0 0 1px var(--line); }
+.list[data-style="bands"] .row:is([data-edge="last"], [data-edge="only"])::after { display: none; }
+.list[data-style="bands"] .row:hover { background: var(--card-hover); }
+.list[data-style="bands"] .row[aria-selected="true"] { background: var(--card-selected); }
+.list[data-style="bands"] .row[data-focused] { box-shadow: inset 0 0 0 1.5px var(--focus-ring); }
+.list[data-style="bands"] .row[data-unread]::before { left: 11px; top: 16px; }
+
+/* Avatar column, any style. */
+.avatar--36 { width: 36px; height: 36px; font-size: 13px; }
+.row__avatar { position: absolute; left: 20px; top: 12px; }
+.list[data-avatars] .row { padding-left: 66px; }
+.list[data-avatars][data-style="cards"] .row__avatar { left: 20px; top: 13px; }
+.list[data-avatars][data-style="bands"] .row { padding-left: 62px; }
+.list[data-avatars][data-style="bands"] .row__avatar { width: 32px; height: 32px; font-size: 12px; left: 20px; top: 14px; }
+.list[data-avatars][data-style="bands"] .row::after { left: 62px; }

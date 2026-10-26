@@ -90,6 +90,10 @@ pub struct Prefs {
     pub reply_mode: String,
     /// Show sender photos from Gravatar (sends a hash of each address).
     pub photos_gravatar: bool,
+    /// Message list look: "cards", "bands" or "classic" (`state::ListStyle`).
+    pub list_style: String,
+    /// A sender avatar column in the message list.
+    pub list_avatars: bool,
     /// Closing the main window keeps Coo running in the menu bar (false:
     /// closing quits).
     pub close_to_menu_bar: bool,
@@ -132,6 +136,8 @@ impl Default for Prefs {
             thread_newest_first: true,
             reply_mode: "inline".into(),
             photos_gravatar: false,
+            list_style: "cards".into(),
+            list_avatars: true,
             close_to_menu_bar: true,
             relaunch_hidden: false,
             menu_bar_hint_shown: false,

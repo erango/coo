@@ -49,6 +49,55 @@ impl Theme {
     }
 }
 
+/// How the message list draws its rows (Settings › Appearance).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ListStyle {
+    /// Rows separated by space alone (the original look).
+    Classic,
+    /// Each message in its own rounded card.
+    Cards,
+    /// Each day one panel, two-line rows divided by hairlines.
+    Bands,
+}
+
+impl ListStyle {
+    pub const ALL: [ListStyle; 3] = [ListStyle::Cards, ListStyle::Bands, ListStyle::Classic];
+
+    pub fn from_pref(s: &str) -> Self {
+        match s {
+            "classic" => ListStyle::Classic,
+            "bands" => ListStyle::Bands,
+            _ => ListStyle::Cards,
+        }
+    }
+
+    pub fn as_pref(self) -> &'static str {
+        match self {
+            ListStyle::Classic => "classic",
+            ListStyle::Cards => "cards",
+            ListStyle::Bands => "bands",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ListStyle::Classic => "Classic",
+            ListStyle::Cards => "Cards",
+            ListStyle::Bands => "Day bands",
+        }
+    }
+
+    /// Slot heights; app.css (`.list[data-style]`) sizes rows to match.
+    pub fn metrics(self) -> crate::ui::vlist::Metrics {
+        use crate::ui::vlist::{CLASSIC, Metrics};
+        match self {
+            ListStyle::Classic => CLASSIC,
+            ListStyle::Cards => Metrics { row_h: 78.0, group_h: 32.0 },
+            ListStyle::Bands => Metrics { row_h: 60.0, group_h: 34.0 },
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Default)]
 pub struct CalendarData {
     pub from: i64,
@@ -211,6 +260,8 @@ pub struct AppState {
     /// The day the calendar is focused on (Day view shows it; Month shows its month).
     pub cal_day: Signal<chrono::NaiveDate>,
     pub theme: Signal<Theme>,
+    pub list_style: Signal<ListStyle>,
+    pub list_avatars: Signal<bool>,
     /// Color theme family id (see `themes`).
     pub palette: Signal<String>,
     pub settings_open: Signal<bool>,
@@ -301,6 +352,8 @@ impl AppState {
             cal_view: Signal::new(CalView::Week),
             cal_day: Signal::new(chrono::Local::now().date_naive()),
             theme: Signal::new(Theme::from_pref(&crate::prefs::get().theme_mode)),
+            list_style: Signal::new(ListStyle::from_pref(&crate::prefs::get().list_style)),
+            list_avatars: Signal::new(crate::prefs::get().list_avatars),
             palette: Signal::new({
                 let p = crate::prefs::get().palette;
                 if crate::themes::is_known(&p) { p } else { crate::themes::DEFAULT.to_string() }

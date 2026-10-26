@@ -1,9 +1,19 @@
-//! Windowing math for the virtualized message list. Rows are a fixed
-//! `--row-h` (76 px) and date group headers a fixed 30 px (design/screens/
-//! mail-list.css), so every offset is exact without measuring the DOM.
+//! Windowing math for the virtualized message list. Rows and date group
+//! headers have fixed heights per list style (`Metrics`; classic is the
+//! design's 76 px `--row-h` and 30 px header, design/screens/mail-list.css),
+//! so every offset is exact without measuring the DOM.
 
 pub const ROW_H: f64 = 76.0;
 pub const GROUP_H: f64 = 30.0;
+
+/// Slot heights of one list style (app.css sizes the rows to match).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Metrics {
+    pub row_h: f64,
+    pub group_h: f64,
+}
+
+pub const CLASSIC: Metrics = Metrics { row_h: ROW_H, group_h: GROUP_H };
 /// Extra pixels rendered above and below the viewport.
 pub const OVERSCAN: f64 = 900.0;
 /// Ask for the next page when this close to the end.
@@ -22,31 +32,48 @@ pub struct Layout {
     /// Each slot with its top offset, in order.
     pub slots: Vec<(Slot, f64)>,
     pub total: f64,
+    pub metrics: Metrics,
 }
 
-fn height(s: Slot) -> f64 {
-    match s {
-        Slot::Group(_) => GROUP_H,
-        Slot::Item(_) => ROW_H,
+impl Layout {
+    fn height(&self, s: Slot) -> f64 {
+        match s {
+            Slot::Group(_) => self.metrics.group_h,
+            Slot::Item(_) => self.metrics.row_h,
+        }
+    }
+
+    /// Where slot `i` sits in its date group: "first", "last", "only", or
+    /// None in the middle (day bands round a group's ends).
+    pub fn edge(&self, i: usize) -> Option<&'static str> {
+        let is_item = |j: Option<&(Slot, f64)>| matches!(j, Some((Slot::Item(_), _)));
+        let first = i == 0 || !is_item(self.slots.get(i - 1));
+        let last = !is_item(self.slots.get(i + 1));
+        match (first, last) {
+            (true, true) => Some("only"),
+            (true, false) => Some("first"),
+            (false, true) => Some("last"),
+            (false, false) => None,
+        }
     }
 }
 
 /// Lay out items given each item's group label, inserting a header whenever
 /// the label changes.
-pub fn layout<'a>(groups: impl IntoIterator<Item = &'static str> + 'a) -> Layout {
+pub fn layout<'a>(groups: impl IntoIterator<Item = &'static str> + 'a, metrics: Metrics) -> Layout {
     let mut slots = Vec::new();
     let mut y = 0.0;
     let mut last = None;
     for (i, g) in groups.into_iter().enumerate() {
         if last != Some(g) {
             slots.push((Slot::Group(g), y));
-            y += GROUP_H;
+            y += metrics.group_h;
             last = Some(g);
         }
         slots.push((Slot::Item(i), y));
-        y += ROW_H;
+        y += metrics.row_h;
     }
-    Layout { slots, total: y }
+    Layout { slots, total: y, metrics }
 }
 
 /// Visible slot range `[start, end)` for a scroll position, plus the spacer
@@ -58,7 +85,7 @@ pub fn window(l: &Layout, scroll_top: f64, viewport: f64) -> (usize, usize, f64,
     let from = (scroll_top - OVERSCAN).max(0.0);
     let to = scroll_top + viewport + OVERSCAN;
     // First slot whose bottom is below `from`.
-    let start = l.slots.partition_point(|(s, top)| top + height(*s) <= from);
+    let start = l.slots.partition_point(|(s, top)| top + l.height(*s) <= from);
     let end = l.slots.partition_point(|(_, top)| *top < to).max(start);
     let top_pad = l.slots.get(start).map(|(_, t)| *t).unwrap_or(l.total);
     let bottom_pad = match l.slots.get(end) {
@@ -71,20 +98,20 @@ pub fn window(l: &Layout, scroll_top: f64, viewport: f64) -> (usize, usize, f64,
 /// The first item at least partly visible at `scroll_top`.
 pub fn first_visible_item(l: &Layout, scroll_top: f64) -> Option<usize> {
     l.slots.iter().find_map(|(s, top)| match s {
-        Slot::Item(i) if top + ROW_H > scroll_top => Some(*i),
+        Slot::Item(i) if top + l.metrics.row_h > scroll_top => Some(*i),
         _ => None,
     })
 }
 
 /// Top and bottom offsets of item `i`.
 pub fn item_span(l: &Layout, i: usize) -> Option<(f64, f64)> {
-    l.slots.iter().find(|(s, _)| *s == Slot::Item(i)).map(|(_, t)| (*t, t + ROW_H))
+    l.slots.iter().find(|(s, _)| *s == Slot::Item(i)).map(|(_, t)| (*t, t + l.metrics.row_h))
 }
 
 /// Scroll position that brings `[top, bottom)` into view, or None if it is.
-pub fn scroll_into_view(scroll_top: f64, viewport: f64, top: f64, bottom: f64) -> Option<f64> {
+pub fn scroll_into_view(scroll_top: f64, viewport: f64, top: f64, bottom: f64, group_h: f64) -> Option<f64> {
     if top < scroll_top {
-        Some((top - GROUP_H).max(0.0))
+        Some((top - group_h).max(0.0))
     } else if bottom > scroll_top + viewport {
         Some(bottom - viewport + 8.0)
     } else {
@@ -98,7 +125,7 @@ mod tests {
 
     fn sample(n: usize) -> Layout {
         // 3 "Today", then the rest "Older".
-        layout((0..n).map(|i| if i < 3 { "Today" } else { "Older" }))
+        layout((0..n).map(|i| if i < 3 { "Today" } else { "Older" }), CLASSIC)
     }
 
     #[test]
@@ -116,7 +143,7 @@ mod tests {
         let l = sample(10_000);
         let (start, end, top, bottom) = window(&l, 50_000.0, 800.0);
         assert!(start > 0 && end < l.slots.len());
-        let rendered: f64 = l.slots[start..end].iter().map(|(s, _)| height(*s)).sum();
+        let rendered: f64 = l.slots[start..end].iter().map(|(s, _)| l.height(*s)).sum();
         assert!((top + rendered + bottom - l.total).abs() < 1e-6, "spacers + rows = total height");
         assert!(top <= 50_000.0 - OVERSCAN + ROW_H && top + rendered >= 50_800.0 + OVERSCAN - ROW_H);
         assert!(end - start < 60, "only a screenful is rendered, got {}", end - start);
@@ -125,7 +152,7 @@ mod tests {
         // Past the end: nothing below.
         let (_, end, _, bottom) = window(&l, l.total, 800.0);
         assert_eq!((end, bottom), (l.slots.len(), 0.0));
-        assert_eq!(window(&layout(std::iter::empty()), 0.0, 800.0), (0, 0, 0.0, 0.0));
+        assert_eq!(window(&layout(std::iter::empty(), CLASSIC), 0.0, 800.0), (0, 0, 0.0, 0.0));
     }
 
     #[test]
@@ -134,13 +161,25 @@ mod tests {
         assert_eq!(first_visible_item(&l, 0.0), Some(0));
         // Past the Today header and rows 0-1 (header 30 + 2 rows), into row 2.
         assert_eq!(first_visible_item(&l, GROUP_H + 2.0 * ROW_H + 10.0), Some(2));
-        assert_eq!(first_visible_item(&layout(std::iter::empty()), 0.0), None);
+        assert_eq!(first_visible_item(&layout(std::iter::empty(), CLASSIC), 0.0), None);
     }
 
     #[test]
     fn keyboard_selection_scrolls_minimally() {
-        assert_eq!(scroll_into_view(1000.0, 600.0, 1100.0, 1176.0), None);
-        assert_eq!(scroll_into_view(1000.0, 600.0, 900.0, 976.0), Some(870.0));
-        assert_eq!(scroll_into_view(1000.0, 600.0, 1580.0, 1656.0), Some(1064.0));
+        assert_eq!(scroll_into_view(1000.0, 600.0, 1100.0, 1176.0, GROUP_H), None);
+        assert_eq!(scroll_into_view(1000.0, 600.0, 900.0, 976.0, GROUP_H), Some(870.0));
+        assert_eq!(scroll_into_view(1000.0, 600.0, 1580.0, 1656.0, GROUP_H), Some(1064.0));
+    }
+
+    #[test]
+    fn other_styles_and_group_edges() {
+        let m = Metrics { row_h: 60.0, group_h: 34.0 };
+        let l = layout(["Today", "Today", "Older"], m);
+        assert_eq!(l.total, 2.0 * 34.0 + 3.0 * 60.0);
+        assert_eq!(item_span(&l, 2), Some((2.0 * 34.0 + 2.0 * 60.0, 2.0 * 34.0 + 3.0 * 60.0)));
+        // Slots: Group, Item0, Item1, Group, Item2.
+        assert_eq!((l.edge(1), l.edge(2), l.edge(4)), (Some("first"), Some("last"), Some("only")));
+        let l = layout(["Today"; 3], CLASSIC);
+        assert_eq!(l.edge(2), None);
     }
 }

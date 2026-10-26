@@ -15,7 +15,7 @@ use crate::{prefs, themes};
 /// Settings subpages: (title, icon, search keywords).
 pub const PAGES: &[(&str, &str, &str)] = &[
     ("General", "gear", "close window menu bar quit startup archive delete next message after"),
-    ("Appearance", "sun", "theme dark light mode color colour text size font zoom"),
+    ("Appearance", "sun", "theme dark light mode color colour text size font zoom list cards bands avatars density"),
     (
         "Accounts",
         "at",
@@ -197,6 +197,9 @@ fn Appearance() -> Element {
         scale.set(prefs::get().font_scale);
     };
     let pct = (*scale.read() * 100.0).round();
+    let (mut list_style, mut list_avatars) = (s.list_style, s.list_avatars);
+    let style_now = *list_style.read();
+    let avatars_on = *list_avatars.read();
 
     rsx! {
         div { class: "settings__title", "Appearance" }
@@ -219,6 +222,32 @@ fn Appearance() -> Element {
                             on_pick: move |id: &'static str| palette.set(id.to_string()) }
                     }
                 }
+            }
+            div { class: "settings-field",
+                span { class: "settings-field__label", "Message list" }
+                div { class: "segmented", role: "radiogroup", "aria-label": "Message list style",
+                    for st in crate::state::ListStyle::ALL {
+                        button { role: "radio", "aria-selected": "{style_now == st}", "aria-checked": "{style_now == st}",
+                            onclick: move |_| {
+                                list_style.set(st);
+                                prefs::update(move |p| p.list_style = st.as_pref().to_string());
+                            },
+                            "{st.label()}"
+                        }
+                    }
+                }
+                span { class: "settings-field__hint", "Cards give each message its own box; day bands group a day's mail into one panel with two-line rows." }
+            }
+            label { class: "settings-field",
+                span { class: "settings-field__label", "Sender avatars" }
+                input { class: "switch", r#type: "checkbox", checked: avatars_on,
+                    onchange: move |_| {
+                        let on = !avatars_on;
+                        list_avatars.set(on);
+                        prefs::update(move |p| p.list_avatars = on);
+                    }
+                }
+                span { class: "settings-field__hint", "Initials, or the sender's photo when Privacy › Sender photos is on." }
             }
             div { class: "settings-field",
                 span { class: "settings-field__label", "Text size" }
