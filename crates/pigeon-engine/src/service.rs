@@ -274,6 +274,16 @@ pub enum Cmd {
         message_id: String,
         attachment_id: String,
     },
+    /// Right-click › Save As… (`dest` is the file) or Save All Attachments…
+    /// (`into_folder`: `dest` is a folder; names that are taken get " 2").
+    /// `files`: (attachment id, file name).
+    SaveAttachments {
+        account_id: String,
+        message_id: String,
+        files: Vec<(String, String)>,
+        dest: std::path::PathBuf,
+        into_folder: bool,
+    },
     ShowCalendar {
         from: i64,
         to: i64,
@@ -1206,6 +1216,36 @@ impl Service {
                 let path = self.app.attachment(&account, &message_id, &attachment_id).await?;
                 self.send(Delta::AttachmentReady(path));
             }
+            Cmd::SaveAttachments { account_id, message_id, files, dest, into_folder } => {
+                let account = self.app.account(&account_id)?;
+                let mut saved = Vec::new();
+                for (attachment_id, name) in &files {
+                    let to = if into_folder { free_path(&dest, &safe_file_name(name)) } else { dest.clone() };
+                    let copied = match self.app.attachment(&account, &message_id, attachment_id).await {
+                        Ok(from) => tokio::fs::copy(&from, &to).await.map_err(|e| Error::Other(e.to_string())),
+                        Err(e) => Err(e),
+                    };
+                    match copied {
+                        Ok(_) => saved.push(to),
+                        Err(e) => {
+                            // No file names in the log.
+                            tracing::warn!(error = %e, "could not save an attachment");
+                            self.toast(format!("Couldn't save {name}: {e}"), true, None);
+                        }
+                    }
+                }
+                let msg = match saved.as_slice() {
+                    [] => None,
+                    [one] => one.file_name().map(|n| format!("Saved {}", n.to_string_lossy())),
+                    many => {
+                        let folder = dest.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                        Some(format!("Saved {} attachments to {folder}", many.len()))
+                    }
+                };
+                if let Some(msg) = msg {
+                    self.toast(msg, false, None);
+                }
+            }
             Cmd::ShowCalendar { from, to } => {
                 self.view.lock().await.calendar = Some((from, to));
                 self.publish().await;
@@ -1465,6 +1505,27 @@ pub async fn run(app: Arc<Pigeon>, mut rx: mpsc::UnboundedReceiver<Cmd>, tx: mps
     }
 }
 
+/// An attachment's name made safe to save under: no folders (`/`), no
+/// Finder-hidden leading dot, no colons (Finder shows them as `/`).
+fn safe_file_name(name: &str) -> String {
+    let cleaned: String =
+        name.chars().map(|c| if matches!(c, '/' | ':' | '\\') || c.is_control() { '-' } else { c }).collect();
+    let cleaned = cleaned.trim().trim_start_matches('.').trim();
+    if cleaned.is_empty() { "Attachment".into() } else { cleaned.into() }
+}
+
+/// `dir/name`, or `dir/name 2.ext`, `name 3.ext`… when that's taken.
+fn free_path(dir: &std::path::Path, name: &str) -> std::path::PathBuf {
+    let first = dir.join(name);
+    if !first.exists() {
+        return first;
+    }
+    let p = std::path::Path::new(name);
+    let stem = p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| name.into());
+    let ext = p.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+    (2..).map(|n| dir.join(format!("{stem} {n}{ext}"))).find(|c| !c.exists()).expect("some number is free")
+}
+
 /// The image at `url` (inline `data:` or http/https) written to `path`.
 async fn save_image(url: &str, path: &std::path::Path) -> Result<()> {
     let bytes = if url.starts_with("data:") {
@@ -1502,6 +1563,24 @@ mod tests {
         assert_eq!(std::fs::read(&path).unwrap(), [0x89, b'P', b'N', b'G']);
         assert!(save_image("cid:logo@x", &dir.join("x.png")).await.is_err());
         assert!(save_image("file:///etc/passwd", &dir.join("y.png")).await.is_err());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn saved_attachments_get_safe_free_names() {
+        assert_eq!(safe_file_name("../etc/passwd"), "-etc-passwd");
+        assert_eq!(safe_file_name(".hidden"), "hidden");
+        assert_eq!(safe_file_name("a:b.pdf"), "a-b.pdf");
+        assert_eq!(safe_file_name("  "), "Attachment");
+        assert_eq!(safe_file_name("דוח רבעוני.pdf"), "דוח רבעוני.pdf");
+        let dir = std::env::temp_dir().join(format!("coo-free-path-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(free_path(&dir, "r.pdf"), dir.join("r.pdf"));
+        std::fs::write(dir.join("r.pdf"), b"").unwrap();
+        std::fs::write(dir.join("r 2.pdf"), b"").unwrap();
+        assert_eq!(free_path(&dir, "r.pdf"), dir.join("r 3.pdf"));
+        std::fs::write(dir.join("notes"), b"").unwrap();
+        assert_eq!(free_path(&dir, "notes"), dir.join("notes 2"));
         std::fs::remove_dir_all(&dir).ok();
     }
 

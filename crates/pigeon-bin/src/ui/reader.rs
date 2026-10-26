@@ -479,6 +479,11 @@ fn Body(account_id: String, message_id: String, sender: String, body: StoredBody
     let flipped = flip.read().contains(&message_id);
     let dark = s.dark();
     let attachments: Vec<_> = body.attachments.iter().filter(|a| !a.meta.is_inline).cloned().collect();
+    let files: Vec<super::attachments::File> =
+        attachments.iter().map(|a| (a.meta.id.clone(), a.meta.name.clone())).collect();
+    let total: u64 = attachments.iter().filter_map(|a| a.meta.size).sum();
+    let att_menu = use_signal(|| None::<super::attachments::Menu>);
+    let (save_account, save_message, save_files) = (account_id.clone(), message_id.clone(), files.clone());
     let (id1, id2) = (message_id.clone(), message_id.clone());
 
     let terms = search_terms(&s);
@@ -539,7 +544,20 @@ fn Body(account_id: String, message_id: String, sender: String, body: StoredBody
             }
         }
         {content}
+        if attachments.len() > 1 {
+            div { class: "attachments__head",
+                Icon { name: "clip", class: "icon--sm" }
+                span { class: "attachments__count", "{attachments.len()} attachments" }
+                if total > 0 { span { class: "attachments__total", "· {format::size(total)}" } }
+                button { class: "attachments__save", r#type: "button", title: "Save every attachment to a folder",
+                    onclick: move |_| super::attachments::save_all(save_account.clone(), save_message.clone(), save_files.clone()),
+                    Icon { name: "download", class: "icon--sm" }
+                    "Save all…"
+                }
+            }
+        }
         if !attachments.is_empty() {
+            super::attachments::AttachmentMenu { account_id: account_id.clone(), message_id: message_id.clone(), all: files.clone(), menu: att_menu }
             div { class: "attachments",
                 for a in attachments {
                     {
@@ -552,8 +570,17 @@ fn Body(account_id: String, message_id: String, sender: String, body: StoredBody
                         let icon = match kind { "pdf" => "pdf", "sheet" => "sheet", _ => "file" };
                         let size = a.meta.size.map(format::size).unwrap_or_default();
                         let (account_id, message_id, attachment_id) = (account_id.clone(), message_id.clone(), a.meta.id.clone());
+                        let file = (a.meta.id.clone(), a.meta.name.clone());
+                        let mut menu = att_menu;
+                        let ringed = menu.read().as_ref().is_some_and(|m| m.file.0 == a.meta.id);
                         rsx! {
                             div { class: "attachment", key: "{a.meta.id}", title: "Open",
+                                "data-context": ringed.then_some("true"),
+                                oncontextmenu: move |e| {
+                                    e.prevent_default();
+                                    let p = e.client_coordinates();
+                                    menu.set(Some(super::attachments::Menu { x: p.x, y: p.y, file: file.clone() }));
+                                },
                                 onclick: move |_| send_cmd(Cmd::OpenAttachment {
                                     account_id: account_id.clone(), message_id: message_id.clone(), attachment_id: attachment_id.clone(),
                                 }),

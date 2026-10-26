@@ -1,6 +1,7 @@
 pub mod account_menu;
 pub mod add_account;
 mod agent_setup;
+mod attachments;
 mod avatar;
 mod bug_report;
 pub mod calendar;
@@ -751,7 +752,7 @@ async fn save_image_loop() {
 }
 
 /// ~/Downloads, where the save dialog starts.
-fn dirs_downloads() -> Option<std::path::PathBuf> {
+pub(crate) fn dirs_downloads() -> Option<std::path::PathBuf> {
     std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join("Downloads")).filter(|p| p.is_dir())
 }
 
