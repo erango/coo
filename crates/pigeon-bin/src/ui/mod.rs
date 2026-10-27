@@ -183,12 +183,13 @@ pub fn App() -> Element {
                         s.track_outgoing(d, crate::state::OutState::Sending);
                     }
                 }
-                // toast:<message> — an Archive undo toast (screenshots; undoes nothing)
+                // toast:<message> — an Archive toast with Undo (screenshots; Undo of a
+                // made-up handle undoes nothing)
                 "toast" => s.push_toast(pigeon_engine::service::Toast {
                     id: 1,
                     message: arg.into(),
                     error: false,
-                    undo: None,
+                    undo: Some(("debug".into(), 0)),
                     cancel_send: None,
                     action: Some(pigeon_engine::MailAction::Archive),
                 }),

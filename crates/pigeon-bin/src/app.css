@@ -693,6 +693,36 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .toast__msg { line-height: 1.35; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 .toast > .btn, .toast > .icon { flex: none; }
 .toast--reminder { min-height: 52px; }
+/* Light mode: dark toasts, so they stand out from the white panes (the
+   palette's own ink as the surface). Dark mode keeps the raised bg-3. The
+   tokens are re-pointed inside the toast so its text, icons, Undo and kbd
+   follow. */
+:root, :root[data-theme="dark"] {
+  --toast-bg: var(--bg-3); --toast-fg: var(--text-1); --toast-fg-2: var(--text-2);
+  --toast-accent: var(--accent); --toast-error: var(--error);
+}
+:root[data-theme="light"] {
+  --toast-bg: color-mix(in srgb, var(--text-1) 94%, var(--bg-0));
+  --toast-fg: var(--bg-0);
+  --toast-fg-2: color-mix(in srgb, var(--bg-0) 78%, var(--text-1));
+  --toast-accent: color-mix(in srgb, var(--accent) 55%, #FFFFFF);
+  --toast-error: color-mix(in srgb, var(--error) 60%, #FFFFFF);
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]):not([data-theme="light"]) {
+    --toast-bg: color-mix(in srgb, var(--text-1) 94%, var(--bg-0));
+    --toast-fg: var(--bg-0);
+    --toast-fg-2: color-mix(in srgb, var(--bg-0) 78%, var(--text-1));
+    --toast-accent: color-mix(in srgb, var(--accent) 55%, #FFFFFF);
+    --toast-error: color-mix(in srgb, var(--error) 60%, #FFFFFF);
+  }
+}
+.toast {
+  --text-1: var(--toast-fg); --text-2: var(--toast-fg-2); --text-3: var(--toast-fg-2);
+  --accent: var(--toast-accent); --error: var(--toast-error);
+  --bg-2: color-mix(in srgb, var(--text-1) 12%, transparent); --line-strong: color-mix(in srgb, var(--text-1) 22%, transparent);
+  background: var(--toast-bg);
+}
 
 /* Reading pane with nothing open (reader.rs ReaderEmpty): the list's
    empty-state bird, awake, peeking toward the list now and then. */
