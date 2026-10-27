@@ -10,8 +10,10 @@ use crate::state::AppState;
 pub fn Toasts() -> Element {
     let s = use_context::<AppState>();
     let list = s.toasts.read().clone();
+    // An open composer's Send sits in this corner: stay above its footer.
+    let composing = s.draft.read().is_some();
     rsx! {
-        div { class: "toast-stack",
+        div { class: "toast-stack", "data-composing": composing.then_some("true"),
             for t in list.into_iter().rev().take(3) {
                 ToastItem { key: "{t.id}", toast: t }
             }

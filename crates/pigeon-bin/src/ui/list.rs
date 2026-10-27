@@ -408,7 +408,6 @@ pub fn MailList() -> Element {
                     span { class: "t-caption", "Offline · changes sync when you’re back" }
                 }
             }
-            super::toasts::Toasts {}
         }
     }
 }

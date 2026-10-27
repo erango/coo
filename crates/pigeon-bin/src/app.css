@@ -139,7 +139,6 @@ input.input--bare { border: 0; outline: none; }
 .agent-setup__agent { flex: 1; font-size: 16px; font-weight: var(--fw-semibold); color: var(--text-1); }
 .agent-setup code { font-size: 12px; color: var(--text-1); word-break: break-all; }
 .agent-setup__foot { display: flex; align-items: center; gap: 8px; padding: 12px 20px; box-shadow: inset 0 1px 0 var(--line); }
-.agent-setup .toast-stack { bottom: 64px; }
 .agent-steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 18px; }
 .agent-step { display: flex; gap: 12px; }
 .agent-step__num { width: 22px; height: 22px; flex: none; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11.5px; font-weight: var(--fw-semibold); color: var(--text-2); box-shadow: inset 0 0 0 1.5px var(--line-strong); }
@@ -686,6 +685,10 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 
 /* Toasts grow with their text (the design's fixed 44px clipped long
    subjects into the next toast); at most two lines, then an ellipsis. */
+/* Toasts: one stack for the whole window, in its bottom-right corner (not
+   across the list pane, where they read as one more row). */
+.toast-stack { position: fixed; left: auto; right: 20px; bottom: 18px; width: 380px; max-width: calc(100% - 40px); z-index: 65; }
+.toast-stack[data-composing] { bottom: 78px; }
 .toast { height: auto; min-height: 44px; padding-top: 8px; padding-bottom: 8px; }
 .toast__msg { line-height: 1.35; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 .toast > .btn, .toast > .icon { flex: none; }

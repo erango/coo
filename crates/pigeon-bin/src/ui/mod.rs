@@ -183,6 +183,15 @@ pub fn App() -> Element {
                         s.track_outgoing(d, crate::state::OutState::Sending);
                     }
                 }
+                // toast:<message> — an Archive undo toast (screenshots; undoes nothing)
+                "toast" => s.push_toast(pigeon_engine::service::Toast {
+                    id: 1,
+                    message: arg.into(),
+                    error: false,
+                    undo: None,
+                    cancel_send: None,
+                    action: Some(pigeon_engine::MailAction::Archive),
+                }),
                 // open:<account_id>|<thread_id>
                 // menu-shot:<Message|View|…>: pop up a menu-bar menu (screenshots)
                 "menu-shot" => {
@@ -605,6 +614,8 @@ pub fn App() -> Element {
         if *s.update_dialog.read() { update_dialog::UpdateDialog {} }
         if *s.bug_report_open.read() { bug_report::BugReportDialog {} }
         if s.add_account.read().is_some() { add_account::AddAccountSheet {} }
+        // Window-wide, bottom right, over panes and sheets alike.
+        if *s.loaded.read() { toasts::Toasts {} }
     }
 }
 

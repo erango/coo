@@ -468,8 +468,6 @@ pub fn AgentSetup() -> Element {
                         r#type: "button", onclick: move |_| open.set(false), "Done" }
                 }
 
-                // Toasts render in the list pane, under this scrim: show them here too.
-                super::toasts::Toasts {}
             }
         }
     }

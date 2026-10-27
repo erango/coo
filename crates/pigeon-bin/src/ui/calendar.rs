@@ -372,7 +372,6 @@ pub fn CalendarView() -> Element {
 
     rsx! {
         main { class: "pane pane--reader", style: "position:relative",
-            super::toasts::Toasts {}
             header { class: "cal-header",
                 h1 { class: "cal-header__title", "{title}" }
                 span { class: "cal-header__week", "{sub}" }
