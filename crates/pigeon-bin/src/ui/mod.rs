@@ -105,7 +105,11 @@ pub fn App() -> Element {
     use_hook(move || {
         // Sparkle (release builds only): starts its background check schedule.
         crate::updater::start();
-        crate::menubar::install(dioxus::desktop::window());
+        let window = dioxus::desktop::window();
+        // Dioxus shows the window after this first render, so it opens
+        // where it was.
+        remember_frame(&window);
+        crate::menubar::install(window.clone());
         if crate::prefs::get().relaunch_hidden {
             crate::prefs::update(|p| p.relaunch_hidden = false);
             crate::menubar::start_hidden();
@@ -687,6 +691,24 @@ pub fn restart_to_update() {
         tracing::warn!("restart to update: no update is ready");
     }
 }
+
+/// Restore the main window's last position and size, and keep saving it
+/// as it moves (AppKit's frame autosave, in Coo's defaults), so relaunches
+/// and updates open it where it was.
+#[cfg(target_os = "macos")]
+fn remember_frame(w: &dioxus::desktop::DesktopContext) {
+    use dioxus::desktop::tao::platform::macos::WindowExtMacOS;
+    let name = objc2_foundation::NSString::from_str("Coo main window");
+    // SAFETY: tao's NSWindow for a live window, used on the main thread.
+    if let Some(ns) = unsafe { (w.window.ns_window() as *const objc2_app_kit::NSWindow).as_ref() } {
+        // Kept on a screen that's still attached.
+        ns.setFrameUsingName(&name);
+        ns.setFrameAutosaveName(&name);
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn remember_frame(_: &dioxus::desktop::DesktopContext) {}
 
 /// Composing, or a send still inside its undo window: never restart then.
 fn update_would_interrupt(s: AppState) -> bool {
