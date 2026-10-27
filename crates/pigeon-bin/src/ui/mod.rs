@@ -167,6 +167,22 @@ pub fn App() -> Element {
                         send_cmd(Cmd::OpenThread { account_id: account_id.into(), thread_id: thread_id.into() });
                     }
                 }
+                // sending:<account_id>|<to>|<subject> — a sending row in the list
+                // (screenshots; nothing is sent)
+                "sending" => {
+                    let p: Vec<&str> = arg.split('|').collect();
+                    if let [account_id, to, subject] = p[..] {
+                        let addr = |e: &str| pigeon_core::model::Address { name: None, email: e.into() };
+                        let from = pigeon_core::compose::Sender {
+                            account_id: account_id.into(),
+                            address: addr("me@example.com"),
+                        };
+                        let mut d = pigeon_core::compose::Draft::new(from, pigeon_core::now_ms());
+                        d.to = to.split(',').map(addr).collect();
+                        d.subject = subject.into();
+                        s.track_outgoing(d, crate::state::OutState::Sending);
+                    }
+                }
                 // open:<account_id>|<thread_id>
                 // menu-shot:<Message|View|…>: pop up a menu-bar menu (screenshots)
                 "menu-shot" => {

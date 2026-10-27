@@ -503,9 +503,20 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 @keyframes coo-row-fade { to { opacity: 0; transform: translateX(-14px) scale(0.98); } }
 @keyframes coo-row-shrink { to { height: 0; padding-top: 0; padding-bottom: 0; margin-top: 0; margin-bottom: 0; } }
 @media (prefers-reduced-motion: reduce) { .row[data-entering], .row[data-leaving] { animation: none; } }
-/* Sending row: an indeterminate bar after "Sending…" (ui/list.rs). */
-.row__snippet--sending { display: flex; align-items: center; gap: 10px; }
-.progress--indeterminate { position: relative; flex: 1; max-width: 160px; background: var(--bg-2); }
+/* Sending row: a tinted band across the bottom of the row, "Sending…" over a
+   full-width indeterminate bar. The row grows by SEND_BAND_EXTRA (ui/list.rs)
+   to make room. */
+.list .row[data-state="sending"] { height: calc(var(--row-h) + 30px); }
+.list[data-style="cards"] .row[data-state="sending"] { height: 102px; }
+.list[data-style="bands"] .row[data-state="sending"] { height: 90px; }
+.row__send-band {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 40px; box-sizing: border-box;
+  display: flex; flex-direction: column; gap: 5px; padding: 7px 12px 9px 20px;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  font-size: 12px; line-height: 15px; font-weight: var(--fw-medium); color: var(--accent);
+}
+.progress--indeterminate { position: relative; background: var(--bg-2); }
+.row__send-band .progress { height: 4px; background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .progress--indeterminate > span {
   position: absolute; inset: 0 auto 0 0; width: 40%;
   animation: coo-indeterminate 1.3s var(--ease-standard) infinite;

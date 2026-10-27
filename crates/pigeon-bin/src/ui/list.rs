@@ -208,7 +208,12 @@ pub fn MailList() -> Element {
     let style = *s.list_style.read();
     let metrics = style.metrics();
     let avatars = *s.list_avatars.read();
-    let out_h = out_display.len() as f64 * metrics.row_h;
+    let out_h = out_display
+        .iter()
+        .map(|(o, _)| {
+            metrics.row_h + if matches!(o.state, OutState::Sending | OutState::Sent(_)) { SEND_BAND_EXTRA } else { 0.0 }
+        })
+        .sum::<f64>();
 
     // Insert/remove motion. Diffed here, during render, against the last
     // list this component drew (a non-reactive cell), so a removed row is
@@ -407,6 +412,10 @@ pub fn MailList() -> Element {
         }
     }
 }
+
+/// How much taller a sending row is than the style's row: room for its
+/// "Sending…" band (app.css `.row__send-band`).
+const SEND_BAND_EXTRA: f64 = 30.0;
 
 const SLEEPING_BIRD: &str = r##"<path d="M22 9C28 9 30 14 31 20C36 22 48 26 60 33L58 38C50 42 40 46 30 45C20 44 13 38 13 30C13 25 15 22 16 20C14 18 13 15 14 13C15 10 18 9 22 9Z" fill="#EDEEF0" stroke="var(--line-strong)" stroke-width="1"/><path d="M30 26C38 27 48 30 56 35C46 38 36 38 30 34Z" fill="#B9C3CF"/><path d="M16 20C18 24 22 26 27 25" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linecap="round"/><path d="M14 13.8L8 16.4L14 17.6Z" fill="var(--warning)"/><path d="M17.6 14.4Q19.5 16 21.4 14.4" fill="none" stroke="#1F3A5C" stroke-width="1.2" stroke-linecap="round"/><path d="M28 45V54M35 45V54" stroke="var(--warning)" stroke-width="2.4" stroke-linecap="round"/>"##;
 /// Same bird, awake (onboarding).
@@ -678,8 +687,8 @@ fn OutgoingRow(
             div { class: "row__subject", dir: "auto", "{subject}" }
             match out.state.clone() {
                 OutState::Sending | OutState::Sent(_) => rsx! {
-                    div { class: "row__snippet row__snippet--sending",
-                        "Sending…"
+                    div { class: "row__send-band",
+                        span { "Sending…" }
                         span { class: "progress progress--indeterminate", role: "progressbar", "aria-label": "Sending", span {} }
                     }
                 },
