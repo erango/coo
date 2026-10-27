@@ -452,6 +452,17 @@ impl AppState {
         hues.get(&format!("{account_id}|{calendar_id}")).copied().unwrap_or_else(|| self.hue(account_id))
     }
 
+    /// Next up without the calendars unchecked in the calendar sidebar, so
+    /// they neither show in Next up nor remind.
+    pub fn next_up_shown(&self) -> Vec<EventRow> {
+        without_hidden(&self.next_up.read(), &self.hidden_calendars.read())
+    }
+
+    /// As `next_up_shown`, without subscribing (for background loops).
+    pub fn next_up_shown_peek(&self) -> Vec<EventRow> {
+        without_hidden(&self.next_up.peek(), &self.hidden_calendars.peek())
+    }
+
     pub fn dark(&self) -> bool {
         match *self.theme.read() {
             Theme::Dark => true,
@@ -972,6 +983,34 @@ pub fn mailbox_exists(m: &Mailbox, accounts: &[AccountNav]) -> bool {
         Mailbox::Folder { account_id, folder_id } => {
             accounts.iter().any(|a| a.account.id == *account_id && a.folders.iter().any(|f| f.folder.id == *folder_id))
         }
+    }
+}
+
+/// `events` minus those of the `account|calendar_id` keys in `hidden`.
+pub fn without_hidden(events: &[EventRow], hidden: &[String]) -> Vec<EventRow> {
+    events
+        .iter()
+        .filter(|e| !hidden.iter().any(|k| *k == format!("{}|{}", e.account_id, e.event.calendar_id)))
+        .cloned()
+        .collect()
+}
+
+#[cfg(test)]
+mod hidden_calendar_tests {
+    use super::*;
+    use pigeon_core::model::Event;
+
+    #[test]
+    fn unchecked_calendars_drop_out() {
+        let ev = |account: &str, cal: &str| EventRow {
+            account_id: account.into(),
+            event: Event { calendar_id: cal.into(), ..Default::default() },
+        };
+        let events = vec![ev("a", "work"), ev("a", "home"), ev("b", "work")];
+        let kept = without_hidden(&events, &["a|work".to_string()]);
+        let keys: Vec<_> = kept.iter().map(|e| format!("{}|{}", e.account_id, e.event.calendar_id)).collect();
+        assert_eq!(keys, ["a|home", "b|work"]);
+        assert_eq!(without_hidden(&events, &[]).len(), 3);
     }
 }
 

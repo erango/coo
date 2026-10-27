@@ -121,7 +121,6 @@ pub fn layout_day(spans: &[(i64, i64)]) -> Vec<(usize, usize)> {
     out
 }
 
-/// Local midnight of `d`, epoch ms.
 /// `account|calendar_id`, the key unchecked calendars are remembered by.
 fn calendar_key(account_id: &str, calendar_id: &str) -> String {
     format!("{account_id}|{calendar_id}")
@@ -129,8 +128,7 @@ fn calendar_key(account_id: &str, calendar_id: &str) -> String {
 
 /// Events of the calendars that are checked in the sidebar.
 fn shown(s: &AppState, events: &[EventRow]) -> Vec<EventRow> {
-    let hidden = s.hidden_calendars.read();
-    events.iter().filter(|e| !hidden.contains(&calendar_key(&e.account_id, &e.event.calendar_id))).cloned().collect()
+    crate::state::without_hidden(events, &s.hidden_calendars.read())
 }
 
 /// Check or uncheck a calendar in the sidebar (remembered).
@@ -147,6 +145,7 @@ fn toggle_calendar(s: AppState, key: &str) {
     crate::prefs::update(move |p| p.hidden_calendars = saved);
 }
 
+/// Local midnight of `d`, epoch ms.
 pub fn midnight(d: NaiveDate) -> i64 {
     Local
         .from_local_datetime(&d.and_hms_opt(0, 0, 0).expect("midnight"))

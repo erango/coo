@@ -443,8 +443,7 @@ fn Empty(syncing: bool) -> Element {
     // Inbox zero shows what's next today, as in the design.
     let now = pigeon_core::now_ms();
     let next = if inbox && !syncing {
-        s.next_up
-            .read()
+        s.next_up_shown()
             .iter()
             .find(|e| e.event.end_at > now && !e.event.all_day && format::same_day(e.event.start_at, now))
             .cloned()

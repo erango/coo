@@ -593,7 +593,7 @@ async fn reminder_loop(s: AppState) {
     let mut reminded = std::collections::HashSet::new();
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(20)).await;
-        let events = s.next_up.peek().clone();
+        let events = s.next_up_shown_peek();
         let now = pigeon_core::now_ms();
         let prefs = crate::prefs::get();
         let due = crate::notify::due_reminders(&events, now, &prefs, &reminded);
@@ -1062,7 +1062,7 @@ pub fn reply(item: &ListItem, kind: ReplyKind) {
 
 /// The meeting joinable right now, if any: (title, url).
 pub fn joinable_now(s: &AppState) -> Option<(String, String)> {
-    let events = s.next_up.read();
+    let events = s.next_up_shown();
     pigeon_core::meeting::joinable(events.iter().map(|r| &r.event), pigeon_core::now_ms())
         .map(|(e, l)| (e.title.clone(), l.url))
 }

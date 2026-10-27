@@ -385,7 +385,7 @@ fn FolderRow(account_id: String, info: FolderInfo, pinned: bool, child: bool) ->
 fn NextUp() -> Element {
     use pigeon_core::meeting::{JoinState, join_state, joinable};
     let s = use_context::<AppState>();
-    let events = s.next_up.read().clone();
+    let events = s.next_up_shown();
     let now = pigeon_core::now_ms();
     // A meeting you can join right now beats the next item on the agenda.
     let join = joinable(events.iter().map(|r| &r.event), now).map(|(e, l)| (e.id.clone(), l));
