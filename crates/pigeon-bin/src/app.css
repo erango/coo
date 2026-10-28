@@ -420,6 +420,9 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .composer__editor { max-width: none; }
 .composer__editor > * { width: 100%; max-width: var(--composer-measure, 680px); box-sizing: border-box; }
 .composer__editor > :dir(rtl) { align-self: flex-end; }
+/* The reader pane takes focus back from a clicked message frame (bridge):
+   no ring for that. */
+.pane--reader:focus-visible { outline: none; }
 .composer__quote { margin-top: 12px; }
 .composer__quote .inline-reply__quoted { margin: 0 0 6px; }
 .composer__quote .composer-quote { margin: 0 0 12px; overflow: visible; min-height: 0; }

@@ -307,7 +307,7 @@ async fn bridge_loop(s: AppState, item: ListItem) {
     let key = AppState::key(&item);
     while let Ok(msg) = eval.recv::<Msg>().await {
         match msg.k.as_str() {
-            "key" => {
+            "key" | "key-synth" => {
                 let item = s.visible_items().into_iter().find(|i| AppState::key(i) == key).unwrap_or(item.clone());
                 let unread = match &item {
                     ListItem::Thread(t) => t.unread_count > 0,

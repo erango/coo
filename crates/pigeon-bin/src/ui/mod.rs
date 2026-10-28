@@ -1005,7 +1005,7 @@ async fn bridge_loop(s: AppState) {
             // Screenshot runs (PIGEON_IGNORE_INPUT=1) open frontmost; never let a
             // stray keystroke meant for another app act on the demo mailbox.
             "key" if input_ignored() => {}
-            "key" => on_key(s, &msg.v),
+            "key" | "key-synth" => on_key(s, &msg.v),
             "search-caret" => search::on_caret(s, &msg.v),
             "draft-input" => compose::autosave(s.main_slot(), &msg.v),
             "sig-input" => {

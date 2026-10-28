@@ -165,7 +165,7 @@ async fn bridge_loop(s: AppState, slot: ComposeSlot) {
     let mut eval = document::eval(&bridge::script());
     while let Ok(msg) = eval.recv::<Msg>().await {
         match msg.k.as_str() {
-            "key" => match msg.v.as_str() {
+            "key" | "key-synth" => match msg.v.as_str() {
                 "meta+Enter" => compose::send_current(s, slot),
                 "Escape" => compose::save_and_close(slot),
                 "meta+n" => super::new_message(s),

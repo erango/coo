@@ -62,6 +62,12 @@ pub const JS: &str = r#"
       if (z) { e.preventDefault(); send('key', z); return; }
     }
     let key = e.key;
+    // A non-Latin layout (Hebrew, Russian...) types "ר" for R: shortcuts go
+    // by the physical key then.
+    if (key.length === 1 && /[^\x00-\x7f]/.test(key)) {
+      if (/^Key[A-Z]$/.test(e.code)) key = e.shiftKey ? e.code.slice(3) : e.code.slice(3).toLowerCase();
+      else if (e.code === 'Slash') key = '/';
+    }
     if (e.shiftKey && key.length > 1 && e.metaKey) key = 'shift+' + key;
     if (e.shiftKey && e.metaKey && key.length === 1) key = 'shift+' + key.toLowerCase();
     // ⌥ changes e.key (⌥F is ƒ): name the physical key.
@@ -86,7 +92,9 @@ pub const JS: &str = r#"
     if (['j','k','ArrowUp','ArrowDown'].includes(key)) listFocus = true;
     // Enter on a focused button or link presses it, as anywhere else.
     if (key === 'Enter' && e.target.closest && e.target.closest('button, a[href]')) return;
-    if (KEYS.has(key)) { e.preventDefault(); send('key', key); }
+    // Untrusted: passed up from a message frame (or a test script); screenshot
+    // runs that ignore the real keyboard still take these.
+    if (KEYS.has(key)) { e.preventDefault(); send(e.isTrusted ? 'key' : 'key-synth', key); }
   }, true);
 
   // ---- Search box: report the caret (operator autocomplete) ----
@@ -480,6 +488,29 @@ pub const JS: &str = r#"
     document.addEventListener('mouseup', done, true);
   }, true);
 
+  // A click into a message moves keyboard focus into its frame, where the
+  // shortcuts (r, a, f, j/k...) can't hear keys: the frame runs no script.
+  // Unless text is selected there (kept for ⌘C) or it's an editable quote,
+  // hand focus back once the click is done.
+  document.addEventListener('focus', (e) => {
+    if (!e.target.classList || !e.target.classList.contains('mail-frame')) return;
+    let calm = 0;
+    const t = setInterval(() => {
+      const f = document.activeElement;
+      if (!f || f.tagName !== 'IFRAME' || !f.classList.contains('mail-frame')) return clearInterval(t);
+      try {
+        const d = f.contentDocument;
+        if (d.body.isContentEditable || !d.getSelection().isCollapsed) { calm = 0; return; }
+        // Twice in a row: not the first instant of a drag-select.
+        if (++calm < 2) return;
+        // blur() leaves WebKit's focus in the frame: focus the pane around it.
+        const pane = f.closest('.pane--reader, .reader-window, main') || document.body;
+        if (!pane.hasAttribute('tabindex')) pane.setAttribute('tabindex', '-1');
+        pane.focus({ preventScroll: true });
+        clearInterval(t);
+      } catch (_) { clearInterval(t); }
+    }, 200);
+  }, true);
   const scan = () => document.querySelectorAll('iframe.mail-frame').forEach(wire);
   // An edited quote's HTML (null when untouched: it goes out as received).
   window.__pigeonQuote = (editor) => {
