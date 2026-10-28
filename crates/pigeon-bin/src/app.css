@@ -417,7 +417,11 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 /* The 680px measure caps each paragraph, not the editor: a capped editor
    sat at the left, so RTL paragraphs ended mid-window on a wide screen.
    RTL ones sit at the right edge instead. */
-.composer__editor { max-width: none; }
+.composer__editor { max-width: none; gap: 0; }
+/* Default spacing (richtext's DEFAULT_LINE / DEFAULT_GAP, stamped on at
+   send); the Paragraph menu sets its own per block. */
+.composer__editor, .inline-reply__editor { line-height: 1.4; }
+.composer__editor > *, .inline-reply__editor > * { margin-top: 0; margin-bottom: 6px; }
 .composer__editor > * { width: 100%; max-width: var(--composer-measure, 680px); box-sizing: border-box; }
 .composer__editor > :dir(rtl) { align-self: flex-end; }
 /* The reader pane takes focus back from a clicked message frame (bridge):
@@ -445,6 +449,12 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .fmt-bar .icon-btn[aria-pressed="true"] { background: var(--selection); color: var(--accent); }
 .fmt-bar__sep { width: 1px; height: 16px; margin: 0 4px; background: var(--line-strong); }
 .fmt-pop { position: fixed; z-index: 70; min-width: 0; animation: pg-pop-in var(--dur-base) var(--ease-standard); }
+.fmt-para { width: 300px; padding-bottom: 6px; }
+.fmt-para__row { display: flex; gap: 4px; padding: 0 8px 4px; }
+.fmt-para__opt { flex: 1; min-width: 0; height: 28px; display: inline-flex; align-items: center; justify-content: center; padding: 0 6px;
+  border: 0; border-radius: var(--radius-sm); background: var(--bg-2); color: var(--text-2); font: inherit; font-size: 12px; white-space: nowrap; cursor: default; }
+.fmt-para__opt:hover { background: var(--bg-3); color: var(--text-1); }
+.fmt-para__opt[data-active="true"] { background: var(--selection); color: var(--accent); font-weight: var(--fw-medium); }
 .fmt-pop > .menu-item { border: 0; background: transparent; font: inherit; color: inherit; text-align: start; width: 100%; }
 .fmt-size[data-size="2"] { font-size: 12px; } .fmt-size[data-size="4"] { font-size: 16px; }
 .fmt-size[data-size="5"] { font-size: 19px; } .fmt-size[data-size="6"] { font-size: 23px; }

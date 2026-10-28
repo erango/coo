@@ -242,7 +242,7 @@ pub fn send_at(s: AppState, slot: ComposeSlot, later: Option<i64>) {
     let mut sending = slot.sending;
     sending.set(true);
     spawn(async move {
-        let read = bridge::try_editor_html(&editor_id(&draft)).await;
+        let read = bridge::try_editor_export(&editor_id(&draft)).await;
         let quote = bridge::quote_html(&editor_id(&draft)).await;
         let mut d = draft;
         if let Some(q) = quote {

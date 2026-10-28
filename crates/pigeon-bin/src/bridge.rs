@@ -524,11 +524,18 @@ pub const JS: &str = r#"
 })();
 "#;
 
-/// Read an editor's HTML (by element id).
-/// The editor's HTML, or None when it couldn't be read (no such editor in
-/// this window, or the script failed). Sending must not treat that as "".
-pub async fn try_editor_html(id: &str) -> Option<String> {
-    let js = format!("const e = document.getElementById({id:?}); return e ? e.innerHTML : null;");
+/// The composer's quoted original if the user edited it, else None.
+pub async fn quote_html(editor: &str) -> Option<String> {
+    let id = serde_json::to_string(editor).unwrap_or_default();
+    let js = format!("return window.__pigeonQuote ? window.__pigeonQuote({id}) : null;");
+    document::eval(&js).join::<Option<String>>().await.ok().flatten()
+}
+
+/// The editor's HTML as it goes out (default spacing stamped on each
+/// paragraph), or None when it couldn't be read (no such editor in this
+/// window, or the script failed). Sending must not treat that as "".
+pub async fn try_editor_export(id: &str) -> Option<String> {
+    let js = format!("return window.__pigeonExport ? window.__pigeonExport({id:?}) : null;");
     match document::eval(&js).join::<Option<String>>().await {
         Ok(v) => v,
         Err(e) => {
@@ -536,13 +543,6 @@ pub async fn try_editor_html(id: &str) -> Option<String> {
             None
         }
     }
-}
-
-/// The composer's quoted original if the user edited it, else None.
-pub async fn quote_html(editor: &str) -> Option<String> {
-    let id = serde_json::to_string(editor).unwrap_or_default();
-    let js = format!("return window.__pigeonQuote ? window.__pigeonQuote({id}) : null;");
-    document::eval(&js).join::<Option<String>>().await.ok().flatten()
 }
 
 pub async fn editor_html(id: &str) -> String {

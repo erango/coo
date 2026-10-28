@@ -26,7 +26,7 @@ const BUTTONS: &[Option<(&str, &str, &str)>] = &[
     Some(("insertOrderedList", "list-ordered", "Numbered list")),
     Some(("outdent", "outdent", "Decrease indent")),
     Some(("indent", "indent", "Increase indent")),
-    Some(("align", "align-left", "Alignment")),
+    Some(("align", "align-left", "Paragraph: alignment, direction, spacing")),
     None,
     Some(("quote", "quote", "Quote")),
     Some(("code", "code", "Inline code")),

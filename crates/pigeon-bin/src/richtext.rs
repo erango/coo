@@ -356,11 +356,7 @@ const JS: &str = r##"
       for (const [label, v] of SIZES) el.appendChild(item('<span class="fmt-size" data-size="' + v + '">' + label + '</span>', again('fontSize', v),
         (b) => b.setAttribute('data-active', String(cur === v))));
     } else if (kind === 'align') {
-      for (const [c, i] of [['justifyLeft', 'align-left'], ['justifyCenter', 'align-center'], ['justifyRight', 'align-right']]) {
-        el.appendChild(item(icon(i) + (c === 'justifyLeft' ? 'Left' : c === 'justifyCenter' ? 'Center' : 'Right') +
-          '<span class="menu-item__hint">' + (LABEL[c] || '') + '</span>', again(c),
-          (b) => b.setAttribute('data-active', String(alignOf(ed) === c))));
-      }
+      return paraPop(ed, btn);
     } else {
       const color = kind === 'color';
       el.appendChild(item(icon(color ? 'fmt-color' : 'fmt-highlight') + (color ? 'Automatic' : 'No highlight'),
@@ -376,6 +372,72 @@ const JS: &str = r##"
     }
     openPop(btn, el);
   }
+  // ---- Paragraph: alignment, direction, line / paragraph / letter
+  // spacing, for the paragraphs in the selection. Spacing goes on each
+  // block as inline style so the recipient sees it too; "Normal" removes
+  // it, and the composer's defaults (DEFAULT_*) are stamped on at send.
+  const LINE = [['1.2', 'Tight'], ['', 'Normal'], ['1.7', 'Relaxed'], ['2', 'Double']];
+  const GAP = [['0px', 'None'], ['', 'Small'], ['12px', 'Medium'], ['20px', 'Large']];
+  const LETTER = [['-0.02em', 'Tight'], ['', 'Normal'], ['0.04em', 'Wide'], ['0.08em', 'Wider']];
+  const DIRS = [['auto', 'Auto'], ['rtl', 'Right to left'], ['ltr', 'Left to right']];
+  // Top-level blocks the selection touches (list items, inside lists).
+  function selBlocks(ed) {
+    const r = caretRange(); const out = [];
+    if (r) for (const c of ed.children) {
+      if (!r.intersectsNode(c) || c.hasAttribute('data-coo-signature')) continue;
+      if (c.tagName === 'UL' || c.tagName === 'OL') { for (const li of c.querySelectorAll('li')) if (r.intersectsNode(li)) out.push(li); }
+      else out.push(c);
+    }
+    if (!out.length) { const b = blockAt(ed, caretNode()); if (b) out.push(b); }
+    return out;
+  }
+  function paraPop(ed, btn) {
+    const sel = getSelection();
+    const range = sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
+    const blocks = selBlocks(ed), first = blocks[0];
+    const el = document.createElement('div'); el.className = 'fmt-para';
+    const back = () => { ed.focus(); if (range) { sel.removeAllRanges(); sel.addRange(range); } };
+    const section = (title, opts, current, pick) => {
+      const h = document.createElement('div'); h.className = 'menu__label'; h.textContent = title; el.appendChild(h);
+      const row = document.createElement('div'); row.className = 'fmt-para__row'; el.appendChild(row);
+      for (const [v, label, title] of opts) {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'fmt-para__opt'; b.innerHTML = label;
+        if (title) { b.title = title; b.setAttribute('aria-label', title); }
+        b.setAttribute('data-active', String(v === current));
+        b.addEventListener('click', () => {
+          back(); pick(v);
+          for (const o of row.children) o.setAttribute('data-active', String(o === b));
+          changed(ed); refresh(ed);
+        });
+        row.appendChild(b);
+      }
+    };
+    const align = alignOf(ed);
+    section('Alignment', [['justifyLeft', icon('align-left'), 'Left'], ['justifyCenter', icon('align-center'), 'Center'], ['justifyRight', icon('align-right'), 'Right']],
+      align, (c) => exec(c));
+    const dir = first ? (first.getAttribute('dir') === 'rtl' || first.getAttribute('dir') === 'ltr' ? first.getAttribute('dir') : 'auto') : 'auto';
+    section('Direction', DIRS, dir, (v) => { for (const b of selBlocks(ed)) { b.setAttribute('dir', v); delete b.dataset.dirGuess; } fixIndents(ed); });
+    const prop = (name) => (v) => { for (const b of selBlocks(ed)) { if (v) b.style.setProperty(name, v); else b.style.removeProperty(name); if (!b.style.length) b.removeAttribute('style'); } };
+    const cur = (name) => (first && first.style.getPropertyValue(name)) || '';
+    section('Line spacing', LINE, cur('line-height'), prop('line-height'));
+    section('Space between paragraphs', GAP, cur('margin-bottom'), prop('margin-bottom'));
+    section('Letter spacing', LETTER, cur('letter-spacing'), prop('letter-spacing'));
+    openPop(btn, el);
+  }
+  // What goes out: the composer's default spacing stamped on each block
+  // that doesn't set its own, so the recipient sees what was written.
+  const DEFAULT_LINE = '1.4', DEFAULT_GAP = '6px';
+  window.__pigeonExport = (id) => {
+    const ed = document.getElementById(id); if (!ed) return null;
+    const c = ed.cloneNode(true);
+    for (const b of c.children) {
+      if (b.hasAttribute('data-coo-signature')) continue;
+      if (!b.style.lineHeight) b.style.lineHeight = DEFAULT_LINE;
+      if (!b.style.marginBottom) { b.style.marginTop = b.style.marginTop || '0px'; b.style.marginBottom = DEFAULT_GAP; }
+    }
+    return c.innerHTML;
+  };
   function linkPop(ed, btn) {
     const sel = getSelection();
     const range = sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
@@ -712,6 +774,8 @@ const JS: &str = r##"
     if (r.collapsed && !around(ed, 'code') && EMOTICON_ENDS.has(e.key) && emoticon(r, e.key)) r = caretRange();
     if (e.key === '`' && r.collapsed && !around(ed, 'code') && inlineCode(ed, r)) { e.preventDefault(); return; }
     if (e.key === 'Enter' && !e.shiftKey && r.collapsed && fence(ed, r)) { e.preventDefault(); return; }
+    // Shift+Enter: a new line in the same paragraph.
+    if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); exec('insertLineBreak'); return; }
     if (e.key === ' ' && r.collapsed) {
       if (autoList(ed, r)) { e.preventDefault(); refresh(ed); }
       return;
