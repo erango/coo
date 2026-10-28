@@ -4,7 +4,7 @@
 //! (`AppState::main_slot`) or a compose window's own.
 //!
 //! The editor holds only what the user types; the quoted original lives in
-//! `draft.html` and is appended at send time. Every editor block carries
+//! `draft.html` (editable in its own frame) and is appended at send time. Every editor block carries
 //! `dir="auto"` (set by the bridge), and Ctrl+Right/Left Shift force RTL/LTR.
 //! Formatting (toolbar, shortcuts, autoformat, emoji) is `crate::richtext`.
 
@@ -243,7 +243,11 @@ pub fn send_at(s: AppState, slot: ComposeSlot, later: Option<i64>) {
     sending.set(true);
     spawn(async move {
         let read = bridge::try_editor_html(&editor_id(&draft)).await;
+        let quote = bridge::quote_html(&editor_id(&draft)).await;
         let mut d = draft;
+        if let Some(q) = quote {
+            d.html = q;
+        }
         let (mut open, mut sending, mut notice) = (slot.draft, slot.sending, slot.notice);
         let typed = match typed_for_send(read.as_deref(), &d.body_html) {
             Ok(t) => t,
@@ -304,14 +308,21 @@ pub fn autosave(slot: ComposeSlot, editor: &str) {
     let mut state = slot.draft;
     spawn(async move {
         let typed = bridge::editor_html(&editor).await;
+        let quote = bridge::quote_html(&editor).await;
         // Keep the open composer in step so a later send/close has it.
         if let Some(d) = state.write().as_mut()
             && d.id == draft.id
         {
             d.body_html = typed.clone();
+            if let Some(q) = &quote {
+                d.html = q.clone();
+            }
         }
         let mut d = draft;
         d.body_html = typed;
+        if let Some(q) = quote {
+            d.html = q;
+        }
         send_cmd(Cmd::SaveDraft(d));
     });
 }
@@ -322,11 +333,15 @@ pub fn save_and_close(slot: ComposeSlot) {
     let Some(draft) = slot.draft.read().clone() else { return };
     spawn(async move {
         let typed = bridge::editor_html(&editor_id(&draft)).await;
+        let quote = bridge::quote_html(&editor_id(&draft)).await;
         let mut state = slot.draft;
         state.set(None);
         let mut d = draft;
         if !typed.is_empty() {
             d.body_html = typed;
+        }
+        if let Some(q) = quote {
+            d.html = q;
         }
         // Nothing written: drop it instead of leaving an empty draft behind.
         if is_blank(&d, &d.body_html) {
@@ -590,35 +605,65 @@ fn SignaturePreview() -> Element {
 }
 
 /// The quoted original of a reply/forward, folded behind "•••": click to
-/// read it, again to fold it. It isn't editable (it goes out as quoted), so
-/// it renders in a mail frame like the reader's.
+/// show it, again to fold it. Unfolded, it's editable in place (a mail
+/// frame keeps the original's layout); an edited quote is read back into
+/// `draft.html` on autosave, fold, close and send.
 #[component]
 fn QuotedOriginal(html: String) -> Element {
     let s = use_context::<AppState>();
-    let mut open = use_signal(|| false);
+    let slot = use_context::<ComposeSlot>();
+    // The frame's document, fixed while it's open: re-rendering it from a
+    // just-autosaved `html` would reload the frame under the caret.
+    let mut doc = use_signal(|| None::<(bool, String)>);
     if html.is_empty() {
         return rsx! {};
     }
-    let shown = *open.read();
-    let frame = shown.then(|| {
-        let adapted = !super::mailframe::is_complex(&html);
-        let remote = crate::prefs::get().remote_images_always;
-        (adapted, super::mailframe::srcdoc(&html, &s.palette.read(), s.dark(), adapted, remote))
-    });
+    let editor = slot.draft.read().as_ref().map(editor_id).unwrap_or_default();
+    let shown = doc.read().is_some();
+    let toggle = {
+        let editor = editor.clone();
+        move |_| {
+            if shown {
+                let editor = editor.clone();
+                spawn(async move {
+                    keep_quote(slot, &editor).await;
+                    doc.set(None);
+                });
+            } else {
+                let html = slot.draft.peek().as_ref().map(|d| d.html.clone()).unwrap_or_default();
+                let adapted = !super::mailframe::is_complex(&html);
+                let remote = crate::prefs::get().remote_images_always;
+                doc.set(Some((adapted, super::mailframe::srcdoc(&html, &s.palette.read(), s.dark(), adapted, remote))));
+            }
+        }
+    };
     rsx! {
         button { class: "inline-reply__quoted", r#type: "button", "aria-expanded": "{shown}",
-            title: if shown { "Hide the quoted text" } else { "Show the quoted text" },
-            onclick: move |_| open.set(!shown),
+            title: if shown { "Hide the quoted text" } else { "Show and edit the quoted text" },
+            onclick: toggle,
             "•••"
         }
-        if let Some((adapted, doc)) = frame {
+        if let Some((adapted, d)) = doc() {
             div { class: "composer-quote",
-                iframe { class: "mail-frame", "data-render": if adapted { "adapted" } else { "paper" },
+                iframe { class: "mail-frame mail-frame--edit", id: "{editor}-quote", "data-edit-for": "{editor}",
+                    "data-render": if adapted { "adapted" } else { "paper" },
+                    title: "Quoted text (editable)",
                     "sandbox": "allow-same-origin allow-popups allow-popups-to-escape-sandbox",
-                    srcdoc: "{doc}"
+                    srcdoc: "{d}"
                 }
             }
         }
+    }
+}
+
+/// Fold an edited quote (if any) back into the open draft.
+async fn keep_quote(slot: ComposeSlot, editor: &str) {
+    let Some(q) = bridge::quote_html(editor).await else { return };
+    let mut state = slot.draft;
+    if let Some(d) = state.write().as_mut()
+        && editor_id(d) == editor
+    {
+        d.html = q;
     }
 }
 

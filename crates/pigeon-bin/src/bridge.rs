@@ -422,8 +422,21 @@ pub const JS: &str = r#"
           d._pgHooked = true;
           d.addEventListener('click', (e) => {
             const a = e.target.closest && e.target.closest('a[href]');
-            if (a) { e.preventDefault(); send('link', a.href); }
+            if (a && !d.body.isContentEditable) { e.preventDefault(); send('link', a.href); }
+            else if (a) e.preventDefault(); // editing: a click places the caret
           });
+          // A composer's quoted original: editable in place. Edits autosave
+          // with the draft (Rust reads them back through __pigeonQuote). Its
+          // `input` events didn't reach listeners added from here (the frame
+          // runs no script), so an observer watches for edits instead.
+          if (f.dataset.editFor) {
+            d.body.contentEditable = 'true';
+            new MutationObserver(() => {
+              f.dataset.dirty = '1';
+              clearTimeout(f._pgSave);
+              f._pgSave = setTimeout(() => send('draft-input', f.dataset.editFor), 1500);
+            }).observe(d.body, { subtree: true, childList: true, characterData: true, attributes: true });
+          }
           d.addEventListener('contextmenu', (e) => contextGuard(e, d));
           new ResizeObserver(fit).observe(d.documentElement);
           for (const img of d.images) img.addEventListener('load', fit);
@@ -448,6 +461,11 @@ pub const JS: &str = r#"
     }
   }
   const scan = () => document.querySelectorAll('iframe.mail-frame').forEach(wire);
+  // An edited quote's HTML (null when untouched: it goes out as received).
+  window.__pigeonQuote = (editor) => {
+    const f = document.getElementById(editor + '-quote');
+    try { return f && f.dataset.dirty ? f.contentDocument.body.innerHTML : null; } catch (_) { return null; }
+  };
   // Re-fit every frame (after a text-size change).
   window.pigeonFitFrames = () => document.querySelectorAll('iframe.mail-frame').forEach((f) => f._pgFit && f._pgFit());
   new MutationObserver(scan).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['srcdoc'] });
@@ -467,6 +485,13 @@ pub async fn try_editor_html(id: &str) -> Option<String> {
             None
         }
     }
+}
+
+/// The composer's quoted original if the user edited it, else None.
+pub async fn quote_html(editor: &str) -> Option<String> {
+    let id = serde_json::to_string(editor).unwrap_or_default();
+    let js = format!("return window.__pigeonQuote ? window.__pigeonQuote({id}) : null;");
+    document::eval(&js).join::<Option<String>>().await.ok().flatten()
 }
 
 pub async fn editor_html(id: &str) -> String {

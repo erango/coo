@@ -234,8 +234,9 @@ pub fn App() -> Element {
                         }));
                     }
                 }
-                // reply:<account_id>|<thread_id>|<message_id>[|forward] — open a
-                // thread and start a reply (or forward)
+                // reply:<account_id>|<thread_id>|<message_id>[|forward][|quote] —
+                // open a thread and start a reply (or forward); `quote` unfolds
+                // the quoted original and types into it
                 "reply" => {
                     let p: Vec<&str> = arg.split('|').collect();
                     if let [account_id, thread_id, message_id, ref rest @ ..] = p[..] {
@@ -248,6 +249,16 @@ pub fn App() -> Element {
                             tokio::time::sleep(std::time::Duration::from_millis(600)).await;
                             send_cmd(Cmd::StartReply { account_id, message_id, kind });
                         });
+                        if rest.contains(&"quote") {
+                            document::eval(
+                                "setTimeout(()=>{document.querySelector('.inline-reply__quoted')?.click();\
+                                 setTimeout(()=>{const f=document.querySelector('iframe.mail-frame--edit');\
+                                 const b=f&&f.contentDocument.body;if(!b)return;\
+                                 b.focus();const d=f.contentDocument;const r=d.createRange();r.setStart(b,0);r.collapse(true);\
+                                 d.getSelection().removeAllRanges();d.getSelection().addRange(r);\
+                                 d.execCommand('insertText',false,'EDITED QUOTE');},800)},1800)",
+                            );
+                        }
                     }
                 }
                 // calendar[:day|week|month]

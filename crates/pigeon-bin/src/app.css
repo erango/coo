@@ -417,6 +417,11 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .composer__quote { margin-top: 12px; }
 .composer__quote .inline-reply__quoted { margin: 0 0 6px; }
 .composer__quote .composer-quote { margin: 0 0 12px; overflow: visible; min-height: 0; }
+/* The unfolded quote is editable: a hairline frames it, the accent while
+   the caret is in it. */
+.composer-quote:has(.mail-frame--edit) { padding: 6px 10px; border-radius: 8px; box-shadow: 0 0 0 1px var(--line); }
+.composer-quote:has(.mail-frame--edit):focus-within { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent); }
+.mail-frame--edit { display: block; }
 /* Formatting toolbar over the editor (richtext.rs runs it). */
 .fmt-bar { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 3px 20px; box-shadow: inset 0 -1px 0 var(--line); }
 .fmt-bar .icon-btn { width: 28px; height: 28px; }
