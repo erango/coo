@@ -574,8 +574,20 @@ impl Pigeon {
             Backend::Google(p) => p.draft_for_message(message_id).await?,
             Backend::ICloud(p) => p.mail.draft_for_message(message_id).await?,
         };
+        let server = server_id.map(|id| ServerDraft { account_id: account.id.clone(), id });
+        // Opened before: keep that copy unless the server's is newer.
+        let earlier = match &server {
+            Some(sd) => self.store().drafts()?.into_iter().find(|d| d.server.as_ref() == Some(sd)),
+            None => None,
+        };
+        if let Some(d) = earlier.as_ref().filter(|d| d.updated_at >= h.received_at && d.scheduled_at.is_none()) {
+            return Ok(d.clone());
+        }
         let mut d = edit_from_message(&h, &body, from, pigeon_core::now_ms());
-        d.server = server_id.map(|id| ServerDraft { account_id: account.id.clone(), id });
+        if let Some(e) = earlier {
+            d.id = e.id;
+        }
+        d.server = server;
         self.save_draft(&mut d)?;
         Ok(d)
     }

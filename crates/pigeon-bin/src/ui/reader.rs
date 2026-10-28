@@ -214,6 +214,22 @@ pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Elem
     let inline_draft = draft
         .filter(|_| !windowed && !super::compose::reply_window_mode())
         .filter(|d| d.reply.as_ref().is_some_and(|r| r.account_id == view.account_id && r.thread_id == view.thread_id));
+    // A reply draft at the end of the conversation opens for editing right
+    // away (inline, or in its own window per Settings › Composing); while it's
+    // open the editor stands in for its read-only copy.
+    let latest_draft = view.messages.last().filter(|m| m.is_draft).map(|m| m.id.clone());
+    use_hook({
+        let (account_id, latest_draft) = (view.account_id.clone(), latest_draft.clone());
+        let mine = inline_draft.is_some();
+        move || {
+            if let Some(message_id) = latest_draft.filter(|_| !windowed && !mine) {
+                send_cmd(Cmd::EditDraft { account_id, message_id });
+            }
+        }
+    });
+    let ordered: Vec<MessageHeader> =
+        if inline_draft.is_some() { ordered.into_iter().filter(|m| !m.is_draft).collect() } else { ordered };
+    let count = if inline_draft.is_some() { ordered.len() } else { count };
 
     rsx! {
         div { class: "reader",
@@ -250,7 +266,7 @@ pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Elem
             div { class: "thread",
                 for m in ordered.iter() {
                     if count == 1 || expanded.read().contains(&m.id) {
-                        Message { key: "{m.id}", account_id: view.account_id.clone(), header: m.clone() }
+                        Message { key: "{m.id}", account_id: view.account_id.clone(), header: m.clone(), windowed }
                     } else {
                         {
                             let id = m.id.clone();
@@ -325,7 +341,7 @@ pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Elem
 }
 
 #[component]
-fn Message(account_id: String, header: MessageHeader) -> Element {
+fn Message(account_id: String, header: MessageHeader, #[props(default)] windowed: bool) -> Element {
     let s = use_context::<AppState>();
     let key = (account_id.clone(), header.id.clone());
     let body = s.bodies.read().get(&key).cloned();
@@ -346,7 +362,9 @@ fn Message(account_id: String, header: MessageHeader) -> Element {
                     Recipients { label: "to", list: header.to.clone(), account_id: account_id.clone(), message_id: header.id.clone() }
                     if !header.cc.is_empty() { Recipients { label: "cc", list: header.cc.clone(), account_id: account_id.clone(), message_id: header.id.clone() } }
                 }
-                if header.is_draft {
+                // Drafts open for editing on their own in the main window; a
+                // message window keeps the button.
+                if header.is_draft && windowed {
                     {
                         let (account_id, message_id) = (account_id.clone(), header.id.clone());
                         rsx! {

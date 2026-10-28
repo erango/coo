@@ -1044,12 +1044,37 @@ pub fn select(s: AppState, item: &ListItem) {
     multi.set(Vec::new());
     anchor.set(Some(AppState::key(item)));
     sel.set(Some(AppState::key(item)));
+    // A draft opens straight in the editor (docked or in its own window,
+    // per Settings › Composing), not in the reader.
+    if is_draft_row(&s, item) {
+        let mut reader = s.reader;
+        reader.set(None);
+        send_cmd(Cmd::EditDraft { account_id: item.account_id().to_string(), message_id: item.header().id.clone() });
+        return;
+    }
     match item {
         ListItem::Thread(t) => {
             send_cmd(Cmd::OpenThread { account_id: t.account_id.clone(), thread_id: t.thread_id.clone() })
         }
         ListItem::Message(m) => {
             send_cmd(Cmd::OpenMessage { account_id: m.account_id.clone(), message_id: m.header.id.clone() })
+        }
+    }
+}
+
+/// A draft row: a draft message, or a conversation shown in Drafts (its
+/// latest message is the draft). Elsewhere a conversation with a reply
+/// draft opens in the reader, with the draft inline.
+fn is_draft_row(s: &AppState, item: &ListItem) -> bool {
+    match item {
+        ListItem::Message(m) => m.header.is_draft,
+        ListItem::Thread(t) => {
+            t.latest.is_draft
+                && s.accounts
+                    .read()
+                    .iter()
+                    .find(|a| a.account.id == t.account_id)
+                    .is_some_and(|a| viewing(&s.mailbox.read(), a, FolderRole::Drafts))
         }
     }
 }

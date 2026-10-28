@@ -411,6 +411,10 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
   max-height: none; border-radius: 0; animation: none;
 }
 .inline-reply--max .inline-reply__editor { min-height: calc(var(--lh-body, 24px) * 4); }
+/* A long reply (an edited draft brings its whole quoted thread) scrolls in
+   the editor; the head, format bar and Send row always stay in the box. */
+.inline-reply--open > :not(.inline-reply__editor):not(.composer-quote) { flex: none; }
+.inline-reply--open .inline-reply__editor { min-height: min(calc(var(--lh-body, 24px) * 8), 18vh); }
 /* The quoted original, unfolded from "•••" (read-only mail frame). */
 .inline-reply__quoted[aria-expanded="true"] { background: var(--selection); color: var(--accent); }
 .composer-quote { flex: 0 1 auto; min-height: 96px; overflow-y: auto; margin: 0 16px 8px; }
