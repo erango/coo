@@ -414,6 +414,12 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 /* The quoted original, unfolded from "•••" (read-only mail frame). */
 .inline-reply__quoted[aria-expanded="true"] { background: var(--selection); color: var(--accent); }
 .composer-quote { flex: 0 1 auto; min-height: 96px; overflow-y: auto; margin: 0 16px 8px; }
+/* The 680px measure caps each paragraph, not the editor: a capped editor
+   sat at the left, so RTL paragraphs ended mid-window on a wide screen.
+   RTL ones sit at the right edge instead. */
+.composer__editor { max-width: none; }
+.composer__editor > * { width: 100%; max-width: var(--composer-measure, 680px); box-sizing: border-box; }
+.composer__editor > :dir(rtl) { align-self: flex-end; }
 .composer__quote { margin-top: 12px; }
 .composer__quote .inline-reply__quoted { margin: 0 0 6px; }
 .composer__quote .composer-quote { margin: 0 0 12px; overflow: visible; min-height: 0; }

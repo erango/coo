@@ -135,10 +135,19 @@ pub fn App() -> Element {
         {
             let (what, arg) = v.split_once(':').unwrap_or((v.as_str(), ""));
             match what {
-                // compose-docked[:<to list>] — a new draft docked in the reading pane
+                // compose-docked[:<line>/<line>...] — a new draft docked in the
+                // reading pane, with these lines typed in
                 "compose-docked" => {
                     crate::prefs::update(|p| p.compose_mode = "docked".into());
                     new_message(s);
+                    if !arg.is_empty() {
+                        let lines: Vec<String> =
+                            arg.split('/').map(|l| format!("<div dir=\"auto\">{l}</div>")).collect();
+                        let html = serde_json::to_string(&lines.concat()).unwrap_or_default();
+                        document::eval(&format!(
+                            "setTimeout(()=>{{const e=document.querySelector('.composer__editor');if(e)e.innerHTML={html};}},1200)"
+                        ));
+                    }
                 }
                 "palette" => {
                     let mut p = s.palette_open;
