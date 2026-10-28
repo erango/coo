@@ -600,14 +600,37 @@ pub fn Notifications() -> Element {
 
 #[component]
 pub fn Shortcuts() -> Element {
+    use crate::shortcuts::{STYLE, Style};
+    let style = *STYLE.read();
+    let rows = crate::shortcuts::rows(style);
     rsx! {
         div { class: "settings__title", style: "margin-top:12px", "Keyboard shortcuts" }
+        section { class: "settings-group",
+            div { class: "settings-field",
+                span { class: "settings-field__label", "Shortcut style" }
+                div { class: "segmented", role: "radiogroup", "aria-label": "Keyboard shortcut style",
+                    for (value, label) in [(Style::Gmail, "Gmail"), (Style::Outlook, "Outlook")] {
+                        button { role: "radio", key: "{label}", "aria-checked": "{style == value}", "aria-selected": "{style == value}",
+                            onclick: move |_| crate::shortcuts::set_style(value),
+                            "{label}"
+                        }
+                    }
+                }
+                span { class: "settings-field__hint",
+                    if style == Style::Gmail {
+                        "Single keys, as in Gmail: R reply, A reply all, F forward, E archive."
+                    } else {
+                        "⌘ and ⌃ keys, as in Outlook for Mac: ⌘R reply, ⇧⌘R reply all, ⌘J forward, ⌃E archive."
+                    }
+                }
+            }
+        }
         div { class: "shortcut-groups",
             for g in crate::shortcuts::GROUPS {
                 section { class: "settings-group shortcut-group", key: "{g}",
                     h3 { class: "shortcut-group__title", "{g}" }
-                    for (_, _, keys, what) in crate::shortcuts::SHORTCUTS.iter().filter(|x| x.0 == g) {
-                        div { class: "shortcut", key: "{keys}",
+                    for (_, keys, what) in rows.iter().filter(|x| x.0 == g) {
+                        div { class: "shortcut", key: "{what}",
                             span { class: "shortcut__what", "{what}" }
                             kbd { class: "kbd", "{keys}" }
                         }

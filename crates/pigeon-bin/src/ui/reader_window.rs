@@ -22,6 +22,7 @@ use pigeon_engine::service::{Cmd, ListItem, ReaderView};
 use super::{Icon, act};
 use crate::bridge::{self, Msg};
 use crate::send_cmd;
+use crate::shortcuts::{Do, tip};
 use crate::state::AppState;
 
 /// Screen rectangle in AppKit coordinates: (x, y, width, height), y up.
@@ -199,6 +200,7 @@ impl PartialEq for ReaderWindowProps {
 
 #[allow(non_snake_case)]
 fn ReaderWindow(props: ReaderWindowProps) -> Element {
+    crate::keymon::use_native_keys();
     let s = use_context_provider(|| props.app);
     let first = props.item.clone();
     let key = AppState::key(&first);
@@ -265,16 +267,16 @@ fn ReaderWindow(props: ReaderWindowProps) -> Element {
         div { class: "app reader-window",
             main { class: "pane pane--reader",
                 div { class: "reader-toolbar",
-                    button { class: "icon-btn", "aria-label": "Archive (E)", onclick: move |_| archive(s, &i1, MailAction::Archive), Icon { name: "archive", class: "icon--lg" } }
-                    button { class: "icon-btn", "aria-label": "Delete (#)", onclick: move |_| archive(s, &i2, MailAction::Trash), Icon { name: "trash", class: "icon--lg" } }
-                    button { class: "icon-btn", "aria-label": "Flag (S)",
+                    button { class: "icon-btn", "aria-label": tip("Archive", Do::Archive), onclick: move |_| archive(s, &i1, MailAction::Archive), Icon { name: "archive", class: "icon--lg" } }
+                    button { class: "icon-btn", "aria-label": tip("Delete", Do::Delete), onclick: move |_| archive(s, &i2, MailAction::Trash), Icon { name: "trash", class: "icon--lg" } }
+                    button { class: "icon-btn", "aria-label": tip("Flag", Do::Flag),
                         onclick: move |_| act(s, &i3, if flagged { MailAction::Unflag } else { MailAction::Flag }),
                         Icon { name: "flag", class: "icon--lg" }
                     }
                     span { class: "spacer" }
-                    button { class: "icon-btn", "aria-label": "Reply (R)", onclick: move |_| reply(s, &i4, ReplyKind::Reply), Icon { name: "reply", class: "icon--lg" } }
-                    button { class: "icon-btn", "aria-label": "Reply all (A)", onclick: move |_| reply(s, &i5, ReplyKind::ReplyAll), Icon { name: "replyall", class: "icon--lg" } }
-                    button { class: "icon-btn", "aria-label": "Forward (F)", onclick: move |_| reply(s, &i6, ReplyKind::Forward), Icon { name: "forward", class: "icon--lg" } }
+                    button { class: "icon-btn", "aria-label": tip("Reply", Do::Reply), onclick: move |_| reply(s, &i4, ReplyKind::Reply), Icon { name: "reply", class: "icon--lg" } }
+                    button { class: "icon-btn", "aria-label": tip("Reply all", Do::ReplyAll), onclick: move |_| reply(s, &i5, ReplyKind::ReplyAll), Icon { name: "replyall", class: "icon--lg" } }
+                    button { class: "icon-btn", "aria-label": tip("Forward", Do::Forward), onclick: move |_| reply(s, &i6, ReplyKind::Forward), Icon { name: "forward", class: "icon--lg" } }
                 }
                 match current {
                     Some(v) => rsx! {
@@ -303,39 +305,38 @@ fn archive(s: AppState, item: &ListItem, action: MailAction) {
 /// This window's half of the JS bridge: message keys, links, mail-frame
 /// sizing (the script itself), window drag, text size.
 async fn bridge_loop(s: AppState, item: ListItem) {
-    let mut eval = document::eval(bridge::JS);
+    let js = format!("{}\n{}", bridge::JS, crate::shortcuts::bridge_js(*crate::shortcuts::STYLE.peek()));
+    let mut eval = document::eval(&js);
     let key = AppState::key(&item);
     while let Ok(msg) = eval.recv::<Msg>().await {
         match msg.k.as_str() {
             "key" | "key-synth" => {
                 let item = s.visible_items().into_iter().find(|i| AppState::key(i) == key).unwrap_or(item.clone());
-                let unread = match &item {
-                    ListItem::Thread(t) => t.unread_count > 0,
-                    ListItem::Message(m) => !m.header.is_read,
+                let Some(what) = crate::shortcuts::action(*crate::shortcuts::STYLE.peek(), &msg.v, false) else {
+                    continue;
                 };
-                match msg.v.as_str() {
-                    "r" | "meta+r" => reply(s, &item, ReplyKind::Reply),
-                    "a" | "meta+shift+r" => reply(s, &item, ReplyKind::ReplyAll),
-                    "f" | "meta+shift+f" => reply(s, &item, ReplyKind::Forward),
-                    "e" | "ctrl+meta+a" => archive(s, &item, MailAction::Archive),
-                    "meta+Backspace" | "#" | "x" => archive(s, &item, MailAction::Trash),
-                    "!" => {
+                match what {
+                    Do::Reply => reply(s, &item, ReplyKind::Reply),
+                    Do::ReplyAll => reply(s, &item, ReplyKind::ReplyAll),
+                    Do::Forward => reply(s, &item, ReplyKind::Forward),
+                    Do::Archive => archive(s, &item, MailAction::Archive),
+                    Do::Delete => archive(s, &item, MailAction::Trash),
+                    Do::Spam => {
                         let spam = super::spam::for_items(&s, std::slice::from_ref(&item));
                         if let Some(a) = spam.into_iter().find(|a| *a != MailAction::Phishing) {
                             archive(s, &item, a);
                         }
                     }
-                    "s" | "meta+shift+l" => {
+                    Do::Flag => {
                         act(s, &item, if item.header().is_flagged { MailAction::Unflag } else { MailAction::Flag })
                     }
-                    "u" | "meta+shift+u" => {
-                        act(s, &item, if unread { MailAction::MarkRead } else { MailAction::MarkUnread })
-                    }
-                    "Escape" => close_me(),
-                    "meta+n" | "c" => super::new_message(s),
-                    "zoom-in" => super::zoom::change(s, super::zoom::Step::Bigger),
-                    "zoom-out" => super::zoom::change(s, super::zoom::Step::Smaller),
-                    "zoom-reset" => super::zoom::change(s, super::zoom::Step::Reset),
+                    Do::MarkRead => act(s, &item, MailAction::MarkRead),
+                    Do::MarkUnread => act(s, &item, MailAction::MarkUnread),
+                    Do::Close => close_me(),
+                    Do::Compose => super::new_message(s),
+                    Do::Bigger => super::zoom::change(s, super::zoom::Step::Bigger),
+                    Do::Smaller => super::zoom::change(s, super::zoom::Step::Smaller),
+                    Do::ActualSize => super::zoom::change(s, super::zoom::Step::Reset),
                     _ => {}
                 }
             }

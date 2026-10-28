@@ -14,6 +14,7 @@ use super::account_menu::Target;
 use super::{DAY_MS, Icon};
 use crate::format;
 use crate::send_cmd;
+use crate::shortcuts::{Do, hint};
 use crate::state::{AppState, CalView};
 use crate::week;
 
@@ -389,7 +390,7 @@ pub fn CalendarView() -> Element {
                     onclick: move |_| super::event_editor::open_new_now(s),
                     Icon { name: "plus", class: "icon--sm" }
                     "New event"
-                    kbd { class: "kbd", "C" }
+                    kbd { class: "kbd", {hint(Do::NewEvent)} }
                 }
             }
             if v == CalView::Month {

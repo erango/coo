@@ -4,6 +4,7 @@ use pigeon_engine::service::{Cmd, Toast};
 
 use super::Icon;
 use crate::send_cmd;
+use crate::shortcuts::{Do, hint};
 use crate::state::AppState;
 
 #[component]
@@ -60,7 +61,7 @@ fn ToastItem(toast: Toast) -> Element {
                         send_cmd(Cmd::Undo { account_id: account_id.clone(), handle });
                     },
                     "Undo"
-                    kbd { class: "kbd", "Z" }
+                    kbd { class: "kbd", {hint(Do::Undo)} }
                 }
             }
             if let Some(draft_id) = cancel_send {

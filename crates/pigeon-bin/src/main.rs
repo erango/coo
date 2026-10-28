@@ -9,6 +9,7 @@ mod dragout;
 mod emoji;
 mod fonts;
 mod format;
+mod keymon;
 mod meeting;
 mod menu;
 mod menubar;

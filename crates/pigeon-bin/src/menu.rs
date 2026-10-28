@@ -12,6 +12,8 @@ use std::cell::RefCell;
 
 use dioxus::desktop::muda::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 
+use crate::shortcuts::{Do, Style};
+
 pub const SETTINGS: &str = "pigeon-settings";
 pub const AGENT_SETUP: &str = "pigeon-agent-setup";
 pub const REPORT_BUG: &str = "pigeon-report-bug";
@@ -28,83 +30,102 @@ pub const OPEN_WINDOW: &str = "pigeon-msg-open-window";
 /// Calendar › New Event (C, in the calendar).
 pub const NEW_EVENT: &str = "pigeon-cal-new-event";
 
-/// A View / Message / Calendar menu row: (menu id, title, shortcut shown,
-/// bridge key it runs), or a separator (empty id). The keys themselves stay
-/// with the JS bridge (only it knows whether an editor has focus, so ⌘⌫ or
-/// ⌘R in a text field keep their text-editing meaning); the shortcut is
-/// display text, right-aligned by `align_shortcuts`. Rows with no bridge
-/// key are handled by id in ui/mod.rs `on_menu`.
-type Row = (&'static str, &'static str, &'static str, &'static str);
-const SEP: Row = ("", "", "", "");
+/// A View / Message / Calendar menu row: (menu id, title, the shortcut it
+/// runs), or a separator (empty id). The keys themselves stay with the JS
+/// bridge (only it knows whether an editor has focus, so ⌘⌫ or ⌘R in a text
+/// field keep their text-editing meaning); the menu shows the current
+/// style's key as display text, right-aligned by `align_shortcuts`. Rows
+/// with no action are handled by id in ui/mod.rs `on_menu`.
+type Row = (&'static str, &'static str, Option<Do>);
+const SEP: Row = ("", "", None);
 
 const VIEW_ROWS: &[Row] = &[
-    ("pigeon-view-mail", "Mail", "⌘1", "meta+1"),
-    ("pigeon-view-calendar", "Calendar", "⌘2", "meta+2"),
+    ("pigeon-view-mail", "Mail", Some(Do::Mail)),
+    ("pigeon-view-calendar", "Calendar", Some(Do::Calendar)),
     SEP,
-    ("pigeon-view-palette", "Command Palette…", "⌘K", "meta+k"),
+    ("pigeon-view-palette", "Command Palette…", Some(Do::Palette)),
     SEP,
-    (ZOOM_IN, "Bigger Text", "⌘+", ""),
-    (ZOOM_OUT, "Smaller Text", "⌘−", ""),
-    (ZOOM_RESET, "Actual Size", "⌘0", ""),
+    (ZOOM_IN, "Bigger Text", Some(Do::Bigger)),
+    (ZOOM_OUT, "Smaller Text", Some(Do::Smaller)),
+    (ZOOM_RESET, "Actual Size", Some(Do::ActualSize)),
 ];
 
 const MESSAGE_ROWS: &[Row] = &[
-    ("pigeon-msg-new", "New Message", "⌘N", "meta+n"),
-    ("pigeon-msg-sync", "Get New Mail", "⇧⌘N", "meta+shift+n"),
-    ("pigeon-msg-search", "Search This Folder", "⌘F", "meta+f"),
-    ("pigeon-msg-search-all", "Search All Mail", "⌥⌘F", "meta+alt+f"),
+    ("pigeon-msg-new", "New Message", Some(Do::Compose)),
+    ("pigeon-msg-sync", "Get New Mail", Some(Do::Sync)),
+    ("pigeon-msg-find", "Find in Conversation", Some(Do::Find)),
+    ("pigeon-msg-search", "Search This Folder", Some(Do::Search)),
+    ("pigeon-msg-search-all", "Search All Mail", Some(Do::SearchAll)),
     SEP,
-    ("pigeon-msg-next", "Next Conversation", "J", "j"),
-    ("pigeon-msg-prev", "Previous Conversation", "K", "k"),
-    (OPEN_WINDOW, "Open in New Window", "", ""),
+    ("pigeon-msg-next", "Next Conversation", Some(Do::Next)),
+    ("pigeon-msg-prev", "Previous Conversation", Some(Do::Prev)),
+    (OPEN_WINDOW, "Open in New Window", None),
     SEP,
-    ("pigeon-msg-reply", "Reply", "⌘R", "meta+r"),
-    ("pigeon-msg-reply-all", "Reply All", "⇧⌘R", "meta+shift+r"),
-    ("pigeon-msg-forward", "Forward", "⇧⌘F", "meta+shift+f"),
+    ("pigeon-msg-reply", "Reply", Some(Do::Reply)),
+    ("pigeon-msg-reply-all", "Reply All", Some(Do::ReplyAll)),
+    ("pigeon-msg-forward", "Forward", Some(Do::Forward)),
     SEP,
-    ("pigeon-msg-archive", "Archive", "⌃⌘A", "ctrl+meta+a"),
-    ("pigeon-msg-delete", "Delete", "⌘⌫", "meta+Backspace"),
-    ("pigeon-msg-flag", "Flag / Unflag", "⇧⌘L", "meta+shift+l"),
-    ("pigeon-msg-unread", "Mark Read / Unread", "⇧⌘U", "meta+shift+u"),
-    ("pigeon-msg-move", "Move to…", "V", "v"),
-    ("pigeon-msg-label", "Label…", "L", "l"),
+    ("pigeon-msg-archive", "Archive", Some(Do::Archive)),
+    ("pigeon-msg-delete", "Delete", Some(Do::Delete)),
+    ("pigeon-msg-flag", "Flag / Unflag", Some(Do::Flag)),
+    ("pigeon-msg-read", "Mark as Read", Some(Do::MarkRead)),
+    ("pigeon-msg-unread", "Mark as Unread", Some(Do::MarkUnread)),
+    ("pigeon-msg-move", "Move to…", Some(Do::Move)),
+    ("pigeon-msg-label", "Label…", Some(Do::Label)),
     SEP,
-    ("pigeon-msg-spam", "Spam / Not Spam", "!", "!"),
-    (REPORT_PHISHING, "Report Phishing", "", ""),
+    ("pigeon-msg-spam", "Spam / Not Spam", Some(Do::Spam)),
+    (REPORT_PHISHING, "Report Phishing", None),
     SEP,
-    ("pigeon-msg-undo", "Undo Last Action", "Z", "z"),
+    ("pigeon-msg-undo", "Undo Last Action", Some(Do::Undo)),
 ];
 
 const CALENDAR_ROWS: &[Row] =
-    &[(NEW_EVENT, "New Event", "C", ""), ("pigeon-cal-join", "Join Current Meeting", "⇧J", "J")];
+    &[(NEW_EVENT, "New Event", Some(Do::NewEvent)), ("pigeon-cal-join", "Join Current Meeting", Some(Do::Join))];
 
 /// A row's menu title: "Label\tShortcut" (aligned by `align_shortcuts`).
-fn title(label: &str, shortcut: &str) -> String {
-    if shortcut.is_empty() { label.to_string() } else { format!("{label}\t{shortcut}") }
+fn title(label: &str, what: Option<Do>, style: Style) -> String {
+    match what.map(|d| crate::shortcuts::hint_in(style, d)).filter(|k| !k.is_empty()) {
+        Some(k) => format!("{label}\t{k}"),
+        None => label.to_string(),
+    }
 }
 
-fn submenu(name: &str, rows: &[Row]) -> Submenu {
+fn submenu(name: &str, rows: &[Row], style: Style) -> Submenu {
     let menu = Submenu::new(name, true);
-    for (id, label, shortcut, _) in rows {
+    for (id, label, what) in rows {
         if id.is_empty() {
             menu.append(&PredefinedMenuItem::separator()).expect("separator");
         } else {
-            menu.append(&MenuItem::with_id(*id, title(label, shortcut), true, None)).expect("menu item");
+            let item = MenuItem::with_id(*id, title(label, *what, style), true, None);
+            menu.append(&item).expect("menu item");
+            ITEMS.with(|i| i.borrow_mut().push((item, label, *what)));
         }
     }
     menu
 }
 
-/// The bridge key a View / Message / Calendar item runs.
-pub fn key_for(id: &str) -> Option<&'static str> {
+/// The shortcut a View / Message / Calendar item runs.
+pub fn action_for(id: &str) -> Option<Do> {
     [VIEW_ROWS, MESSAGE_ROWS, CALENDAR_ROWS]
         .iter()
         .flat_map(|rows| rows.iter())
-        .find(|(i, _, _, k)| !i.is_empty() && *i == id && !k.is_empty())
-        .map(|(_, _, _, k)| *k)
+        .find(|(i, _, _)| !i.is_empty() && *i == id)
+        .and_then(|(_, _, d)| *d)
+}
+
+/// Show `style`'s keys in the menus (after a switch in Settings).
+pub fn show_shortcuts(style: Style) {
+    ITEMS.with(|items| {
+        for (item, label, what) in items.borrow().iter() {
+            item.set_text(title(label, *what, style));
+        }
+    });
+    align_shortcuts();
 }
 
 thread_local! {
+    /// The View / Message / Calendar items, to re-title on a style switch.
+    static ITEMS: RefCell<Vec<(MenuItem, &'static str, Option<Do>)>> = const { RefCell::new(Vec::new()) };
     /// The Coo menu, and its "Restart to Update" item while one is shown.
     static APP_MENU: RefCell<Option<(Submenu, Option<MenuItem>)>> = const { RefCell::new(None) };
 }
@@ -171,9 +192,10 @@ pub fn build() -> Menu {
         ],
     )
     .expect("edit menu");
-    let view = submenu("View", VIEW_ROWS);
-    let message = submenu("Message", MESSAGE_ROWS);
-    let calendar = submenu("Calendar", CALENDAR_ROWS);
+    let style = Style::from_pref(&crate::prefs::get().shortcut_style);
+    let view = submenu("View", VIEW_ROWS, style);
+    let message = submenu("Message", MESSAGE_ROWS, style);
+    let calendar = submenu("Calendar", CALENDAR_ROWS, style);
     let window = Submenu::with_items(
         "Window",
         true,
@@ -319,38 +341,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn menu_items_run_documented_shortcuts() {
-        for (id, label, _, key) in VIEW_ROWS.iter().chain(MESSAGE_ROWS).chain(CALENDAR_ROWS) {
-            if id.is_empty() || key.is_empty() {
-                continue;
-            }
-            assert_eq!(key_for(id), Some(*key), "{label}");
-            assert!(crate::shortcuts::SHORTCUTS.iter().any(|s| s.1 == *key), "{key} isn't in Settings › Shortcuts");
-        }
-        assert_eq!(key_for("pigeon-settings"), None);
-        assert_eq!(key_for(ZOOM_IN), None, "zoom is handled by id");
-    }
-
-    #[test]
-    fn every_shortcut_has_a_menu_item() {
-        // Esc, Send and the zoom keys live elsewhere (the composer, the bridge).
-        // ⌘A is the Edit menu's Select All.
-        let elsewhere = ["Escape", "meta+Enter", "meta+,", "zoom-in", "zoom-out", "zoom-reset", "c", "meta+a"];
-        for (_, key, _, what) in crate::shortcuts::SHORTCUTS {
-            if elsewhere.contains(key) {
-                continue;
-            }
-            assert!(key_for(&id_for(key)).is_some(), "{what} ({key}) has no menu item");
-        }
-    }
-
-    fn id_for(key: &str) -> String {
-        VIEW_ROWS
-            .iter()
-            .chain(MESSAGE_ROWS)
-            .chain(CALENDAR_ROWS)
-            .find(|r| r.3 == key)
-            .map(|r| r.0.to_string())
-            .unwrap_or_default()
+    fn menu_items_show_their_key() {
+        assert_eq!(action_for("pigeon-msg-reply"), Some(Do::Reply));
+        assert_eq!(action_for("pigeon-settings"), None);
+        assert_eq!(title("Reply", Some(Do::Reply), Style::Outlook), "Reply\t⌘R");
+        assert_eq!(title("Reply", Some(Do::Reply), Style::Gmail), "Reply\tR");
+        assert_eq!(title("Label…", Some(Do::Label), Style::Outlook), "Label…");
     }
 }

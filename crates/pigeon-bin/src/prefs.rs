@@ -63,6 +63,8 @@ pub struct Prefs {
     /// Where a message's attachments show: "top" (under its header, before
     /// the text) or "bottom" (after the text).
     pub attachments_position: String,
+    /// Keyboard shortcut set: "gmail" (single keys) or "outlook" (⌘ keys).
+    pub shortcut_style: String,
     /// Undo-send window in seconds (0 = send immediately).
     pub undo_send_seconds: u32,
     /// Signature HTML per sending address (lowercased email); the key
@@ -142,6 +144,7 @@ impl Default for Prefs {
             undo_send_seconds: 10,
             after_remove: "next".into(),
             attachments_position: "top".into(),
+            shortcut_style: "gmail".into(),
             signatures: Default::default(),
             signature_modes: Default::default(),
             list_width: 0,

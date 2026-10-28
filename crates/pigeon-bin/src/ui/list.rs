@@ -9,6 +9,7 @@ use pigeon_engine::service::Cmd;
 use super::{Icon, act, vlist};
 use crate::format;
 use crate::send_cmd;
+use crate::shortcuts::{Do, hint, tip};
 use crate::state::{AppState, OutState, Outgoing};
 
 /// Accounts a mailbox shows mail from.
@@ -356,11 +357,17 @@ pub fn MailList() -> Element {
                 }
             }
             if searching.is_none() {
+                {
+                    let search_key = if s.reader.read().is_some() { hint(Do::Search) } else { "⌘F".to_string() };
+                    rsx! {
                 button { class: "list-search", r#type: "button", "aria-label": "Search {heading}",
                     onclick: move |_| super::search::open_here(s),
                     Icon { name: "search", class: "icon--sm" }
                     span { class: "list-search__placeholder", dir: "auto", "Search {heading}" }
-                    kbd { class: "kbd", "⌘F" }
+                    // ⌘F finds in an open conversation instead.
+                    if !search_key.is_empty() { kbd { class: "kbd", "{search_key}" } }
+                }
+                    }
                 }
             }
             if searching.is_some() {
@@ -538,8 +545,8 @@ pub fn Row(
     // Ringed while its right-click menu is open.
     let menu_on = s.row_menu.read().as_ref().is_some_and(|m| !m.bulk && AppState::key(&m.item) == key);
     let flagged = h.is_flagged;
-    let flag_label = if flagged { "Unflag (S)" } else { "Flag (S)" };
-    let read_label = if unread { "Mark read (U)" } else { "Mark unread (U)" };
+    let flag_label = tip(if flagged { "Unflag" } else { "Flag" }, Do::Flag);
+    let read_label = if unread { tip("Mark read", Do::MarkRead) } else { tip("Mark unread", Do::MarkUnread) };
     // Inline invite only when the body is already loaded (never fetch for the list).
     let invite_key = (item.account_id().to_string(), h.id.clone());
     let row_invite = s
@@ -608,11 +615,11 @@ pub fn Row(
                 }
                 // A quick second click on a button isn't a double-click on the row.
                 span { class: "row__actions", ondoubleclick: move |e| e.stop_propagation(),
-                    button { class: "icon-btn icon-btn--sm", "aria-label": "Archive (E)",
+                    button { class: "icon-btn icon-btn--sm", "aria-label": tip("Archive", Do::Archive),
                         onclick: move |e| { e.stop_propagation(); act(s, &i2, MailAction::Archive) },
                         Icon { name: "archive" }
                     }
-                    button { class: "icon-btn icon-btn--sm", "aria-label": "Delete (#)",
+                    button { class: "icon-btn icon-btn--sm", "aria-label": tip("Delete", Do::Delete),
                         onclick: move |e| { e.stop_propagation(); act(s, &i3, MailAction::Trash) },
                         Icon { name: "trash" }
                     }

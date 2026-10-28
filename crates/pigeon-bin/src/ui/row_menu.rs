@@ -11,6 +11,7 @@ use pigeon_engine::MailAction;
 use pigeon_engine::service::ListItem;
 
 use super::{Icon, act, multi, reply};
+use crate::shortcuts::{Do, hint};
 use crate::state::AppState;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -46,25 +47,25 @@ pub enum Entry {
 }
 
 impl Entry {
-    /// (label, icon, shortcut hint).
-    fn look(self) -> (&'static str, &'static str, &'static str) {
+    /// (label, icon, the shortcut shown).
+    fn look(self) -> (&'static str, &'static str, Option<Do>) {
         match self {
-            Entry::Reply => ("Reply", "reply", "R"),
-            Entry::ReplyAll => ("Reply all", "replyall", "A"),
-            Entry::Forward => ("Forward", "forward", "F"),
-            Entry::OpenWindow => ("Open in new window", "popout", ""),
-            Entry::Archive => ("Archive", "archive", "E"),
-            Entry::Delete => ("Delete", "trash", "#"),
-            Entry::Move => ("Move to…", "folder", "V"),
-            Entry::Label => ("Label as…", "tag", "L"),
-            Entry::Spam => ("Mark as spam", "alert", "!"),
-            Entry::NotSpam => ("Not spam", "inbox", "!"),
-            Entry::Phishing => ("Report phishing", "shield", ""),
-            Entry::Flag => ("Flag", "flag", "S"),
-            Entry::Unflag => ("Unflag", "flag", "S"),
-            Entry::MarkRead => ("Mark as read", "mailopen", "U"),
-            Entry::MarkUnread => ("Mark as unread", "mail", "U"),
-            Entry::Sep => ("", "", ""),
+            Entry::Reply => ("Reply", "reply", Some(Do::Reply)),
+            Entry::ReplyAll => ("Reply all", "replyall", Some(Do::ReplyAll)),
+            Entry::Forward => ("Forward", "forward", Some(Do::Forward)),
+            Entry::OpenWindow => ("Open in new window", "popout", None),
+            Entry::Archive => ("Archive", "archive", Some(Do::Archive)),
+            Entry::Delete => ("Delete", "trash", Some(Do::Delete)),
+            Entry::Move => ("Move to…", "folder", Some(Do::Move)),
+            Entry::Label => ("Label as…", "tag", Some(Do::Label)),
+            Entry::Spam => ("Mark as spam", "alert", Some(Do::Spam)),
+            Entry::NotSpam => ("Not spam", "inbox", Some(Do::Spam)),
+            Entry::Phishing => ("Report phishing", "shield", None),
+            Entry::Flag => ("Flag", "flag", Some(Do::Flag)),
+            Entry::Unflag => ("Unflag", "flag", Some(Do::Flag)),
+            Entry::MarkRead => ("Mark as read", "mailopen", Some(Do::MarkRead)),
+            Entry::MarkUnread => ("Mark as unread", "mail", Some(Do::MarkUnread)),
+            Entry::Sep => ("", "", None),
         }
     }
 }
@@ -242,7 +243,8 @@ pub fn RowMenuView() -> Element {
                         div { class: "menu-sep", key: "{i}", role: "separator" }
                     } else {
                         {
-                            let (label, icon, hint) = entry.look();
+                            let (label, icon, what) = entry.look();
+                            let hint = what.map(hint).unwrap_or_default();
                             let m = m.clone();
                             let danger = entry == Entry::Delete;
                             rsx! {

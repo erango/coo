@@ -15,7 +15,7 @@ pub struct Msg {
 
 /// Everything a window runs: this bridge, then the composer's rich text.
 pub fn script() -> String {
-    format!("{JS}\n{}", crate::richtext::script())
+    format!("{JS}\n{}\n{}", crate::richtext::script(), crate::shortcuts::bridge_js(*crate::shortcuts::STYLE.peek()))
 }
 
 pub const JS: &str = r#"
@@ -31,17 +31,56 @@ pub const JS: &str = r#"
   addEventListener('blur', () => send('focus', '0'));
 
   // ---- Keyboard shortcuts (outside editors) ----
-  const KEYS = new Set(['J','j','k','e','#','s','u','r','a','f','c','z','/','x','v','l','!','Escape','Enter','ArrowUp','ArrowDown',
-                        'meta+1','meta+2','meta+k','meta+n','meta+Enter','meta+shift+z','meta+,',
-                        // Apple Mail shortcuts (the single keys above stay as extras).
-                        'meta+r','meta+shift+r','meta+shift+f','meta+Backspace','ctrl+meta+a','meta+shift+l',
-                        'meta+shift+u','meta+shift+n','meta+f','meta+alt+f','meta+a']);
+  // The keys of the shortcut style in use (Gmail or Outlook), from Rust
+  // (shortcuts.rs) at start and on a switch in Settings.
+  let KEYS = new Set();
+  window.__pigeonKeys = (list) => { KEYS = new Set(list); };
   const editable = (el) => el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
   let lastShift = 0; // 1 = left, 2 = right
   let listFocus = false;
   document.addEventListener('mousedown', (e) => {
     listFocus = !!(e.target.closest && e.target.closest('.pane--list .list'));
   }, true);
+  // A key event's shortcut name: "r", "J" (⇧J), "meta+shift+r", "ctrl+e"...
+  function keyName(e) {
+    let key = e.key;
+    // A non-Latin layout (Hebrew, Russian...) types "ר" for R: shortcuts go
+    // by the physical key then.
+    if (key.length === 1 && /[^\x00-\x7f]/.test(key)) {
+      if (/^Key[A-Z]$/.test(e.code)) key = e.shiftKey ? e.code.slice(3) : e.code.slice(3).toLowerCase();
+      else if (e.code === 'Slash') key = '/';
+    }
+    if (e.shiftKey && key.length > 1 && e.metaKey) key = 'shift+' + key;
+    if (e.shiftKey && e.metaKey && key.length === 1) key = 'shift+' + key.toLowerCase();
+    // ⌥ changes e.key (⌥F is ƒ): name the physical key.
+    if (e.metaKey && e.altKey && !e.ctrlKey && /^Key[A-Z]$/.test(e.code)) key = 'alt+' + e.code.slice(3).toLowerCase();
+    if (e.metaKey) key = 'meta+' + key;
+    // ⌃ shortcuts (Outlook's ⌃E archive, ⌃] next) go by the physical key.
+    if (e.ctrlKey && !e.altKey) {
+      const base = /^Key[A-Z]$/.test(e.code) ? e.code.slice(3).toLowerCase()
+                 : e.code === 'BracketRight' ? ']' : e.code === 'BracketLeft' ? '[' : null;
+      if (base) key = e.metaKey ? 'ctrl+meta+' + base : 'ctrl+' + base;
+    }
+    return key;
+  }
+  // Outside editors: a key of the current set goes to Rust as a shortcut.
+  function shortcut(e, key, trusted) {
+    if (e.altKey && !key.startsWith('meta+alt+')) return false;
+    if (e.ctrlKey && !key.startsWith('ctrl+')) return false;
+    // ⌘A selects every message only while the list has focus (last click or
+    // j/k there, with a row selected); elsewhere it selects text as usual.
+    if (key === 'meta+a') {
+      if (!(listFocus && document.querySelector('.pane--list .row[aria-selected="true"], .pane--list .row[data-multi]'))) return false;
+      send('key', key);
+      return true;
+    }
+    if (['j','k','ArrowUp','ArrowDown','ctrl+]','ctrl+['].includes(key)) listFocus = true;
+    if (!KEYS.has(key)) return false;
+    // Untrusted: passed up from a test script; screenshot runs that ignore
+    // the real keyboard still take these.
+    send(trusted ? 'key' : 'key-synth', key);
+    return true;
+  }
   document.addEventListener('keydown', (e) => {
     // RTL/LTR paragraph override, Outlook style: Ctrl + Right Shift = RTL, Ctrl + Left Shift = LTR.
     if (e.key === 'Shift') lastShift = e.location;
@@ -61,41 +100,29 @@ pub const JS: &str = r#"
               : (e.key === '0' || e.code === 'Digit0' || e.code === 'Numpad0') ? 'zoom-reset' : null;
       if (z) { e.preventDefault(); send('key', z); return; }
     }
-    let key = e.key;
-    // A non-Latin layout (Hebrew, Russian...) types "ר" for R: shortcuts go
-    // by the physical key then.
-    if (key.length === 1 && /[^\x00-\x7f]/.test(key)) {
-      if (/^Key[A-Z]$/.test(e.code)) key = e.shiftKey ? e.code.slice(3) : e.code.slice(3).toLowerCase();
-      else if (e.code === 'Slash') key = '/';
-    }
-    if (e.shiftKey && key.length > 1 && e.metaKey) key = 'shift+' + key;
-    if (e.shiftKey && e.metaKey && key.length === 1) key = 'shift+' + key.toLowerCase();
-    // ⌥ changes e.key (⌥F is ƒ): name the physical key.
-    if (e.metaKey && e.altKey && !e.ctrlKey && /^Key[A-Z]$/.test(e.code)) key = 'alt+' + e.code.slice(3).toLowerCase();
-    if (e.metaKey) key = 'meta+' + key;
-    if (e.metaKey && e.ctrlKey) key = 'ctrl+' + key.toLowerCase(); // ⌃⌘A archive
+    const key = keyName(e);
     if (editable(e.target)) {
       // An open autocomplete owns Escape (the input closes it itself).
       if (key === 'Escape' && e.target.dataset && e.target.dataset.suggestOpen === 'true') return;
       if (key === 'meta+Enter' || key === 'Escape') { e.preventDefault(); send('key', key); }
       return;
     }
-    if ((e.altKey && !key.startsWith('meta+alt+')) || (e.ctrlKey && !e.metaKey)) return;
-    // ⌘A selects every message only while the list has focus (last click or
-    // j/k there, with a row selected); elsewhere it selects text as usual.
-    if (key === 'meta+a') {
-      if (listFocus && document.querySelector('.pane--list .row[aria-selected="true"], .pane--list .row[data-multi]')) {
-        e.preventDefault(); send('key', key);
-      }
-      return;
-    }
-    if (['j','k','ArrowUp','ArrowDown'].includes(key)) listFocus = true;
     // Enter on a focused button or link presses it, as anywhere else.
     if (key === 'Enter' && e.target.closest && e.target.closest('button, a[href]')) return;
-    // Untrusted: passed up from a message frame (or a test script); screenshot
-    // runs that ignore the real keyboard still take these.
-    if (KEYS.has(key)) { e.preventDefault(); send(e.isTrusted ? 'key' : 'key-synth', key); }
+    if (shortcut(e, key, e.isTrusted)) e.preventDefault();
   }, true);
+  // Keys typed while a message has focus: its frame runs no script, so the
+  // keydown above never sees them. The app's key monitor (keymon.rs) hands
+  // them over; they count only if this window has focus and it's in a
+  // read-only message (scrolling keys stay with the message).
+  window.__pigeonNativeKey = (e) => {
+    const f = document.activeElement;
+    if (!document.hasFocus() || !f || f.tagName !== 'IFRAME' || !f.classList.contains('mail-frame')) return;
+    try { if (f.contentDocument.body.isContentEditable) return; } catch (_) { return; }
+    const key = keyName(e);
+    if (['ArrowUp','ArrowDown','Enter','meta+a'].includes(key)) return;
+    shortcut(e, key, true);
+  };
 
   // ---- Search box: report the caret (operator autocomplete) ----
   let lastCaret = '';

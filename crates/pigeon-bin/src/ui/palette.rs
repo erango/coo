@@ -11,6 +11,7 @@ use pigeon_engine::service::{Cmd, ListItem, Mailbox, SearchScope};
 
 use super::{Icon, act, reply, selected_item};
 use crate::send_cmd;
+use crate::shortcuts::{Do, hint};
 use crate::state::{AppState, Mode, Theme, next_token};
 
 #[derive(Clone, PartialEq)]
@@ -43,7 +44,7 @@ struct Item {
     /// Part of the label shown bold (the folder in "Search Inbox for …").
     bold: String,
     meta: String,
-    keys: &'static str,
+    keys: String,
     action: Action,
 }
 
@@ -51,10 +52,10 @@ fn item(
     section: &'static str,
     icon: &'static str,
     label: impl Into<String>,
-    keys: &'static str,
+    keys: impl Into<String>,
     action: Action,
 ) -> Item {
-    Item { section, icon, label: label.into(), bold: String::new(), meta: String::new(), keys, action }
+    Item { section, icon, label: label.into(), bold: String::new(), meta: String::new(), keys: keys.into(), action }
 }
 
 /// Every word of the query appears in the label or meta.
@@ -84,11 +85,11 @@ fn build(s: &AppState, query: &str) -> Vec<Item> {
 
     let mut actions = Vec::new();
     if let Some((title, url)) = super::joinable_now(s) {
-        actions.push(item("Actions", "video", format!("Join “{title}”"), "⇧J", Action::Join(url)));
+        actions.push(item("Actions", "video", format!("Join “{title}”"), hint(Do::Join), Action::Join(url)));
     }
     actions.extend([
-        item("Actions", "edit", "New message", "C", Action::Compose),
-        item("Actions", "sync", "Sync now", "⇧⌘N", Action::Sync),
+        item("Actions", "edit", "New message", hint(Do::Compose), Action::Compose),
+        item("Actions", "sync", "Sync now", hint(Do::Sync), Action::Sync),
         item("Actions", "settings", "Settings", "⌘,", Action::Settings),
         Item {
             meta: "Google, Microsoft 365, iCloud".into(),
@@ -114,26 +115,29 @@ fn build(s: &AppState, query: &str) -> Vec<Item> {
     ]);
     if let Some(it) = selected_item(s) {
         let spam = super::spam::for_items(s, std::slice::from_ref(&it)).into_iter().map(|a| match a {
-            MailAction::NotSpam => item("Actions", "inbox", "Not spam", "!", Action::Mail(a)),
+            MailAction::NotSpam => item("Actions", "inbox", "Not spam", hint(Do::Spam), Action::Mail(a)),
             MailAction::Phishing => Item {
                 meta: "report to your mail provider".into(),
                 ..item("Actions", "shield", "Report phishing", "", Action::Mail(a))
             },
-            a => Item { meta: "junk".into(), ..item("Actions", "alert", "Mark as spam", "!", Action::Mail(a)) },
+            a => Item {
+                meta: "junk".into(),
+                ..item("Actions", "alert", "Mark as spam", hint(Do::Spam), Action::Mail(a))
+            },
         });
         actions.splice(0..0, spam);
         actions.splice(
             0..0,
             [
-                item("Actions", "reply", "Reply", "R", Action::Reply(ReplyKind::Reply)),
-                item("Actions", "replyall", "Reply all", "A", Action::Reply(ReplyKind::ReplyAll)),
-                item("Actions", "forward", "Forward", "F", Action::Reply(ReplyKind::Forward)),
-                item("Actions", "archive", "Archive", "E", Action::Mail(MailAction::Archive)),
-                item("Actions", "trash", "Delete", "#", Action::Mail(MailAction::Trash)),
-                item("Actions", "folder", "Move to…", "V", Action::MoveTo),
-                item("Actions", "tag", "Label… (Gmail)", "L", Action::LabelAs),
-                item("Actions", "flag", "Flag", "S", Action::Mail(MailAction::Flag)),
-                item("Actions", "mailopen", "Mark unread", "U", Action::Mail(MailAction::MarkUnread)),
+                item("Actions", "reply", "Reply", hint(Do::Reply), Action::Reply(ReplyKind::Reply)),
+                item("Actions", "replyall", "Reply all", hint(Do::ReplyAll), Action::Reply(ReplyKind::ReplyAll)),
+                item("Actions", "forward", "Forward", hint(Do::Forward), Action::Reply(ReplyKind::Forward)),
+                item("Actions", "archive", "Archive", hint(Do::Archive), Action::Mail(MailAction::Archive)),
+                item("Actions", "trash", "Delete", hint(Do::Delete), Action::Mail(MailAction::Trash)),
+                item("Actions", "folder", "Move to…", hint(Do::Move), Action::MoveTo),
+                item("Actions", "tag", "Label… (Gmail)", hint(Do::Label), Action::LabelAs),
+                item("Actions", "flag", "Flag", hint(Do::Flag), Action::Mail(MailAction::Flag)),
+                item("Actions", "mailopen", "Mark unread", hint(Do::MarkUnread), Action::Mail(MailAction::MarkUnread)),
             ],
         );
     }

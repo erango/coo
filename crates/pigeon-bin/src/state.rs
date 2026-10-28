@@ -218,6 +218,8 @@ pub struct AppState {
     pub free_busy: Signal<(u64, FreeBusy)>,
     /// Search replaces the list while `Some`.
     pub search: Signal<Option<SearchState>>,
+    /// Find in the open conversation (⌘F): the text, while the bar is open.
+    pub find: Signal<Option<String>>,
     pub palette_open: Signal<bool>,
     pub palette_token: Signal<u64>,
     pub palette_hits: Signal<Vec<MessageRow>>,
@@ -343,6 +345,7 @@ impl AppState {
             editor: Signal::new(None),
             free_busy: Signal::new((0, Vec::new())),
             search: Signal::new(None),
+            find: Signal::new(None),
             palette_open: Signal::new(false),
             palette_token: Signal::new(0),
             palette_hits: Signal::new(Vec::new()),

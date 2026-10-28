@@ -39,7 +39,7 @@ pub const PAGES: &[(&str, &str, &str)] = &[
         "sound sounds alert banner reminder meeting focus do not disturb mute volume dock badge unread count icon",
     ),
     ("Privacy", "lock", "remote images tracking crash reports sentry photos gravatar"),
-    ("Keyboard shortcuts", "dash", "keys shortcut hotkey"),
+    ("Keyboard shortcuts", "dash", "keys shortcut hotkey gmail outlook style"),
     ("AI agents", "link", "agent claude mcp assistant"),
     ("About & updates", "question", "version update check about"),
 ];

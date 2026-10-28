@@ -10,6 +10,7 @@ use super::mailframe;
 use super::{Icon, act, reply, selected_item};
 use crate::format;
 use crate::send_cmd;
+use crate::shortcuts::{Do, hint, tip};
 use crate::state::AppState;
 
 /// The reading pane: the open conversation, or a docked new message
@@ -62,8 +63,8 @@ fn ReaderEmpty() -> Element {
             div { class: "empty-state__title", "Pick a conversation" }
             div { class: "empty-state__body", "{lede}" }
             div { class: "reader-empty__keys",
-                span { kbd { class: "kbd", "J" } kbd { class: "kbd", "K" } "Move" }
-                span { kbd { class: "kbd", "C" } "New message" }
+                span { kbd { class: "kbd", {hint(Do::Next)} } kbd { class: "kbd", {hint(Do::Prev)} } "Move" }
+                span { kbd { class: "kbd", {hint(Do::Compose)} } "New message" }
                 span { kbd { class: "kbd", "⌘F" } "Search this folder" }
                 span { kbd { class: "kbd", "⌘K" } "Commands" }
             }
@@ -100,19 +101,19 @@ fn ThreadReader() -> Element {
     rsx! {
         main { class: "pane pane--reader",
             div { class: "reader-toolbar",
-                button { class: "icon-btn", "aria-label": "Archive (E)", onclick: move |_| if let Some(i) = &i1 { act(s, i, MailAction::Archive) }, Icon { name: "archive", class: "icon--lg" } }
-                button { class: "icon-btn", "aria-label": "Delete (#)", onclick: move |_| if let Some(i) = &i2 { act(s, i, MailAction::Trash) }, Icon { name: "trash", class: "icon--lg" } }
-                button { class: "icon-btn", "aria-label": "Flag (S)",
+                button { class: "icon-btn", "aria-label": tip("Archive", Do::Archive), onclick: move |_| if let Some(i) = &i1 { act(s, i, MailAction::Archive) }, Icon { name: "archive", class: "icon--lg" } }
+                button { class: "icon-btn", "aria-label": tip("Delete", Do::Delete), onclick: move |_| if let Some(i) = &i2 { act(s, i, MailAction::Trash) }, Icon { name: "trash", class: "icon--lg" } }
+                button { class: "icon-btn", "aria-label": tip("Flag", Do::Flag),
                     onclick: move |_| if let Some(i) = &i3 { act(s, i, if flagged { MailAction::Unflag } else { MailAction::Flag }) },
                     Icon { name: "flag", class: "icon--lg" }
                 }
-                button { class: "icon-btn", "aria-label": "Move (V)", onclick: move |_| super::move_picker::open(s, false), Icon { name: "folder", class: "icon--lg" } }
+                button { class: "icon-btn", "aria-label": tip("Move", Do::Move), onclick: move |_| super::move_picker::open(s, false), Icon { name: "folder", class: "icon--lg" } }
                 if let Some(spam) = spam {
                     {
                         let (icon, tip) = if spam == MailAction::NotSpam {
-                            ("inbox", "Not spam (!)")
+                            ("inbox", tip("Not spam", Do::Spam))
                         } else {
-                            ("alert", "Mark as spam (!)")
+                            ("alert", tip("Mark as spam", Do::Spam))
                         };
                         rsx! {
                             button { class: "icon-btn", "aria-label": "{tip}",
@@ -134,9 +135,9 @@ fn ThreadReader() -> Element {
                 span { class: "spacer" }
                 if total > 0 { span { class: "reader-toolbar__pos", "{pos} of {total}" } }
                 span { class: "reader-toolbar__sep" }
-                button { class: "icon-btn", "aria-label": "Reply (R)", onclick: move |_| if let Some(i) = &i4 { reply(i, ReplyKind::Reply) }, Icon { name: "reply", class: "icon--lg" } }
-                button { class: "icon-btn", "aria-label": "Reply all (A)", onclick: move |_| if let Some(i) = &i5 { reply(i, ReplyKind::ReplyAll) }, Icon { name: "replyall", class: "icon--lg" } }
-                button { class: "icon-btn", "aria-label": "Forward (F)", onclick: move |_| if let Some(i) = &i6 { reply(i, ReplyKind::Forward) }, Icon { name: "forward", class: "icon--lg" } }
+                button { class: "icon-btn", "aria-label": tip("Reply", Do::Reply), onclick: move |_| if let Some(i) = &i4 { reply(i, ReplyKind::Reply) }, Icon { name: "reply", class: "icon--lg" } }
+                button { class: "icon-btn", "aria-label": tip("Reply all", Do::ReplyAll), onclick: move |_| if let Some(i) = &i5 { reply(i, ReplyKind::ReplyAll) }, Icon { name: "replyall", class: "icon--lg" } }
+                button { class: "icon-btn", "aria-label": tip("Forward", Do::Forward), onclick: move |_| if let Some(i) = &i6 { reply(i, ReplyKind::Forward) }, Icon { name: "forward", class: "icon--lg" } }
             }
             Thread { key: "{view.account_id}|{view.thread_id}|{view.focus}", view: view.clone() }
         }
@@ -210,6 +211,7 @@ pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Elem
     let open_ids: Vec<String> =
         view.messages.iter().filter(|m| expanded.read().contains(&m.id)).map(|m| m.id.clone()).collect();
     let matches = match_count(&s, &view.account_id, &open_ids, &terms);
+    let finding = !windowed && s.find.read().is_some();
     let draft = s.draft.read().clone();
     let inline_draft = draft
         .filter(|_| !windowed && !super::compose::reply_window_mode())
@@ -233,6 +235,9 @@ pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Elem
 
     rsx! {
         div { class: "reader",
+            if finding {
+                FindBar { total: matches }
+            }
             SubjectLine { subject: subject.clone() }
             div { class: "thread-meta",
                 span { class: "tag", "data-hue": "{hue}", span { class: "dot dot--sm" } "{account_email}" }
@@ -241,7 +246,7 @@ pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Elem
                     span { class: "thread-meta__people", dir: "auto", "{people.join(\", \")} · {count} messages" }
                 }
                 span { class: "spacer" }
-                if matches > 0 {
+                if matches > 0 && !finding {
                     MatchNav { total: matches }
                 }
                 if count > 1 {
@@ -328,9 +333,9 @@ pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Elem
                                 span { class: "reply-bar__text", dir: "auto", "Reply to {to}…" }
                             }
                             div { class: "reply-bar__keys", "aria-hidden": "true",
-                                span { class: "reply-bar__key", kbd { class: "kbd", "R" } "Reply" }
-                                span { class: "reply-bar__key", kbd { class: "kbd", "A" } "Reply all" }
-                                span { class: "reply-bar__key", kbd { class: "kbd", "F" } "Forward" }
+                                span { class: "reply-bar__key", kbd { class: "kbd", {hint(Do::Reply)} } "Reply" }
+                                span { class: "reply-bar__key", kbd { class: "kbd", {hint(Do::ReplyAll)} } "Reply all" }
+                                span { class: "reply-bar__key", kbd { class: "kbd", {hint(Do::Forward)} } "Forward" }
                             }
                         }
                     }
@@ -420,8 +425,13 @@ fn Recipients(
     }
 }
 
-/// Highlight terms while the message was opened from search.
+/// Highlight terms: what Find (⌘F) looks for, as one phrase, or the
+/// search's words while the message was opened from search.
 fn search_terms(s: &AppState) -> Vec<String> {
+    if let Some(q) = s.find.read().as_ref() {
+        let q = q.trim().to_lowercase();
+        return if q.is_empty() { Vec::new() } else { vec![q] };
+    }
     s.search.read().as_ref().map(|st| mailframe::match_terms(&st.query)).unwrap_or_default()
 }
 
@@ -455,16 +465,7 @@ fn MatchNav(total: usize) -> Element {
     let go = move |i: usize| {
         let mut c = current;
         c.set(i);
-        document::eval(&format!(
-            "(()=>{{const r=document.querySelector('.pane--reader');if(!r)return;\
-             const marks=[];for(const n of r.querySelectorAll('.plain-body mark[data-pg-match], iframe.mail-frame')){{\
-             if(n.tagName==='IFRAME'){{try{{marks.push(...n.contentDocument.querySelectorAll('mark[data-pg-match]'))}}catch(_){{}}}}else marks.push(n);}}\
-             marks.forEach((m,k)=>{{if(k==={i})m.setAttribute('data-current','');else m.removeAttribute('data-current');}});\
-             const m=marks[{i}];if(!m)return;const f=m.ownerDocument.defaultView.frameElement;\
-             const top=(f?f.getBoundingClientRect().top:0)+m.getBoundingClientRect().top;\
-             const sc=r.querySelector('.reader');const box=(sc||r).getBoundingClientRect();\
-             (sc||r).scrollBy({{top:top-box.top-box.height/3,behavior:'smooth'}});}})()"
-        ));
+        show_match(i);
     };
     // Mark the first match once the frames have loaded.
     use_effect(move || {
@@ -483,6 +484,97 @@ fn MatchNav(total: usize) -> Element {
                 onclick: move |_| go((i + 1) % total), Icon { name: "chev-down", class: "icon--sm" } }
         }
     }
+}
+
+/// Find in the open conversation (⌘F): matches are marked like search
+/// matches; ↵ and ⇧↵ step through them, Esc closes.
+#[component]
+fn FindBar(total: usize) -> Element {
+    let s = use_context::<AppState>();
+    let mut find = s.find;
+    let mut text = use_signal(|| find.peek().clone().unwrap_or_default());
+    let mut current = use_signal(|| 0usize);
+    let mut typed = use_signal(|| 0u64);
+    // New text, new matches: start again at the first once the frames reload.
+    use_effect(move || {
+        let _ = find.read();
+        current.set(0);
+        spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(350)).await;
+            show_match(0);
+        });
+    });
+    let i = (*current.read()).min(total.saturating_sub(1));
+    let mut go = move |next: bool| {
+        if total == 0 {
+            return;
+        }
+        let n = if next {
+            (i + 1) % total
+        } else if i == 0 {
+            total - 1
+        } else {
+            i - 1
+        };
+        current.set(n);
+        show_match(n);
+    };
+    let has_text = !text.read().trim().is_empty();
+    rsx! {
+        div { class: "find-bar", role: "search",
+            Icon { name: "search", class: "icon--sm" }
+            input { class: "find-bar__input", id: "find-input", r#type: "text", dir: "auto",
+                placeholder: "Find in this conversation", autocomplete: "off", spellcheck: "false",
+                value: "{text}",
+                oninput: move |e| {
+                    text.set(e.value());
+                    // Each change re-marks the frames: wait for a pause in typing.
+                    let n = *typed.peek() + 1;
+                    typed.set(n);
+                    spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(180)).await;
+                        if *typed.peek() == n {
+                            find.set(Some(text.peek().clone()));
+                        }
+                    });
+                },
+                onkeydown: move |e| {
+                    if e.key() == Key::Enter {
+                        e.prevent_default();
+                        if text.peek().as_str() != find.peek().as_deref().unwrap_or_default() {
+                            find.set(Some(text.peek().clone()));
+                        } else {
+                            go(!e.modifiers().shift());
+                        }
+                    }
+                },
+            }
+            span { class: "find-bar__count",
+                if !has_text { "" } else if total == 0 { "No matches" } else { "{i + 1} of {total}" }
+            }
+            button { class: "icon-btn icon-btn--xs", r#type: "button", "aria-label": "Previous match (⇧↵)",
+                disabled: total == 0, onclick: move |_| go(false), Icon { name: "chev-up", class: "icon--sm" } }
+            button { class: "icon-btn icon-btn--xs", r#type: "button", "aria-label": "Next match (↵)",
+                disabled: total == 0, onclick: move |_| go(true), Icon { name: "chev-down", class: "icon--sm" } }
+            button { class: "icon-btn icon-btn--xs", r#type: "button", "aria-label": "Close (Esc)",
+                onclick: move |_| find.set(None), Icon { name: "x", class: "icon--sm" } }
+        }
+    }
+}
+
+/// Make match `i` the current one (marks in the reader and its same-origin
+/// srcdoc mail frames) and scroll to it.
+fn show_match(i: usize) {
+    document::eval(&format!(
+        "(()=>{{const r=document.querySelector('.pane--reader');if(!r)return;\
+             const marks=[];for(const n of r.querySelectorAll('.plain-body mark[data-pg-match], iframe.mail-frame')){{\
+             if(n.tagName==='IFRAME'){{try{{marks.push(...n.contentDocument.querySelectorAll('mark[data-pg-match]'))}}catch(_){{}}}}else marks.push(n);}}\
+             marks.forEach((m,k)=>{{if(k==={i})m.setAttribute('data-current','');else m.removeAttribute('data-current');}});\
+             const m=marks[{i}];if(!m)return;const f=m.ownerDocument.defaultView.frameElement;\
+             const top=(f?f.getBoundingClientRect().top:0)+m.getBoundingClientRect().top;\
+             const sc=r.querySelector('.reader');const box=(sc||r).getBoundingClientRect();\
+             (sc||r).scrollBy({{top:top-box.top-box.height/3,behavior:'smooth'}});}})()"
+    ));
 }
 
 #[component]

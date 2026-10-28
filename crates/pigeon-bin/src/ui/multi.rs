@@ -8,6 +8,7 @@ use pigeon_engine::service::{ActItem, Cmd, ListItem};
 
 use super::{Icon, select};
 use crate::send_cmd;
+use crate::shortcuts::{Do, hint};
 use crate::state::AppState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -214,6 +215,7 @@ pub fn MultiPane() -> Element {
     let (flag, read) = (toggle_flag(&items), toggle_read(&items));
     let flag_label = if flag == MailAction::Unflag { "Unflag" } else { "Flag" };
     let read_label = if read == MailAction::MarkRead { "Mark read" } else { "Mark unread" };
+    let read_key = hint(if read == MailAction::MarkRead { Do::MarkRead } else { Do::MarkUnread });
     let (i1, i2, i3, i4, i5) = (items.clone(), items.clone(), items.clone(), items.clone(), items.clone());
     // Spam or Not spam (in the spam folder), when every selected account can.
     let spam = super::spam::for_items(&s, &items).into_iter().find(|a| *a != MailAction::Phishing);
@@ -227,15 +229,15 @@ pub fn MultiPane() -> Element {
                 div { class: "multi-pane__title", "{what} selected" }
                 div { class: "multi-pane__actions",
                     button { class: "btn btn--secondary", r#type: "button", onclick: move |_| act_many(s, &i1, MailAction::Archive),
-                        Icon { name: "archive", class: "icon--sm" } "Archive" kbd { class: "kbd", "E" } }
+                        Icon { name: "archive", class: "icon--sm" } "Archive" kbd { class: "kbd", {hint(Do::Archive)} } }
                     button { class: "btn btn--secondary", r#type: "button", onclick: move |_| act_many(s, &i2, MailAction::Trash),
-                        Icon { name: "trash", class: "icon--sm" } "Delete" kbd { class: "kbd", "#" } }
+                        Icon { name: "trash", class: "icon--sm" } "Delete" kbd { class: "kbd", {hint(Do::Delete)} } }
                     button { class: "btn btn--secondary", r#type: "button", onclick: move |_| super::move_picker::open(s, false),
-                        Icon { name: "folder", class: "icon--sm" } "Move" kbd { class: "kbd", "V" } }
+                        Icon { name: "folder", class: "icon--sm" } "Move" kbd { class: "kbd", {hint(Do::Move)} } }
                     button { class: "btn btn--secondary", r#type: "button", onclick: move |_| act_many(s, &i3, read.clone()),
-                        Icon { name: "mailopen", class: "icon--sm" } "{read_label}" kbd { class: "kbd", "U" } }
+                        Icon { name: "mailopen", class: "icon--sm" } "{read_label}" kbd { class: "kbd", {read_key} } }
                     button { class: "btn btn--secondary", r#type: "button", onclick: move |_| act_many(s, &i4, flag.clone()),
-                        Icon { name: "flag", class: "icon--sm" } "{flag_label}" kbd { class: "kbd", "S" } }
+                        Icon { name: "flag", class: "icon--sm" } "{flag_label}" kbd { class: "kbd", {hint(Do::Flag)} } }
                     if let Some(spam) = spam {
                         {
                             let (icon, text) =
@@ -244,7 +246,7 @@ pub fn MultiPane() -> Element {
                                 button { class: "btn btn--secondary", r#type: "button", onclick: move |_| act_many(s, &i5, spam.clone()),
                                     Icon { name: icon, class: "icon--sm" }
                                     "{text}"
-                                    kbd { class: "kbd", "!" } }
+                                    kbd { class: "kbd", {hint(Do::Spam)} } }
                             }
                         }
                     }

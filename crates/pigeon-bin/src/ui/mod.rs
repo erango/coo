@@ -43,6 +43,7 @@ use pigeon_engine::service::{AccountNav, Cmd, ListItem, Mailbox};
 
 use crate::bridge::{self, Msg};
 use crate::send_cmd;
+use crate::shortcuts::{self, Do};
 use crate::state::{self, AppState, Mode, Theme};
 
 pub(crate) const ICONS: &str = include_str!("../../../../design/icons.svg");
@@ -74,6 +75,7 @@ pub fn Icon(name: &'static str, #[props(default)] class: &'static str) -> Elemen
 pub fn App() -> Element {
     let s = use_context_provider(AppState::new);
     use_context_provider(|| s.main_slot());
+    crate::keymon::use_native_keys();
     // Closing the main window either hides it into the menu bar (Settings ›
     // General) or quits; quitting closes compose windows first, since they
     // read the main window's state. Launching Coo again while it's hidden
@@ -126,6 +128,7 @@ pub fn App() -> Element {
         spawn(save_image_loop());
         spawn(state::pump(s));
         spawn(bridge_loop(s));
+        crate::keymon::start();
         spawn(reminder_loop(s));
         spawn(click_loop(s));
         // Debug builds: open a surface on launch for screenshots/testing,
@@ -672,7 +675,7 @@ fn on_menu(s: AppState, id: &str) {
         crate::menubar::OPEN => crate::menubar::show_main(),
         crate::menubar::NEW_MESSAGE => {
             crate::menubar::show_main();
-            on_key(s, "meta+n");
+            run(s, Do::Compose);
         }
         crate::menubar::SYNC => send_cmd(Cmd::SyncNow),
         crate::menubar::SETTINGS => open_settings_at(s, "General"),
@@ -704,8 +707,8 @@ fn on_menu(s: AppState, id: &str) {
         // View, Message and Calendar items run the same handler as their
         // keyboard shortcut.
         id => {
-            if let Some(key) = crate::menu::key_for(id) {
-                on_key(s, key);
+            if let Some(what) = crate::menu::action_for(id) {
+                run(s, what);
             }
         }
     }
@@ -1213,36 +1216,51 @@ fn on_key(s: AppState, key: &str) {
     if s.account_menu.read().is_some() {
         return account_menu::on_key(s, key);
     }
+    // The update dialog's primary button looks focused; Enter presses it.
+    if key == "Enter" {
+        if *s.update_dialog.read() {
+            update_dialog::confirm(s);
+        }
+        return;
+    }
+    let calendar = *s.mode.read() == Mode::Calendar;
+    if let Some(what) = shortcuts::action(*shortcuts::STYLE.peek(), key, calendar) {
+        run(s, what);
+    }
+}
+
+/// Run a shortcut's action (from its key or its menu item).
+pub fn run(s: AppState, what: Do) {
     let (mut mode, draft, mut settings) = (s.mode, s.draft, s.settings_open);
-    match key {
+    match what {
         // ⌘1 / ⌘2 also leave Settings, straight to Mail or Calendar.
-        "meta+1" => {
+        Do::Mail => {
             settings.set(false);
             return mode.set(Mode::Mail);
         }
-        "meta+2" => {
+        Do::Calendar => {
             settings.set(false);
             return mode.set(Mode::Calendar);
         }
-        // ⇧⌘N, as in Mail ("Get All New Mail"); ⌘R is Reply.
-        "meta+shift+n" => return send_cmd(Cmd::SyncNow),
-        // ⇧J: join the meeting that's on now (or starting soon), from anywhere.
-        "J" => return join_now(s),
-        "zoom-in" => return zoom::change(s, zoom::Step::Bigger),
-        "zoom-out" => return zoom::change(s, zoom::Step::Smaller),
-        "zoom-reset" => return zoom::change(s, zoom::Step::Reset),
-        "c" if *s.mode.read() == Mode::Calendar => return event_editor::open_new_now(s),
-        "meta+n" | "c" => return new_message(s),
-        "meta+k" => {
+        Do::Sync => return send_cmd(Cmd::SyncNow),
+        // Join the meeting that's on now (or starting soon), from anywhere.
+        Do::Join => return join_now(s),
+        Do::Bigger => return zoom::change(s, zoom::Step::Bigger),
+        Do::Smaller => return zoom::change(s, zoom::Step::Smaller),
+        Do::ActualSize => return zoom::change(s, zoom::Step::Reset),
+        Do::NewEvent => {
+            mode.set(Mode::Calendar);
+            return event_editor::open_new_now(s);
+        }
+        Do::Compose => return new_message(s),
+        Do::Palette => {
             let mut p = s.palette_open;
             let v = *p.read();
             return p.set(!v);
         }
         // Open (not toggle): the menu's ⌘, accelerator may fire as well.
-        "meta+," => return settings.set(true),
-        // The update dialog's primary button looks focused; Enter presses it.
-        "Enter" if *s.update_dialog.read() => return update_dialog::confirm(s),
-        "Escape" => {
+        Do::Settings => return settings.set(true),
+        Do::Close => {
             // A docked draft set aside behind the "Draft:" chip isn't being edited.
             let composing = draft.read().is_some() && !*s.docked_hidden.read();
             if s.move_picker.read().is_some() {
@@ -1270,6 +1288,10 @@ fn on_key(s: AppState, key: &str) {
                 let mut e = s.editor;
                 return e.set(None);
             }
+            if s.find.read().is_some() {
+                let mut f = s.find;
+                return f.set(None);
+            }
             if !composing && !s.multi.read().is_empty() {
                 return multi::clear(s);
             }
@@ -1284,13 +1306,13 @@ fn on_key(s: AppState, key: &str) {
             }
             return;
         }
-        "meta+Enter" => {
+        Do::Send => {
             if !*s.docked_hidden.read() {
                 compose::send_current(s, s.main_slot());
             }
             return;
         }
-        "z" | "meta+z" => {
+        Do::Undo => {
             let undo = s.toasts.read().iter().rev().find_map(|t| t.undo.clone());
             if let Some((account_id, handle)) = undo {
                 let mut toasts = s.toasts;
@@ -1304,43 +1326,50 @@ fn on_key(s: AppState, key: &str) {
     if *s.mode.read() != Mode::Mail {
         return;
     }
-    match key {
-        "/" | "meta+f" => search::open_here(s),
-        "meta+alt+f" => search::focus_in(s, pigeon_engine::service::SearchScope::All),
-        "v" => move_picker::open(s, false),
-        "l" => move_picker::open(s, true),
-        // Gmail's "Report spam" key; "Not spam" in the spam folder.
-        "!" => spam::toggle(s),
-        "meta+a" => multi::select_all(s),
-        "j" | "ArrowDown" => step(s, 1),
-        "k" | "ArrowUp" => step(s, -1),
+    match what {
+        // A conversation open: find in it; otherwise search the folder.
+        Do::Find if s.reader.read().is_some() && multi::items(&s).is_empty() && !*s.settings_open.read() => {
+            let mut f = s.find;
+            if f.read().is_none() {
+                f.set(Some(String::new()));
+            }
+            document::eval(
+                "(()=>{let n=0;const go=()=>{const e=document.getElementById('find-input');\
+                 if(e){e.focus();e.select();}else if(n++<40)setTimeout(go,25);};go();})()",
+            );
+        }
+        Do::Find | Do::Search => search::open_here(s),
+        Do::SearchAll => search::focus_in(s, pigeon_engine::service::SearchScope::All),
+        Do::Move => move_picker::open(s, false),
+        Do::Label => move_picker::open(s, true),
+        // "Not spam" in the spam folder.
+        Do::Spam => spam::toggle(s),
+        Do::SelectAll => multi::select_all(s),
+        Do::Next => step(s, 1),
+        Do::Prev => step(s, -1),
         _ if !multi::items(&s).is_empty() => {
             let items = multi::items(&s);
-            match key {
-                "e" | "ctrl+meta+a" => multi::act_many(s, &items, MailAction::Archive),
-                "meta+Backspace" | "#" | "x" => multi::act_many(s, &items, MailAction::Trash),
-                "s" | "meta+shift+l" => multi::act_many(s, &items, multi::toggle_flag(&items)),
-                "u" | "meta+shift+u" => multi::act_many(s, &items, multi::toggle_read(&items)),
+            match what {
+                Do::Archive => multi::act_many(s, &items, MailAction::Archive),
+                Do::Delete => multi::act_many(s, &items, MailAction::Trash),
+                Do::Flag => multi::act_many(s, &items, multi::toggle_flag(&items)),
+                Do::MarkRead => multi::act_many(s, &items, MailAction::MarkRead),
+                Do::MarkUnread => multi::act_many(s, &items, MailAction::MarkUnread),
                 _ => {}
             }
         }
         _ => {
             let Some(item) = selected_item(&s) else { return };
             let h = item.header();
-            let unread = match &item {
-                ListItem::Thread(t) => t.unread_count > 0,
-                ListItem::Message(m) => !m.header.is_read,
-            };
-            match key {
-                "e" | "ctrl+meta+a" => act(s, &item, MailAction::Archive),
-                "meta+Backspace" | "#" | "x" => act(s, &item, MailAction::Trash),
-                "s" | "meta+shift+l" => act(s, &item, if h.is_flagged { MailAction::Unflag } else { MailAction::Flag }),
-                "u" | "meta+shift+u" => {
-                    act(s, &item, if unread { MailAction::MarkRead } else { MailAction::MarkUnread })
-                }
-                "r" | "meta+r" => reply(&item, ReplyKind::Reply),
-                "a" | "meta+shift+r" => reply(&item, ReplyKind::ReplyAll),
-                "f" | "meta+shift+f" => reply(&item, ReplyKind::Forward),
+            match what {
+                Do::Archive => act(s, &item, MailAction::Archive),
+                Do::Delete => act(s, &item, MailAction::Trash),
+                Do::Flag => act(s, &item, if h.is_flagged { MailAction::Unflag } else { MailAction::Flag }),
+                Do::MarkRead => act(s, &item, MailAction::MarkRead),
+                Do::MarkUnread => act(s, &item, MailAction::MarkUnread),
+                Do::Reply => reply(&item, ReplyKind::Reply),
+                Do::ReplyAll => reply(&item, ReplyKind::ReplyAll),
+                Do::Forward => reply(&item, ReplyKind::Forward),
                 _ => {}
             }
         }
