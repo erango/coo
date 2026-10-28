@@ -283,6 +283,8 @@ pub enum Cmd {
         files: Vec<(String, String)>,
         dest: std::path::PathBuf,
         into_folder: bool,
+        /// Told whether everything was saved (a drag to Finder waits on it).
+        done: Option<std::sync::mpsc::SyncSender<bool>>,
     },
     ShowCalendar {
         from: i64,
@@ -1239,7 +1241,17 @@ impl Service {
                 let path = self.app.attachment(&account, &message_id, &attachment_id).await?;
                 self.send(Delta::AttachmentReady(path));
             }
-            Cmd::SaveAttachments { account_id, message_id, files, dest, into_folder } => {
+            Cmd::SaveAttachments { account_id, message_id, files, dest, into_folder, done } => {
+                // Answer the waiter even when this fails early.
+                struct Reply(Option<std::sync::mpsc::SyncSender<bool>>, bool);
+                impl Drop for Reply {
+                    fn drop(&mut self) {
+                        if let Some(tx) = self.0.take() {
+                            let _ = tx.try_send(self.1);
+                        }
+                    }
+                }
+                let mut reply = Reply(done, false);
                 let account = self.app.account(&account_id)?;
                 let mut saved = Vec::new();
                 for (attachment_id, name) in &files {
@@ -1274,6 +1286,7 @@ impl Service {
                 if let Some(msg) = msg {
                     self.toast(msg, false, None);
                 }
+                reply.1 = saved.len() == files.len();
             }
             Cmd::ShowCalendar { from, to } => {
                 self.view.lock().await.calendar = Some((from, to));

@@ -5,6 +5,7 @@ mod about;
 mod bridge;
 mod ctxmenu;
 mod dock;
+mod dragout;
 mod emoji;
 mod fonts;
 mod format;

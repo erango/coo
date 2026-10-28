@@ -573,8 +573,14 @@ fn Body(account_id: String, message_id: String, sender: String, body: StoredBody
                         let file = (a.meta.id.clone(), a.meta.name.clone());
                         let mut menu = att_menu;
                         let ringed = menu.read().as_ref().is_some_and(|m| m.file.0 == a.meta.id);
+                        let drag = serde_json::json!({
+                            "account_id": account_id, "message_id": message_id,
+                            "attachment_id": a.meta.id, "name": a.meta.name,
+                        })
+                        .to_string();
                         rsx! {
-                            div { class: "attachment", key: "{a.meta.id}", title: "Open",
+                            div { class: "attachment", key: "{a.meta.id}", title: "Open, or drag to a folder to save",
+                                "data-drag-out": "{drag}",
                                 "data-context": ringed.then_some("true"),
                                 oncontextmenu: move |e| {
                                     e.prevent_default();

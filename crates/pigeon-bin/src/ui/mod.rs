@@ -986,6 +986,7 @@ async fn bridge_loop(s: AppState) {
                 crate::prefs::update(|p| p.list_width = if px == 0 { 0 } else { px.clamp(LIST_W_MIN, LIST_W_MAX) });
             }
             "ctx-img" => crate::ctxmenu::set_image(&msg.v),
+            "attach-drag" => crate::dragout::start(&msg.v),
             "link" => {
                 let v = msg.v.to_ascii_lowercase();
                 if v.starts_with("http://") || v.starts_with("https://") || v.starts_with("mailto:") {

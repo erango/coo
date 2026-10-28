@@ -460,6 +460,26 @@ pub const JS: &str = r#"
       f.addEventListener('load', () => { hook(); fit(); });
     }
   }
+  // ---- Attachments: drag one out to Finder (Rust starts a native drag
+  // with a file promise once the pointer has moved a few pixels).
+  document.addEventListener('mousedown', (e) => {
+    const chip = e.button === 0 && e.target.closest && e.target.closest('[data-drag-out]');
+    if (!chip) return;
+    e.preventDefault(); // no text selection
+    const x0 = e.clientX, y0 = e.clientY;
+    const move = (m) => {
+      if (Math.hypot(m.clientX - x0, m.clientY - y0) < 5) return;
+      done();
+      send('attach-drag', chip.dataset.dragOut);
+    };
+    const done = () => {
+      document.removeEventListener('mousemove', move, true);
+      document.removeEventListener('mouseup', done, true);
+    };
+    document.addEventListener('mousemove', move, true);
+    document.addEventListener('mouseup', done, true);
+  }, true);
+
   const scan = () => document.querySelectorAll('iframe.mail-frame').forEach(wire);
   // An edited quote's HTML (null when untouched: it goes out as received).
   window.__pigeonQuote = (editor) => {

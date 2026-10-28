@@ -26,6 +26,7 @@ pub fn save_as(account_id: String, message_id: String, file: File) {
                 files: vec![file],
                 dest: to.path().to_path_buf(),
                 into_folder: false,
+                done: None,
             });
         }
     });
@@ -46,6 +47,7 @@ pub fn save_all(account_id: String, message_id: String, files: Vec<File>) {
                 files,
                 dest: dir.path().to_path_buf(),
                 into_folder: true,
+                done: None,
             });
         }
     });
