@@ -7,6 +7,10 @@ use super::{Store, message_pk};
 use crate::model::*;
 use crate::{Error, Result, now_ms};
 
+/// How long a [`MailOp::Purge`] waits before it's sent: past the toast's
+/// Undo, since the server can't bring the message back.
+pub const PURGE_GRACE_MS: i64 = 8_000;
+
 impl Store {
     /// Apply `op` locally and queue it for the server, atomically. Returns
     /// the outbox id (the undo handle).
@@ -16,14 +20,15 @@ impl Store {
         apply_local(&tx, account_id, op)?;
         tx.prepare_cached(
             "INSERT INTO outbox (account_id, op, payload, snapshot_json, created_at, state, next_attempt_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, 'pending', 0)",
+             VALUES (?1, ?2, ?3, ?4, ?5, 'pending', ?6)",
         )?
         .execute(params![
             account_id,
             op_name(op),
             serde_json::to_string(op)?,
             serde_json::to_string(&snapshot)?,
-            now_ms()
+            now_ms(),
+            if matches!(op, MailOp::Purge { .. }) { now_ms() + PURGE_GRACE_MS } else { 0 }
         ])?;
         let id = tx.last_insert_rowid();
         tx.commit()?;
@@ -46,8 +51,19 @@ impl Store {
         Ok(entries(&self.conn, "WHERE id = ?1", params![id])?.into_iter().next())
     }
 
-    pub fn mark_op_done(&self, id: i64) -> Result<()> {
-        self.conn.execute("UPDATE outbox SET state = 'done', last_error = NULL WHERE id = ?1", [id])?;
+    /// The server took the op. A purge also drops the messages here: no
+    /// sync is needed to learn they're gone.
+    pub fn mark_op_done(&mut self, id: i64) -> Result<()> {
+        let entry = self.outbox_entry(id)?;
+        let tx = self.conn.transaction()?;
+        tx.execute("UPDATE outbox SET state = 'done', last_error = NULL WHERE id = ?1", [id])?;
+        if let Some(OutboxEntry { account_id, op: MailOp::Purge { ids }, .. }) = &entry {
+            let mut del = tx.prepare_cached("DELETE FROM messages WHERE account_id = ?1 AND id = ?2")?;
+            for id in ids {
+                del.execute(params![account_id, id])?;
+            }
+        }
+        tx.commit()?;
         Ok(())
     }
 
@@ -104,6 +120,7 @@ fn op_name(op: &MailOp) -> &'static str {
         MailOp::MoveTo { .. } => "move_to",
         MailOp::Trash { .. } => "trash",
         MailOp::Untrash { .. } => "untrash",
+        MailOp::Purge { .. } => "purge",
         MailOp::Report { .. } => "report",
     }
 }
@@ -242,6 +259,12 @@ pub(super) fn apply_local(conn: &Connection, account_id: &str, op: &MailOp) -> R
                 .ok_or_else(|| Error::Other("account has no trash folder".into()))?;
             for id in ids {
                 set_folders(conn, account_id, id, std::slice::from_ref(&trash))?;
+            }
+        }
+        // Out of every list until the server confirms (then the rows go).
+        MailOp::Purge { ids } => {
+            for id in ids {
+                set_folders(conn, account_id, id, &[])?;
             }
         }
         MailOp::Untrash { ids } => {

@@ -26,7 +26,7 @@ fn label_change(op: &MailOp) -> Option<(Vec<String>, Vec<String>)> {
         MailOp::Relabel { add, remove, .. } => (add.clone(), remove.clone()),
         MailOp::MoveTo { folder_id, .. } => (vec![folder_id.clone()], vec![]),
         // Gmail reports spam with the SPAM label (a `Relabel`).
-        MailOp::Trash { .. } | MailOp::Untrash { .. } | MailOp::Report { .. } => return None,
+        MailOp::Trash { .. } | MailOp::Untrash { .. } | MailOp::Purge { .. } | MailOp::Report { .. } => return None,
     })
 }
 

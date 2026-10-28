@@ -37,8 +37,9 @@ pub mod zoom;
 
 use dioxus::prelude::*;
 use pigeon_core::compose::ReplyKind;
+use pigeon_core::model::FolderRole;
 use pigeon_engine::MailAction;
-use pigeon_engine::service::{Cmd, ListItem};
+use pigeon_engine::service::{AccountNav, Cmd, ListItem, Mailbox};
 
 use crate::bridge::{self, Msg};
 use crate::send_cmd;
@@ -1049,8 +1050,41 @@ fn step(s: AppState, delta: isize) {
 
 /// Run a mail action on a list item; advances the selection when the item
 /// leaves the list.
+/// `mailbox` is this account's `role` folder (or the unified one).
+pub fn viewing(mailbox: &Mailbox, account: &AccountNav, role: FolderRole) -> bool {
+    match mailbox {
+        Mailbox::Unified(r) => *r == role,
+        Mailbox::Folder { account_id, folder_id } => {
+            *account_id == account.account.id
+                && account.folders.iter().any(|f| f.folder.id == *folder_id && f.folder.role == Some(role))
+        }
+    }
+}
+
+/// What Delete does here: `None` moves to Trash; in Trash, `Some(true)`
+/// deletes for good and `Some(false)` can't (Gmail, see `GMAIL_PURGE`).
+pub fn delete_in_trash(s: &AppState, account_ids: &[&str]) -> Option<bool> {
+    let accounts = s.accounts.read();
+    let mailbox = s.mailbox.read();
+    let mut out = None;
+    for id in account_ids {
+        let a = accounts.iter().find(|a| a.account.id == *id)?;
+        if !viewing(&mailbox, a, FolderRole::Trash) {
+            return None;
+        }
+        let gmail = a.account.provider == pigeon_core::model::ProviderKind::Google;
+        out = Some(out.unwrap_or(true) && !gmail);
+    }
+    out
+}
+
 pub fn act(s: AppState, item: &ListItem, action: MailAction) {
     let header = item.header();
+    let in_trash = if action == MailAction::Trash { delete_in_trash(&s, &[item.account_id()]) } else { None };
+    if in_trash == Some(false) {
+        s.local_toast(pigeon_engine::GMAIL_PURGE, false);
+        return;
+    }
     if action.leaves() && s.selected.read().as_deref() == Some(AppState::key(item).as_str()) {
         let list = s.visible_items();
         let pos = list.iter().position(|i| AppState::key(i) == AppState::key(item));
@@ -1071,6 +1105,7 @@ pub fn act(s: AppState, item: &ListItem, action: MailAction) {
     let subject = if header.subject.is_empty() { "(no subject)".to_string() } else { header.subject.clone() };
     let label = match &action {
         MailAction::Archive => format!("Archived “{subject}”"),
+        MailAction::Trash if in_trash.is_some() => format!("Deleted “{subject}” for good"),
         MailAction::Trash => format!("Deleted “{subject}”"),
         MailAction::Flag => format!("Flagged “{subject}”"),
         MailAction::Unflag => format!("Unflagged “{subject}”"),

@@ -12,13 +12,7 @@ use crate::state::AppState;
 
 /// `mailbox` is this account's spam folder (or the unified Spam).
 fn in_spam(mailbox: &Mailbox, account: &AccountNav) -> bool {
-    match mailbox {
-        Mailbox::Unified(role) => *role == FolderRole::Spam,
-        Mailbox::Folder { account_id, folder_id } => {
-            *account_id == account.account.id
-                && account.folders.iter().any(|f| f.folder.id == *folder_id && f.folder.role == Some(FolderRole::Spam))
-        }
-    }
+    super::viewing(mailbox, account, FolderRole::Spam)
 }
 
 /// The spam actions every one of `account_ids` supports, in menu order

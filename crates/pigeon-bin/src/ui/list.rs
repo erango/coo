@@ -426,7 +426,7 @@ fn empty_copy(role: Option<FolderRole>) -> (&'static str, &'static str) {
         Some(FolderRole::Inbox) => ("All caught up", "Nothing left here. Enjoy the quiet."),
         Some(FolderRole::Sent) => ("Nothing sent yet", "Messages you send show up here."),
         Some(FolderRole::Drafts) => ("No drafts", "Unsent messages are kept here as you write."),
-        Some(FolderRole::Trash) => ("Trash is empty", "Deleted messages stay here until the server clears them."),
+        Some(FolderRole::Trash) => ("Trash is empty", "Delete a message here to remove it for good."),
         Some(FolderRole::Spam) => ("No junk", "Nothing suspicious got through."),
         Some(FolderRole::Starred) => ("Nothing flagged", "Flag a message with F to keep it here."),
         _ => ("No messages here", "This folder is empty."),

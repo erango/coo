@@ -965,6 +965,7 @@ impl Service {
                     self.action_toast(label, Some((account_id, handle)), &action);
                 }
                 self.publish().await;
+                self.clone().flush_after_grace(&action, account.clone());
                 self.flush(account).await;
             }
             Cmd::ActMany { items, action, label } => {
@@ -998,6 +999,7 @@ impl Service {
                 }
                 self.publish().await;
                 for account in touched {
+                    self.clone().flush_after_grace(&action, account.clone());
                     self.clone().flush(account).await;
                 }
             }
@@ -1465,6 +1467,19 @@ impl Service {
             }
             _ => messages.iter().filter(|m| in_view(m)).map(|m| m.id.clone()).collect(),
         })
+    }
+
+    /// A delete in Trash waits out its Undo before it's sent; flush again
+    /// once it's due (the sync tick would also get to it, later).
+    fn flush_after_grace(self: Arc<Self>, action: &MailAction, account: Account) {
+        if *action != MailAction::Trash {
+            return;
+        }
+        tokio::spawn(async move {
+            let grace = pigeon_core::store::PURGE_GRACE_MS as u64 + 500;
+            tokio::time::sleep(Duration::from_millis(grace)).await;
+            self.flush(account).await;
+        });
     }
 
     async fn flush(self: Arc<Self>, account: Account) {

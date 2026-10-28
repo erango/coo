@@ -16,7 +16,7 @@ mod outbox;
 mod search;
 mod send_addresses;
 mod services;
-pub use outbox::undo_ops;
+pub use outbox::{PURGE_GRACE_MS, undo_ops};
 
 const MIGRATIONS: &[&str] = &[
     include_str!("001_init.sql"),

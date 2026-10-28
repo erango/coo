@@ -45,6 +45,8 @@ fn requests(op: &MailOp) -> Result<Vec<SubRequest>> {
         }
         MailOp::Trash { .. } => each("POST", mv, json!({ "destinationId": "deleteditems" })),
         MailOp::Untrash { .. } => each("POST", mv, json!({ "destinationId": "inbox" })),
+        // Like Outlook's delete in Deleted Items: off to Recoverable Items.
+        MailOp::Purge { .. } => each("DELETE", patch, Value::Null),
         MailOp::Relabel { .. } => return Err(Error::Other("Exchange folders have no labels".into())),
     })
 }
@@ -92,13 +94,17 @@ async fn batch(tokens: &TokenSource, base: &str, reqs: &[SubRequest]) -> Result<
     let mut out = Vec::with_capacity(reqs.len());
     for chunk in reqs.chunks(BATCH_MAX) {
         let body = json!({
-            "requests": chunk.iter().enumerate().map(|(i, (method, url, body))| json!({
-                "id": i.to_string(),
-                "method": method,
-                "url": url,
-                "headers": { "Content-Type": "application/json", "Prefer": PREFER },
-                "body": body,
-            })).collect::<Vec<_>>()
+            "requests": chunk.iter().enumerate().map(|(i, (method, url, body))| if body.is_null() {
+                json!({ "id": i.to_string(), "method": method, "url": url, "headers": { "Prefer": PREFER } })
+            } else {
+                json!({
+                    "id": i.to_string(),
+                    "method": method,
+                    "url": url,
+                    "headers": { "Content-Type": "application/json", "Prefer": PREFER },
+                    "body": body,
+                })
+            }).collect::<Vec<_>>()
         });
         let token = tokens.access_token().await?;
         let resp: BatchResponse =

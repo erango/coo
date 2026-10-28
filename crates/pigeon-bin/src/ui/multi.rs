@@ -169,8 +169,15 @@ pub fn act_many(s: AppState, items: &[ListItem], action: MailAction) {
         return;
     }
     let what = noun(items);
+    let accounts: Vec<&str> = items.iter().map(|i| i.account_id()).collect();
+    let in_trash = if action == MailAction::Trash { super::delete_in_trash(&s, &accounts) } else { None };
+    if in_trash == Some(false) {
+        s.local_toast(pigeon_engine::GMAIL_PURGE, false);
+        return;
+    }
     let label = match &action {
         MailAction::Archive => format!("Archived {what}"),
+        MailAction::Trash if in_trash.is_some() => format!("Deleted {what} for good"),
         MailAction::Trash => format!("Deleted {what}"),
         MailAction::Flag => format!("Flagged {what}"),
         MailAction::Unflag => format!("Unflagged {what}"),

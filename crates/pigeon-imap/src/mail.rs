@@ -350,7 +350,7 @@ impl MailActions for Imap {
         let (flag, on) = match op {
             MailOp::SetRead { read, .. } => (Some("\\Seen"), *read),
             MailOp::SetFlagged { flagged, .. } => (Some("\\Flagged"), *flagged),
-            MailOp::MoveTo { .. } => (None, false),
+            MailOp::MoveTo { .. } | MailOp::Purge { .. } => (None, false),
             // IMAP has no spam report: junk is a move to the \Junk mailbox.
             MailOp::Trash { .. } | MailOp::Untrash { .. } | MailOp::Relabel { .. } | MailOp::Report { .. } => {
                 return Err(Error::Other("IMAP folders: use a move".into()));
@@ -360,6 +360,7 @@ impl MailActions for Imap {
         self.with(async |s| {
             let caps = s.capabilities().await.map_err(imap_err)?;
             let can_move = caps.has_str("MOVE");
+            let uidplus = caps.has_str("UIDPLUS");
             for (mailbox, uids) in &groups {
                 s.select(mailbox).await.map_err(imap_err)?;
                 let set = parse::uid_set(uids);
@@ -383,6 +384,24 @@ impl MailActions for Imap {
                                 .map_err(imap_err)?;
                             let _: Vec<u32> =
                                 s.uid_expunge(&set).await.map_err(imap_err)?.try_collect().await.map_err(imap_err)?;
+                        }
+                    }
+                    (None, MailOp::Purge { .. }) => {
+                        let _: Vec<Fetch> = s
+                            .uid_store(&set, "+FLAGS.SILENT (\\Deleted)")
+                            .await
+                            .map_err(imap_err)?
+                            .try_collect()
+                            .await
+                            .map_err(imap_err)?;
+                        // Without UIDPLUS, EXPUNGE takes every \Deleted
+                        // message in the mailbox; it's Trash, so that's fine.
+                        if uidplus {
+                            let _: Vec<u32> =
+                                s.uid_expunge(&set).await.map_err(imap_err)?.try_collect().await.map_err(imap_err)?;
+                        } else {
+                            let _: Vec<u32> =
+                                s.expunge().await.map_err(imap_err)?.try_collect().await.map_err(imap_err)?;
                         }
                     }
                     _ => {}

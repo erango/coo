@@ -409,6 +409,11 @@ pub enum MailOp {
     Untrash {
         ids: Vec<String>,
     },
+    /// Delete for good (what Delete means in Trash). Sent after a short
+    /// grace period so it can still be undone.
+    Purge {
+        ids: Vec<String>,
+    },
     /// Report to the provider (junk / not junk / phishing), then move to
     /// `folder_id`: the spam folder, or the inbox for not-junk. Exchange
     /// only; Gmail reports through the SPAM label (`Relabel`) and IMAP can
@@ -437,6 +442,7 @@ impl MailOp {
             | MailOp::MoveTo { ids, .. }
             | MailOp::Trash { ids }
             | MailOp::Untrash { ids }
+            | MailOp::Purge { ids }
             | MailOp::Report { ids, .. } => ids,
         }
     }

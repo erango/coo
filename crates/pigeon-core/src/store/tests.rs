@@ -858,3 +858,20 @@ fn icloud_addresses_are_detected_from_own_mail_and_overridable() {
     assert!(s.send_address_overrides(&ic.id).unwrap().is_empty(), "go with the account");
     assert_eq!(s.main_address(&ic.id).unwrap(), None, "go with the account");
 }
+
+#[test]
+fn purge_waits_out_undo_then_drops_the_message() {
+    let (mut s, g) = gmail_with_labels();
+    let purge = MailOp::Purge { ids: vec!["a".into()] };
+    let id = s.enqueue(&g.id, &purge).unwrap();
+    assert!(state(&s, &g, "a").folder_ids.is_empty(), "gone from every list");
+    assert!(s.due_ops(&g.id, now_ms()).unwrap().is_empty(), "held for the undo grace");
+    assert!(s.cancel_pending_op(id).unwrap(), "undo still works");
+    assert_eq!(state(&s, &g, "a").folder_ids, ["INBOX"]);
+
+    let id = s.enqueue(&g.id, &purge).unwrap();
+    let due = s.due_ops(&g.id, now_ms() + super::PURGE_GRACE_MS).unwrap();
+    assert_eq!(due[0].id, id);
+    s.mark_op_done(id).unwrap();
+    assert!(s.message(&g.id, "a").unwrap().is_none(), "deleted locally once the server took it");
+}
