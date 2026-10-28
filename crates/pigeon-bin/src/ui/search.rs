@@ -230,6 +230,12 @@ fn toggle(s: AppState, op: &str) {
     set_query(s, next);
 }
 
+/// A bare search word worth looking up in contacts (two characters or more).
+fn contact_word(p: &str) -> Option<&str> {
+    let p = p.trim();
+    (p.chars().count() >= 2).then_some(p)
+}
+
 /// A row in the suggestion list.
 #[derive(Clone, PartialEq)]
 struct Item {
@@ -247,27 +253,38 @@ fn suggestions(
     contacts: Option<&[Address]>,
 ) -> (Vec<Item>, Option<&'static str>) {
     let plain = |v: Vec<Suggestion>| v.into_iter().map(|s| Item { s, person: false }).collect::<Vec<_>>();
+    // Contacts matching `p`; a pick inserts `{op}address`.
+    let people = |p: &str, op: &str| -> Vec<Item> {
+        contacts
+            .unwrap_or_default()
+            .iter()
+            .filter(|a| !a.email.eq_ignore_ascii_case(p))
+            .map(|a| Item {
+                s: Suggestion {
+                    insert: format!("{op}{}", a.email),
+                    label: a.name.clone().unwrap_or_else(|| a.email.clone()),
+                    detail: if op.is_empty() { a.email.clone() } else { format!("{op}{}", a.email) },
+                },
+                person: true,
+            })
+            .collect()
+    };
     match &c.target {
-        Target::Operator(p) => (plain(complete::operators(p)), None),
+        // A bare word: operators it starts, then people it names (a pick
+        // searches mail from them).
+        Target::Operator(p) => {
+            let mut v = plain(complete::operators(p));
+            if contact_word(p).is_some() {
+                v.extend(people(p.trim(), "from:"));
+            }
+            (v, None)
+        }
         Target::Value(Op::From | Op::To, p) => {
             let p = p.trim();
             if p.is_empty() {
                 return (Vec::new(), Some("Type a name or address"));
             }
-            let people = contacts
-                .unwrap_or_default()
-                .iter()
-                .filter(|a| !a.email.eq_ignore_ascii_case(p))
-                .map(|a| Item {
-                    s: Suggestion {
-                        insert: a.email.clone(),
-                        label: a.name.clone().unwrap_or_else(|| a.email.clone()),
-                        detail: a.email.clone(),
-                    },
-                    person: true,
-                })
-                .collect();
-            (people, None)
+            (people(p, ""), None)
         }
         Target::Value(Op::In, p) => {
             let accounts = s.accounts.read();
@@ -310,11 +327,12 @@ pub fn SearchPane() -> Element {
         here.read();
         highlight.set(None);
     });
-    // from:/to: values: the composer's contact suggestions.
+    // from:/to: values and bare words: the composer's contact suggestions.
     use_effect(move || {
         let Some((q, caret)) = here() else { return };
         let p = match complete::at(&q, caret) {
             Some(Completion { target: Target::Value(Op::From | Op::To, p), .. }) => p.trim().to_string(),
+            Some(Completion { target: Target::Operator(p), .. }) => contact_word(&p).unwrap_or_default().to_string(),
             _ => String::new(),
         };
         if p == *contact_query.peek() {
@@ -520,7 +538,7 @@ pub fn SearchPane() -> Element {
                             {
                                 let pick = pick.clone();
                                 let selected = at == Some(i);
-                                let hue = hue_for(&item.s.insert);
+                                let hue = hue_for(item.s.insert.trim_start_matches("from:"));
                                 rsx! {
                                     div { class: if item.person { "suggest__item" } else { "suggest__item suggest__item--op" },
                                         key: "{item.s.insert}", role: "option", "aria-selected": "{selected}",
