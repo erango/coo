@@ -522,28 +522,8 @@ fn Body(account_id: String, message_id: String, sender: String, body: StoredBody
         }
     };
 
-    rsx! {
-        if body.has_remote_content && !allowed {
-            div { class: "banner images-banner",
-                Icon { name: "eye", class: "icon--sm" }
-                span { class: "spacer", "Remote images are blocked to keep senders from tracking you." }
-                button { class: "btn btn--secondary btn--sm", r#type: "button",
-                    onclick: move |_| { remote_ok.write().insert(id2.clone()); },
-                    "Load images"
-                }
-                if !sender.is_empty() {
-                    button { class: "btn btn--ghost btn--sm", r#type: "button", title: "Settings › Privacy lists trusted senders",
-                        onclick: move |_| {
-                            let who = always_sender.clone();
-                            crate::prefs::update(move |p| if !p.remote_images_senders.contains(&who) { p.remote_images_senders.push(who) });
-                            remote_ok.write().insert(always_id.clone());
-                        },
-                        "Always from {sender}"
-                    }
-                }
-            }
-        }
-        {content}
+    let on_top = prefs.attachments_position != "bottom";
+    let files_view = rsx! {
         if attachments.len() > 1 {
             div { class: "attachments__head",
                 Icon { name: "clip", class: "icon--sm" }
@@ -601,6 +581,32 @@ fn Body(account_id: String, message_id: String, sender: String, body: StoredBody
                 }
             }
         }
+    };
+
+    rsx! {
+        if on_top { {files_view.clone()} }
+        if body.has_remote_content && !allowed {
+            div { class: "banner images-banner",
+                Icon { name: "eye", class: "icon--sm" }
+                span { class: "spacer", "Remote images are blocked to keep senders from tracking you." }
+                button { class: "btn btn--secondary btn--sm", r#type: "button",
+                    onclick: move |_| { remote_ok.write().insert(id2.clone()); },
+                    "Load images"
+                }
+                if !sender.is_empty() {
+                    button { class: "btn btn--ghost btn--sm", r#type: "button", title: "Settings › Privacy lists trusted senders",
+                        onclick: move |_| {
+                            let who = always_sender.clone();
+                            crate::prefs::update(move |p| if !p.remote_images_senders.contains(&who) { p.remote_images_senders.push(who) });
+                            remote_ok.write().insert(always_id.clone());
+                        },
+                        "Always from {sender}"
+                    }
+                }
+            }
+        }
+        {content}
+        if !on_top { {files_view} }
     }
 }
 

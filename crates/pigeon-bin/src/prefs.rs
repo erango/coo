@@ -60,6 +60,9 @@ pub struct Prefs {
     /// After archiving, deleting or moving the open message: "next" opens
     /// the next one in the list, "close" just closes it.
     pub after_remove: String,
+    /// Where a message's attachments show: "top" (under its header, before
+    /// the text) or "bottom" (after the text).
+    pub attachments_position: String,
     /// Undo-send window in seconds (0 = send immediately).
     pub undo_send_seconds: u32,
     /// Signature HTML per sending address (lowercased email); the key
@@ -138,6 +141,7 @@ impl Default for Prefs {
             default_calendar: String::new(),
             undo_send_seconds: 10,
             after_remove: "next".into(),
+            attachments_position: "top".into(),
             signatures: Default::default(),
             signature_modes: Default::default(),
             list_width: 0,

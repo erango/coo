@@ -15,7 +15,11 @@ use crate::{prefs, themes};
 
 /// Settings subpages: (title, icon, search keywords).
 pub const PAGES: &[(&str, &str, &str)] = &[
-    ("General", "gear", "close window menu bar quit startup archive delete next message after"),
+    (
+        "General",
+        "gear",
+        "close window menu bar quit startup archive delete next message after attachments files top bottom",
+    ),
     ("Appearance", "sun", "theme dark light mode color colour text size font zoom list cards bands avatars density"),
     (
         "Accounts",

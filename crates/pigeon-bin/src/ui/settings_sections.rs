@@ -166,6 +166,8 @@ pub fn General() -> Element {
     let current = *keep.read();
     let mut after = use_signal(|| prefs::get().after_remove);
     let after_now = after.read().clone();
+    let mut att = use_signal(|| prefs::get().attachments_position);
+    let att_now = att.read().clone();
     rsx! {
         div { class: "settings__title", style: "margin-top:12px", "General" }
         div { class: "settings-group",
@@ -204,6 +206,21 @@ pub fn General() -> Element {
                     }
                 }
                 span { class: "settings-field__hint", "Also applies when you move a message to another folder." }
+            }
+            div { class: "settings-field",
+                span { class: "settings-field__label", "Attachments" }
+                div { class: "segmented", role: "radiogroup", "aria-label": "Where attachments show in a message",
+                    for (value, label) in [("top", "Above the message"), ("bottom", "Below the message")] {
+                        button { role: "radio", key: "{value}", "aria-checked": "{att_now == value}", "aria-selected": "{att_now == value}",
+                            onclick: move |_| {
+                                prefs::update(move |p| p.attachments_position = value.to_string());
+                                att.set(value.to_string());
+                            },
+                            "{label}"
+                        }
+                    }
+                }
+                span { class: "settings-field__hint", "Above: right under the sender, before the text." }
             }
         }
     }
