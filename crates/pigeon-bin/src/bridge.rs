@@ -148,6 +148,31 @@ pub const JS: &str = r#"
   document.addEventListener('dragend', chipDone, true);
   document.addEventListener('drop', () => setTimeout(chipDone, 0), true);
 
+  // ---- Archive bursts: the row that slides up under a still pointer ----
+  // WebKit only re-evaluates :hover when the mouse moves, so after a row
+  // leaves, the next one sliding under the pointer would show no buttons
+  // and a quick second click would open it instead of archiving it. While
+  // the list animates, mark the row under the pointer (`data-hover`, styled
+  // like :hover); a real mouse move takes over again.
+  let px = -1, py = -1, hoverUntil = 0;
+  const clearHover = () => document.querySelectorAll('.pane--list .row[data-hover]').forEach((r) => delete r.dataset.hover);
+  document.addEventListener('mousemove', (e) => { px = e.clientX; py = e.clientY; if (hoverUntil) { hoverUntil = 0; clearHover(); } }, true);
+  const hoverTick = () => {
+    if (!hoverUntil) return;
+    const el = px < 0 ? null : document.elementFromPoint(px, py);
+    const row = el && el.closest && el.closest('.pane--list .row:not([data-leaving])');
+    document.querySelectorAll('.pane--list .row[data-hover]').forEach((r) => { if (r !== row) delete r.dataset.hover; });
+    if (row) row.dataset.hover = '1';
+    if (performance.now() < hoverUntil) requestAnimationFrame(hoverTick);
+  };
+  new MutationObserver((ms) => {
+    if (!ms.some((m) => m.target.closest && m.target.closest('.pane--list') &&
+        (m.type === 'childList' || m.attributeName === 'data-leaving'))) return;
+    const start = !hoverUntil;
+    hoverUntil = performance.now() + 400;
+    if (start) requestAnimationFrame(hoverTick);
+  }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-leaving'] });
+
   // ---- Messages dragged from the list onto a composer (attached as .eml) ----
   document.addEventListener('dragover', (e) => {
     const t = e.dataTransfer && e.dataTransfer.types;

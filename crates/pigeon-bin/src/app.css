@@ -513,7 +513,7 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
    arriving rows open fast and settle (expo-out height) while the content
    drops in with a touch of overshoot; leaving rows fade and slip left
    first (ease-in), then the gap closes with a quick in-out so the rows
-   below snap up instead of drifting. Total ≤ 340 ms; list_motion's
+   below snap up instead of drifting. Total ≤ 340 ms (leaving ≈220); list_motion's
    CLEAR_AFTER_MS waits for it. */
 .row[data-entering] {
   overflow: hidden; transform-origin: 50% 0;
@@ -522,12 +522,15 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 }
 @keyframes coo-row-grow { from { height: 0; padding-top: 0; padding-bottom: 0; margin-top: 0; margin-bottom: 0; } }
 @keyframes coo-row-pop { from { opacity: 0; transform: translateY(-10px) scale(0.97); } 40% { opacity: 1; } }
+/* Leaving is quick (≈220 ms) so an archive burst keeps up: the row fades
+   and slips away fast, and the gap closes on an emphasized decelerate
+   curve, so the next row is under the pointer almost at once. */
 .row[data-leaving] {
   overflow: hidden; pointer-events: none;
-  animation: coo-row-fade 150ms cubic-bezier(0.4, 0, 1, 1) forwards,
-             coo-row-shrink 220ms 70ms cubic-bezier(0.7, 0, 0.3, 1) forwards;
+  animation: coo-row-fade 110ms cubic-bezier(0.3, 0, 0.8, 0.15) forwards,
+             coo-row-shrink 180ms 40ms cubic-bezier(0.2, 0, 0, 1) forwards;
 }
-@keyframes coo-row-fade { to { opacity: 0; transform: translateX(-14px) scale(0.98); } }
+@keyframes coo-row-fade { to { opacity: 0; transform: translateX(-10px) scale(0.985); } }
 @keyframes coo-row-shrink { to { height: 0; padding-top: 0; padding-bottom: 0; margin-top: 0; margin-bottom: 0; } }
 @media (prefers-reduced-motion: reduce) { .row[data-entering], .row[data-leaving] { animation: none; } }
 /* Sending row: a tinted band across the bottom of the row, "Sending…" over a
@@ -1262,3 +1265,8 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .list[data-style="classic"] .row[data-unread] { background: color-mix(in srgb, var(--accent) 6%, transparent); }
 .list[data-style="classic"] .row[data-unread]:hover { background: var(--bg-2); }
 .list[data-style="classic"] .row[data-unread][aria-selected="true"] { background: var(--selection); }
+
+/* The row under a still pointer while the list animates (bridge.rs). */
+.list:not([data-style]) .row[data-hover], .list[data-style="classic"] .row[data-hover] { background: var(--bg-2); }
+.list[data-style="cards"] .row[data-hover] { background: var(--card-hover); box-shadow: var(--card-lift); }
+.list[data-style="bands"] .row[data-hover] { background: var(--card-hover); }
