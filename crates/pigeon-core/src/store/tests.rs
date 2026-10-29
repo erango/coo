@@ -875,3 +875,10 @@ fn purge_waits_out_undo_then_drops_the_message() {
     s.mark_op_done(id).unwrap();
     assert!(s.message(&g.id, "a").unwrap().is_none(), "deleted locally once the server took it");
 }
+
+#[test]
+fn folder_message_ids_lists_a_folder() {
+    let (s, g) = gmail_with_labels();
+    assert_eq!(s.folder_message_ids(&g.id, "INBOX").unwrap(), ["a"]);
+    assert!(s.folder_message_ids(&g.id, "TRASH").unwrap().is_empty());
+}

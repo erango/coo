@@ -107,6 +107,16 @@ impl Store {
         Ok(self.conn.execute("DELETE FROM outbox WHERE state = 'done' AND created_at < ?1", [before])?)
     }
 
+    /// Ids of every stored message in a folder (Empty Trash).
+    pub fn folder_message_ids(&self, account_id: &str, folder_id: &str) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT m.id FROM message_folders f JOIN messages m ON m.pk = f.message_pk
+             WHERE f.account_id = ?1 AND f.folder_id = ?2",
+        )?;
+        let ids = stmt.query_map([account_id, folder_id], |r| r.get(0))?.collect::<rusqlite::Result<Vec<String>>>()?;
+        Ok(ids)
+    }
+
     pub fn role_folder(&self, account_id: &str, role: FolderRole) -> Result<Option<String>> {
         role_folder(&self.conn, account_id, role)
     }

@@ -44,6 +44,8 @@ pub enum Target {
     Labels,
     /// One of your Gmail labels (its id).
     Label(String),
+    /// A Trash folder: these accounts' (all of them for the unified one).
+    Trash(Vec<String>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,6 +82,7 @@ pub enum Entry {
     CalSettings,
     NewLabel,
     DeleteLabel,
+    EmptyTrash,
     Sep,
 }
 
@@ -110,6 +113,7 @@ impl Entry {
             Entry::CalSettings => ("Calendar settings…", "gear"),
             Entry::NewLabel => ("New label…", "plus"),
             Entry::DeleteLabel => ("Delete label…", "trash"),
+            Entry::EmptyTrash => ("Empty Trash…", "trash"),
             Entry::Sep => ("", ""),
         }
     }
@@ -237,6 +241,7 @@ fn entries_for(s: &AppState, m: &AccountMenu) -> Vec<Entry> {
         }
         Target::Labels => vec![Entry::NewLabel],
         Target::Label(_) => vec![Entry::NewLabel, Entry::Sep, Entry::DeleteLabel],
+        Target::Trash(_) => vec![Entry::EmptyTrash],
     }
 }
 
@@ -303,6 +308,10 @@ fn run(s: AppState, m: &AccountMenu, entry: Entry) {
         Entry::ClearDefaultCal => s.set_default_calendar(None),
         Entry::CalSettings => super::open_settings_at(s, "Calendar"),
         Entry::NewLabel => super::sidebar::start_new_label(s, &id),
+        Entry::EmptyTrash => {
+            let Target::Trash(ids) = &m.target else { return };
+            super::empty_trash(s, ids.clone());
+        }
         Entry::DeleteLabel => {
             let Target::Label(label) = &m.target else { return };
             super::sidebar::delete_label(s, &id, label);
@@ -351,6 +360,8 @@ pub fn AccountMenuView() -> Element {
     // The heading names what was clicked; its tooltip, where that lives.
     let (name, tip) = match &m.target {
         Target::Labels => ("Labels".to_string(), account.clone()),
+        Target::Trash(ids) if ids.len() > 1 => ("Trash".to_string(), "All accounts".to_string()),
+        Target::Trash(_) => ("Trash".to_string(), account.clone()),
         Target::Label(id) => {
             let name = s
                 .accounts

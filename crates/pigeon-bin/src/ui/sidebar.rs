@@ -165,9 +165,18 @@ fn MailNav(many: bool) -> Element {
                 {
                     let count = if role == FolderRole::Inbox { unified_unread(role) } else { 0 };
                     let active = current == Mailbox::Unified(role);
+                    let all: Vec<String> = accounts.iter().map(|a| a.account.id.clone()).collect();
                     rsx! {
                         a { class: "nav-item", href: "#",
                             "aria-current": if active { "page" } else { "false" },
+                            // Unified Trash: empty every account's.
+                            oncontextmenu: move |e| {
+                                if role == FolderRole::Trash && let Some(first) = all.first() {
+                                    e.prevent_default();
+                                    let p = e.client_coordinates();
+                                    super::account_menu::open_for(s, first, super::account_menu::Target::Trash(all.clone()), p.x, p.y);
+                                }
+                            },
                             onclick: move |e| { e.prevent_default(); mailbox.set(Mailbox::Unified(role)); },
                             Icon { name: icon }
                             span { class: "nav-item__label", "{label}" }
@@ -461,14 +470,22 @@ fn FolderRow(account_id: String, info: FolderInfo, pinned: bool, child: bool) ->
     let here = super::mail_drag::is_current(&mailbox.read(), &account_id, &info);
     let (drop_account, drop_info) = (account_id.clone(), info.clone());
     let own_label = custom && info.folder.kind == pigeon_core::model::FolderKind::Label;
+    let is_trash = info.folder.role == Some(FolderRole::Trash);
     let (menu_account, menu_label) = (account_id.clone(), info.folder.id.clone());
     rsx! {
         a { class: "nav-item nav-item--child", "data-grouped": child.then_some("true"), href: "#",
             oncontextmenu: move |e| {
-                if own_label {
+                let target = if own_label {
+                    Some(super::account_menu::Target::Label(menu_label.clone()))
+                } else if is_trash {
+                    Some(super::account_menu::Target::Trash(vec![menu_account.clone()]))
+                } else {
+                    None
+                };
+                if let Some(target) = target {
                     e.prevent_default();
                     let p = e.client_coordinates();
-                    super::account_menu::open_for(s, &menu_account, super::account_menu::Target::Label(menu_label.clone()), p.x, p.y);
+                    super::account_menu::open_for(s, &menu_account, target, p.x, p.y);
                 }
             },
             "data-folder-drop": droppable.then_some(account_id.clone()),

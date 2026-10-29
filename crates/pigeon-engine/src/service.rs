@@ -263,6 +263,11 @@ pub enum Cmd {
     DiscardDraft {
         draft_id: String,
     },
+    /// Delete everything in these accounts' Trash for good (Gmail can't:
+    /// it empties its Trash itself after 30 days).
+    EmptyTrash {
+        account_ids: Vec<String>,
+    },
     /// Gmail: a new label ("Parent/Child" nests it).
     CreateLabel {
         account_id: String,
@@ -1203,6 +1208,45 @@ impl Service {
                 self.draft_gen.lock().unwrap_or_else(|p| p.into_inner()).remove(&draft_id);
                 self.app.discard_draft(&draft_id).await?;
                 self.toast("Draft discarded", false, None);
+            }
+            Cmd::EmptyTrash { account_ids } => {
+                let mut handles = Vec::new();
+                let mut touched = Vec::new();
+                let (mut count, mut gmail) = (0, false);
+                for account_id in account_ids {
+                    let account = self.app.account(&account_id)?;
+                    if account.provider == pigeon_core::model::ProviderKind::Google {
+                        gmail = true;
+                        continue;
+                    }
+                    let Some(trash) = self.app.store().role_folder(&account.id, FolderRole::Trash)? else { continue };
+                    let ids = self.app.store().folder_message_ids(&account.id, &trash)?;
+                    if ids.is_empty() {
+                        continue;
+                    }
+                    count += ids.len();
+                    handles.push((account_id, self.app.act(&account, &ids, Some(&trash), &MailAction::Trash)?));
+                    touched.push(account);
+                }
+                if handles.is_empty() {
+                    let note = if gmail { crate::actions::GMAIL_PURGE } else { "Trash is already empty" };
+                    self.toast(note, false, None);
+                } else {
+                    let undo = if handles.len() == 1 {
+                        handles.pop()
+                    } else {
+                        let bulk = handles[0].1;
+                        self.bulk_undo.lock().unwrap().insert(bulk, handles);
+                        Some((BULK_UNDO.to_string(), bulk))
+                    };
+                    let what = if count == 1 { "1 message".to_string() } else { format!("{count} messages") };
+                    self.action_toast(format!("Emptied Trash: {what} deleted for good"), undo, &MailAction::Trash);
+                }
+                self.publish().await;
+                for account in touched {
+                    self.clone().flush_after_grace(&MailAction::Trash, account.clone());
+                    self.clone().flush(account).await;
+                }
             }
             Cmd::CreateLabel { account_id, name } => {
                 let account = self.app.account(&account_id)?;

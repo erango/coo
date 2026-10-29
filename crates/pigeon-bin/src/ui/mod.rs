@@ -1112,6 +1112,49 @@ pub fn viewing(mailbox: &Mailbox, account: &AccountNav, role: FolderRole) -> boo
     }
 }
 
+/// Viewing a Trash folder (one account's, or the unified one): its
+/// accounts. Mail there only gets restored, moved or deleted for good.
+pub fn trash_view(s: &AppState) -> Option<Vec<String>> {
+    let accounts = s.accounts.read();
+    match &*s.mailbox.read() {
+        Mailbox::Unified(FolderRole::Trash) => Some(accounts.iter().map(|a| a.account.id.clone()).collect()),
+        mb @ Mailbox::Folder { account_id, .. } => accounts
+            .iter()
+            .find(|a| &a.account.id == account_id)
+            .filter(|a| viewing(mb, a, FolderRole::Trash))
+            .map(|a| vec![a.account.id.clone()]),
+        _ => None,
+    }
+}
+
+/// Whether any of these accounts can empty its Trash (Gmail can't).
+pub fn can_empty_trash(s: &AppState, account_ids: &[String]) -> bool {
+    s.accounts
+        .read()
+        .iter()
+        .any(|a| account_ids.contains(&a.account.id) && a.account.provider != pigeon_core::model::ProviderKind::Google)
+}
+
+/// Ask, then delete everything in these accounts' Trash for good.
+pub fn empty_trash(s: AppState, account_ids: Vec<String>) {
+    if !can_empty_trash(&s, &account_ids) {
+        return s.local_toast(pigeon_engine::GMAIL_PURGE, false);
+    }
+    spawn(async move {
+        let empty = "Empty Trash".to_string();
+        let answer = rfd::AsyncMessageDialog::new()
+            .set_level(rfd::MessageLevel::Warning)
+            .set_title("Empty Trash?")
+            .set_description("Everything in Trash is deleted for good. You can undo for a few seconds.")
+            .set_buttons(rfd::MessageButtons::OkCancelCustom(empty.clone(), "Cancel".into()))
+            .show()
+            .await;
+        if answer == rfd::MessageDialogResult::Custom(empty) {
+            send_cmd(Cmd::EmptyTrash { account_ids });
+        }
+    });
+}
+
 /// What Delete does here: `None` moves to Trash; in Trash, `Some(true)`
 /// deletes for good and `Some(false)` can't (Gmail, see `GMAIL_PURGE`).
 pub fn delete_in_trash(s: &AppState, account_ids: &[&str]) -> Option<bool> {

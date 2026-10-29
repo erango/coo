@@ -359,13 +359,25 @@ pub fn MailList() -> Element {
             if searching.is_none() {
                 {
                     let search_key = if s.reader.read().is_some() { hint(Do::Search) } else { "⌘F".to_string() };
+                    // In Trash: Empty Trash beside the search (not for Gmail-only).
+                    let trash = super::trash_view(&s).filter(|ids| super::can_empty_trash(&s, ids));
                     rsx! {
+                div { class: "list-search-row",
                 button { class: "list-search", r#type: "button", "aria-label": "Search {heading}",
                     onclick: move |_| super::search::open_here(s),
                     Icon { name: "search", class: "icon--sm" }
                     span { class: "list-search__placeholder", dir: "auto", "Search {heading}" }
                     // ⌘F finds in an open conversation instead.
                     if !search_key.is_empty() { kbd { class: "kbd", "{search_key}" } }
+                }
+                if let Some(ids) = trash {
+                    button { class: "btn btn--secondary btn--sm list-empty-trash", r#type: "button",
+                        title: "Delete everything in Trash for good",
+                        onclick: move |_| super::empty_trash(s, ids.clone()),
+                        Icon { name: "trash", class: "icon--sm" }
+                        "Empty"
+                    }
+                }
                 }
                     }
                 }
@@ -546,6 +558,7 @@ pub fn Row(
     let menu_on = s.row_menu.read().as_ref().is_some_and(|m| !m.bulk && AppState::key(&m.item) == key);
     let flagged = h.is_flagged;
     let flag_label = tip(if flagged { "Unflag" } else { "Flag" }, Do::Flag);
+    let in_trash = super::trash_view(&s).is_some();
     let read_label = if unread { tip("Mark read", Do::MarkRead) } else { tip("Mark unread", Do::MarkUnread) };
     // Inline invite only when the body is already loaded (never fetch for the list).
     let invite_key = (item.account_id().to_string(), h.id.clone());
@@ -614,6 +627,8 @@ pub fn Row(
                     time { class: "row__time", "{time}" }
                 }
                 // A quick second click on a button isn't a double-click on the row.
+                // None in Trash: mail there is only restored or deleted for good.
+                if !in_trash {
                 span { class: "row__actions", ondoubleclick: move |e| e.stop_propagation(),
                     button { class: "icon-btn icon-btn--sm", "aria-label": tip("Archive", Do::Archive),
                         onclick: move |e| { e.stop_propagation(); act(s, &i2, MailAction::Archive) },
@@ -637,6 +652,7 @@ pub fn Row(
                         },
                         Icon { name: "mailopen" }
                     }
+                }
                 }
             }
             div { class: "row__subject", dir: "auto", "{subject}" }

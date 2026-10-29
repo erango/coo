@@ -91,6 +91,8 @@ fn ThreadReader() -> Element {
         (key.and_then(|k| list.iter().position(|i| AppState::key(i) == k)).map(|p| p + 1).unwrap_or(0), list.len())
     };
     let flagged = item.as_ref().is_some_and(|i| i.header().is_flagged);
+    // In Trash, mail is only restored (Move) or deleted for good (#).
+    let in_trash = super::trash_view(&s).is_some();
     let (i1, i2, i3, i4, i5, i6) = (item.clone(), item.clone(), item.clone(), item.clone(), item.clone(), item.clone());
     let (i7, i8) = (item.clone(), item.clone());
     // Spam, or Not spam in the spam folder (phishing is under More).
@@ -101,11 +103,13 @@ fn ThreadReader() -> Element {
     rsx! {
         main { class: "pane pane--reader",
             div { class: "reader-toolbar",
+                if !in_trash {
                 button { class: "icon-btn", "aria-label": tip("Archive", Do::Archive), onclick: move |_| if let Some(i) = &i1 { act(s, i, MailAction::Archive) }, Icon { name: "archive", class: "icon--lg" } }
                 button { class: "icon-btn", "aria-label": tip("Delete", Do::Delete), onclick: move |_| if let Some(i) = &i2 { act(s, i, MailAction::Trash) }, Icon { name: "trash", class: "icon--lg" } }
                 button { class: "icon-btn", "aria-label": tip("Flag", Do::Flag),
                     onclick: move |_| if let Some(i) = &i3 { act(s, i, if flagged { MailAction::Unflag } else { MailAction::Flag }) },
                     Icon { name: "flag", class: "icon--lg" }
+                }
                 }
                 button { class: "icon-btn", "aria-label": tip("Move", Do::Move), onclick: move |_| super::move_picker::open(s, false), Icon { name: "folder", class: "icon--lg" } }
                 if let Some(spam) = spam {
