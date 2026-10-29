@@ -502,8 +502,12 @@ pub const JS: &str = r#"
         const r = d.documentElement.style;
         r.width = z === 1 ? '' : f.clientWidth + 'px';
         r.marginRight = z === 1 ? '' : 'auto';
-        const h = d.documentElement.scrollHeight;
-        if (Math.abs(h - f.getBoundingClientRect().height) > 1) f.style.height = h + 'px';
+        // The content's own height: the root's scrollHeight never drops
+        // below the frame's, so a frame could grow but never shrink back,
+        // and mail sized to its frame (height:100%, mailframe.rs) grew it
+        // on every fit.
+        const h = Math.ceil(d.documentElement.getBoundingClientRect().height);
+        if (h > 0 && Math.abs(h - f.getBoundingClientRect().height) > 1) f.style.height = h + 'px';
         f.dataset.fit = '1';
       } catch (_) {}
     };

@@ -174,6 +174,13 @@ pub fn highlight_html(html: &str, terms: &[String]) -> (String, usize) {
 
 const MARK_CSS: &str = "mark{background:#FFE58A;color:#111;border-radius:3px;padding:0 1px}mark[data-current]{background:#1F8A70;color:#fff}";
 
+/// The frame is sized to its content, so the content can't size itself to
+/// the frame: mail that sets `html`/`body` to `height:100%` (or a min-height)
+/// grew the frame on every fit, endlessly or at least never back down.
+/// `:root` keeps these above the mail's own rules, `!important` included.
+const NATURAL_HEIGHT_CSS: &str =
+    "html:root,html:root>body{height:auto!important;min-height:0!important;max-height:none!important}";
+
 /// `palette` + `dark` pick the adapted text/muted/link colors (the frame
 /// can't see the app's custom properties).
 pub fn srcdoc(html: &str, palette: &str, dark: bool, adapted: bool, allow_remote: bool) -> String {
@@ -198,7 +205,7 @@ pub fn srcdoc(html: &str, palette: &str, dark: bool, adapted: bool, allow_remote
         "<!doctype html><html><head><meta charset=\"utf-8\">\
          <meta name=\"color-scheme\" content=\"{scheme}\">\
          <meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; img-src {img_src}; font-src data:\">\
-         <base target=\"_blank\"><style>{style}{MARK_CSS}:root{{color-scheme:{scheme}}}</style></head><body dir=\"auto\">{html}</body></html>"
+         <base target=\"_blank\"><style>{style}{MARK_CSS}{NATURAL_HEIGHT_CSS}:root{{color-scheme:{scheme}}}</style></head><body dir=\"auto\">{html}</body></html>"
     )
 }
 
