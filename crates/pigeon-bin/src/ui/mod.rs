@@ -1231,8 +1231,19 @@ pub fn report_bug(s: AppState) {
     o.set(true);
 }
 
+/// A new message, from the account whose folder is open (any of its
+/// folders); from the all-accounts mailboxes (or Calendar), from the
+/// default set in Settings.
 pub fn new_message(s: AppState) {
-    send_cmd(Cmd::NewDraft { from_account: s.default_from() });
+    send_cmd(Cmd::NewDraft { from_account: contextual_from(&s) });
+}
+
+fn contextual_from(s: &AppState) -> Option<String> {
+    let here = match &*s.mailbox.read() {
+        Mailbox::Folder { account_id, .. } if *s.mode.read() == Mode::Mail => Some(account_id.clone()),
+        _ => None,
+    };
+    here.filter(|id| s.accounts.read().iter().any(|a| &a.account.id == id)).or_else(|| s.default_from())
 }
 
 pub fn reply(item: &ListItem, kind: ReplyKind) {
