@@ -1838,11 +1838,22 @@ fn safe_file_name(name: &str) -> String {
     if cleaned.is_empty() { "Attachment".into() } else { cleaned.into() }
 }
 
-/// A message's .eml file name, from its subject.
+/// A message's .eml file name: its subject, dashed (no spaces, which some
+/// systems and tools handle badly), cut to 60 characters.
 pub fn eml_name(subject: &str) -> String {
-    let base: String = safe_file_name(subject).chars().take(120).collect();
-    let base = if subject.trim().is_empty() { "Message".to_string() } else { base };
-    format!("{base}.eml")
+    let words: Vec<String> = subject
+        .split(|c: char| {
+            c.is_whitespace() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control()
+        })
+        .filter(|w| !w.is_empty())
+        .map(String::from)
+        .collect();
+    let mut base: String = words.join("-").chars().take(60).collect();
+    while base.ends_with(['-', '.']) {
+        base.pop();
+    }
+    let base = base.trim_start_matches(['.', '-']);
+    if base.is_empty() { "Message.eml".into() } else { format!("{base}.eml") }
 }
 
 /// `dir/name`, or `dir/name 2.ext`, `name 3.ext`… when that's taken.
@@ -1885,10 +1896,11 @@ async fn save_image(url: &str, path: &std::path::Path) -> Result<()> {
 mod tests {
     #[test]
     fn eml_names_come_from_the_subject() {
-        assert_eq!(super::eml_name("Q4 plan: draft/v2"), "Q4 plan- draft-v2.eml");
+        assert_eq!(super::eml_name("Q4 plan: draft/v2"), "Q4-plan-draft-v2.eml");
         assert_eq!(super::eml_name("  "), "Message.eml");
-        assert_eq!(super::eml_name("הזמנה 4471"), "הזמנה 4471.eml");
-        assert!(super::eml_name(&"x".repeat(500)).len() <= 124);
+        assert_eq!(super::eml_name("הזמנה 4471"), "הזמנה-4471.eml");
+        assert_eq!(super::eml_name("Re:  ...hello?"), "Re-...hello.eml");
+        assert!(super::eml_name(&"word ".repeat(100)).chars().count() <= 64);
     }
 
     use super::*;

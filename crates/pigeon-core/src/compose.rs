@@ -462,7 +462,13 @@ pub fn build_mime(draft: &Draft, attachments: &[Vec<u8>], now_secs: i64) -> Resu
 }
 
 fn content_type(a: &DraftAttachment) -> String {
-    a.content_type.clone().unwrap_or_else(|| "application/octet-stream".into())
+    match a.content_type.as_deref() {
+        // An attached email goes as a plain .eml file: message/rfc822 parts
+        // may not be base64 (RFC 2046), and mail apps showed them as
+        // "part-1" instead of by name.
+        None | Some("message/rfc822") => "application/octet-stream".into(),
+        Some(t) => t.to_string(),
+    }
 }
 
 /// The body when the quote shows inline images: the text/HTML alternatives
@@ -908,5 +914,23 @@ mod tests {
         let (_, mime) = build_mime(&d, &[b"hello".to_vec()], 0).unwrap();
         let mime = String::from_utf8(mime).unwrap();
         assert!(mime.contains("multipart/mixed") && mime.contains("a.txt"));
+    }
+
+    #[test]
+    fn attached_emails_go_as_named_eml_files() {
+        let from = Sender { account_id: "g:me@x.io".into(), address: Address::new(None, "me@x.io") };
+        let mut d = Draft::new(from, 0);
+        d.to = vec![Address::new(None, "a@b.c")];
+        d.body_html = "<div>hi</div>".into();
+        d.attachments.push(DraftAttachment {
+            name: "Q4-plan-review.eml".into(),
+            content_type: Some("message/rfc822".into()),
+            source: AttachmentSource::Email { account_id: "g".into(), message_id: "m".into() },
+        });
+        let (_, mime) = build_mime(&d, &[b"Subject: Q4\r\n\r\nbody\r\n".to_vec()], 0).unwrap();
+        let mime = String::from_utf8_lossy(&mime);
+        // message/rfc822 may not be base64; mail apps then call it "part-1".
+        assert!(!mime.contains("Content-Type: message/rfc822"));
+        assert!(mime.contains("filename=\"Q4-plan-review.eml\""));
     }
 }
