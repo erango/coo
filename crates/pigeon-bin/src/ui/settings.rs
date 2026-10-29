@@ -18,7 +18,7 @@ pub const PAGES: &[(&str, &str, &str)] = &[
     (
         "General",
         "gear",
-        "close window menu bar quit startup archive delete next message after attachments files top bottom",
+        "close window menu bar quit startup archive delete next message after attachments files top bottom mark read unread seconds delay",
     ),
     ("Appearance", "sun", "theme dark light mode color colour text size font zoom list cards bands avatars density"),
     (

@@ -132,6 +132,7 @@ pub fn App() -> Element {
         spawn(save_image_loop());
         spawn(state::pump(s));
         spawn(bridge_loop(s));
+        send_read_delay();
         crate::keymon::start();
         spawn(reminder_loop(s));
         spawn(click_loop(s));
@@ -1297,6 +1298,11 @@ pub fn undo_last(s: AppState) {
     let mut toasts = s.toasts;
     toasts.write().retain(|t| t.undo.as_ref().map(|u| u.1) != Some(handle));
     send_cmd(Cmd::Undo { account_id, handle });
+}
+
+/// Tell the engine how long an opened conversation waits to be marked read.
+pub fn send_read_delay() {
+    send_cmd(Cmd::SetReadDelay { ms: u64::from(crate::prefs::get().read_delay_secs) * 1000 });
 }
 
 /// A sync the user asked for: the footer says "Syncing…" until it's done.

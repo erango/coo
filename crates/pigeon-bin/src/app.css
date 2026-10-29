@@ -1231,3 +1231,7 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .list-search-row { display: flex; align-items: center; gap: 8px; margin: 0 16px 10px; }
 .list-search-row > .list-search { flex: 1; min-width: 0; margin: 0; }
 .list-empty-trash { flex: none; height: 34px; gap: 6px; }
+
+/* Settings › General › Mark as read: the seconds field. */
+.read-delay { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-ui); color: var(--text-2); }
+.read-delay__input { width: 72px; }

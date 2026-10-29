@@ -3,7 +3,7 @@
 //! the UI thread never touches SQL or the network.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use base64::Engine as _;
@@ -145,6 +145,11 @@ pub enum Cmd {
     OpenMessage {
         account_id: String,
         message_id: String,
+    },
+    /// Mark an opened conversation read only after it stayed open this long
+    /// (ms; 0: as soon as it opens).
+    SetReadDelay {
+        ms: u64,
     },
     /// Act on messages; with `thread_id`, on that thread's messages in the
     /// current mailbox (so archiving a thread leaves your Sent copies alone).
@@ -617,6 +622,10 @@ struct Service {
     in_flight: Mutex<std::collections::HashSet<String>>,
     /// Undo handles of bulk actions that spanned accounts, by bulk handle.
     bulk_undo: std::sync::Mutex<std::collections::HashMap<i64, Vec<(String, i64)>>>,
+    /// How long a conversation stays open before it's marked read (ms; 0:
+    /// right away), and which opening is the current one.
+    read_delay_ms: AtomicU64,
+    opened: AtomicU64,
 }
 
 /// How many newest inbox rows per account are checked for new mail.
@@ -968,6 +977,7 @@ impl Service {
                 let focus = last.id.clone();
                 self.open(account, thread_id, messages, focus, false).await?;
             }
+            Cmd::SetReadDelay { ms } => self.read_delay_ms.store(ms, Ordering::Relaxed),
             Cmd::OpenMessage { account_id, message_id } => {
                 let account = self.app.account(&account_id)?;
                 let Some(h) = self.app.store().message(&account_id, &message_id)? else { return Ok(()) };
@@ -1520,13 +1530,33 @@ impl Service {
         let unread: Vec<String> = messages.iter().filter(|m| !m.is_read).map(|m| m.id.clone()).collect();
         let ids: Vec<String> = messages.iter().map(|m| m.id.clone()).collect();
         self.send(Delta::Reader(ReaderView { account_id: account.id.clone(), thread_id, messages, focus, single }));
+        let opening = self.opened.fetch_add(1, Ordering::Relaxed) + 1;
         if !unread.is_empty() {
-            self.app.act(&account, &unread, None, &MailAction::MarkRead)?;
-            self.publish().await;
-            tokio::spawn(self.clone().flush(account.clone()));
+            let delay = self.read_delay_ms.load(Ordering::Relaxed);
+            if delay == 0 {
+                self.mark_opened_read(&account, &unread).await?;
+            } else {
+                // Read once it's stayed open that long (nothing else opened since).
+                let (svc, account) = (self.clone(), account.clone());
+                tokio::spawn(async move {
+                    tokio::time::sleep(Duration::from_millis(delay)).await;
+                    if svc.opened.load(Ordering::Relaxed) == opening
+                        && let Err(e) = svc.mark_opened_read(&account, &unread).await
+                    {
+                        svc.fail("Could not mark as read", &e);
+                    }
+                });
+            }
         }
         // Newest first: the expanded message is what the user reads.
         tokio::spawn(self.clone().open_bodies(account, ids.into_iter().rev().collect()));
+        Ok(())
+    }
+
+    async fn mark_opened_read(self: &Arc<Self>, account: &Account, unread: &[String]) -> Result<()> {
+        self.app.act(account, unread, None, &MailAction::MarkRead)?;
+        self.publish().await;
+        tokio::spawn(self.clone().flush(account.clone()));
         Ok(())
     }
 
@@ -1622,6 +1652,8 @@ pub async fn run(app: Arc<Pigeon>, mut rx: mpsc::UnboundedReceiver<Cmd>, tx: mps
         notify_marks: Default::default(),
         in_flight: Mutex::new(Default::default()),
         bulk_undo: Default::default(),
+        read_delay_ms: AtomicU64::new(0),
+        opened: AtomicU64::new(0),
     });
     // Watermark existing mail so only what arrives from now on notifies.
     svc.check_new_mail().await;

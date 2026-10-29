@@ -68,6 +68,9 @@ pub struct Prefs {
     /// Drafts: "ask" (when closing a changed message) or "auto" (saved to
     /// Drafts as you write).
     pub draft_saving: String,
+    /// Seconds a conversation stays open before it's marked read (0: as
+    /// soon as it opens).
+    pub read_delay_secs: u32,
     /// Undo-send window in seconds (0 = send immediately).
     pub undo_send_seconds: u32,
     /// Signature HTML per sending address (lowercased email); the key
@@ -149,6 +152,7 @@ impl Default for Prefs {
             attachments_position: "top".into(),
             shortcut_style: "gmail".into(),
             draft_saving: "ask".into(),
+            read_delay_secs: 0,
             signatures: Default::default(),
             signature_modes: Default::default(),
             list_width: 0,

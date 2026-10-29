@@ -168,6 +168,8 @@ pub fn General() -> Element {
     let after_now = after.read().clone();
     let mut att = use_signal(|| prefs::get().attachments_position);
     let att_now = att.read().clone();
+    let mut read_after = use_signal(|| prefs::get().read_delay_secs);
+    let read_now = *read_after.read();
     rsx! {
         div { class: "settings__title", style: "margin-top:12px", "General" }
         div { class: "settings-group",
@@ -191,6 +193,43 @@ pub fn General() -> Element {
                         "Closing the window quits Coo: no new-mail notifications or reminders until you open it again."
                     }
                 }
+            }
+            div { class: "settings-field",
+                span { class: "settings-field__label", "Mark as read" }
+                div { class: "segmented", role: "radiogroup", "aria-label": "When an opened message is marked read",
+                    button { role: "radio", "aria-checked": "{read_now == 0}", "aria-selected": "{read_now == 0}",
+                        onclick: move |_| {
+                            prefs::update(|p| p.read_delay_secs = 0);
+                            read_after.set(0);
+                            super::send_read_delay();
+                        },
+                        "When opened"
+                    }
+                    button { role: "radio", "aria-checked": "{read_now > 0}", "aria-selected": "{read_now > 0}",
+                        onclick: move |_| if read_now == 0 {
+                            prefs::update(|p| p.read_delay_secs = 3);
+                            read_after.set(3);
+                            super::send_read_delay();
+                        },
+                        "After a few seconds"
+                    }
+                }
+                if read_now > 0 {
+                    label { class: "read-delay",
+                        input { class: "input input--sm read-delay__input", r#type: "number", min: "1", max: "600", step: "1",
+                            "aria-label": "Seconds before marking as read",
+                            value: "{read_now}",
+                            onchange: move |e| {
+                                let secs = e.value().trim().parse::<u32>().unwrap_or(read_now).clamp(1, 600);
+                                prefs::update(move |p| p.read_delay_secs = secs);
+                                read_after.set(secs);
+                                super::send_read_delay();
+                            },
+                        }
+                        span { "seconds after it opens" }
+                    }
+                }
+                span { class: "settings-field__hint", "Moving on to another message before then leaves it unread." }
             }
             div { class: "settings-field",
                 span { class: "settings-field__label", "After archive or delete" }
