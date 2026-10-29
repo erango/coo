@@ -290,6 +290,8 @@ pub enum Cmd {
         messages: Vec<(String, String, String)>,
         dest: std::path::PathBuf,
         into_folder: bool,
+        /// Told whether every message was saved (a Finder drop waits on it).
+        done: Option<std::sync::mpsc::SyncSender<bool>>,
     },
     /// Gmail: a new label ("Parent/Child" nests it).
     CreateLabel {
@@ -1335,7 +1337,17 @@ impl Service {
                 .map_err(|e| Error::Other(e.to_string()))??;
                 self.send(Delta::AttachmentReady(path, how));
             }
-            Cmd::SaveMessages { messages, dest, into_folder } => {
+            Cmd::SaveMessages { messages, dest, into_folder, done } => {
+                // Answer the waiter even when this fails early.
+                struct Reply(Option<std::sync::mpsc::SyncSender<bool>>, bool);
+                impl Drop for Reply {
+                    fn drop(&mut self) {
+                        if let Some(tx) = self.0.take() {
+                            let _ = tx.try_send(self.1);
+                        }
+                    }
+                }
+                let mut reply = Reply(done, false);
                 let mut saved = 0;
                 let mut last = None;
                 for (account_id, message_id, subject) in &messages {
@@ -1378,6 +1390,7 @@ impl Service {
                 if let (Some(msg), Some(last)) = (msg, last) {
                     self.saved_toast(msg, last);
                 }
+                reply.1 = saved == messages.len();
             }
             Cmd::CreateLabel { account_id, name } => {
                 let account = self.app.account(&account_id)?;

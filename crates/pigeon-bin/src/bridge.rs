@@ -15,7 +15,9 @@ pub struct Msg {
 
 /// Everything a window runs: this bridge, then the composer's rich text.
 pub fn script() -> String {
-    format!("{JS}\n{}\n{}", crate::richtext::script(), crate::shortcuts::bridge_js(*crate::shortcuts::STYLE.peek()))
+    // The message-drag page side lives inside the bridge's scope (`send`).
+    let js = JS.replacen("  // ---- Search box:", &format!("{}\n  // ---- Search box:", crate::ui::mail_drag::JS), 1);
+    format!("{js}\n{}\n{}", crate::richtext::script(), crate::shortcuts::bridge_js(*crate::shortcuts::STYLE.peek()))
 }
 
 pub const JS: &str = r#"

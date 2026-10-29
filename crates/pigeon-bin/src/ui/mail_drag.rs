@@ -2,10 +2,10 @@
 //! it) onto a sidebar folder or label to move them there. The move is the
 //! ordinary mail action, so its toast offers Undo.
 //!
-//! WebKit needs data set on `dragstart` and `dragover` cancelled
-//! synchronously before it fires `drop`, so that part runs in JS (`JS`);
-//! which folders accept the drag (same account, not the folder being
-//! viewed) is decided there from the rows' and folders' data attributes.
+//! The drag is a native one (dragout.rs), so a message dropped on Finder is
+//! saved there as .eml; inside Coo the page decides which folders accept it
+//! (same account, not the folder being viewed) from the rows' and folders'
+//! data attributes (`JS`).
 
 use dioxus::prelude::*;
 use pigeon_core::model::{FolderInfo, FolderKind, FolderRole};
@@ -14,50 +14,61 @@ use pigeon_engine::service::{ListItem, Mailbox};
 
 use crate::state::AppState;
 
-/// Installed once (sidebar). `data-mail-drag` on a row lists the accounts
-/// it would carry (one per line); `data-folder-drop` on a folder names its
-/// account. Hovering a closed Folders group or a collapsed account (marked
-/// `data-spring`) for a moment opens it, like Finder's spring-loaded
-/// folders.
-pub const JS: &str = r#"(() => {
-  let accounts = null, spring = null, springAt = 0;
-  const done = () => {
-    accounts = null; spring = null;
-    delete document.documentElement.dataset.mailDragging;
-    document.querySelectorAll('[data-drop-target]').forEach(x => delete x.dataset.dropTarget);
-  };
-  document.addEventListener('dragstart', e => {
-    const r = e.target.closest && e.target.closest('[data-mail-drag]');
-    if (!r) return;
-    accounts = new Set(r.dataset.mailDrag.split('\n'));
-    e.dataTransfer.setData('text/plain', r.dataset.dragLabel || '');
-    // Marks a message drag for composers (in other windows too).
-    e.dataTransfer.setData('application/x-coo-mail', '1');
-    e.dataTransfer.effectAllowed = 'move';
-    const pill = document.createElement('div');
-    pill.className = 'drag-pill';
-    pill.textContent = r.dataset.dragLabel || '';
-    document.body.appendChild(pill);
-    e.dataTransfer.setDragImage(pill, 14, 14);
-    setTimeout(() => pill.remove(), 0);
-    document.documentElement.dataset.mailDragging = 'true';
+/// The page side of a message drag, installed with the bridge (main
+/// window). `data-mail-drag` on a row lists the accounts it would carry (one
+/// per line) and `data-mail-key` names it; `data-folder-drop` on a folder
+/// names its account. A press and a 5 px move on a row asks Rust for the
+/// native drag (`mail-drag`, dragout.rs), which then reports the pointer
+/// (`__pigeonMailDragAt`), a release inside Coo (`__pigeonMailDropAt`: the
+/// folder or composer there gets a `drop` event, handled as before) and the
+/// end. Hovering a closed Folders group or a collapsed account (marked
+/// `data-spring`) for a moment opens it, like Finder's spring-loaded folders.
+pub const JS: &str = r#"
+  let mailAccounts = null, spring = null, springAt = 0, press = null;
+  document.addEventListener('mousedown', (e) => {
+    if (e.button !== 0 || !e.target.closest) return;
+    const r = e.target.closest('[data-mail-drag]');
+    press = r && !e.target.closest('button, a, input') ? { r, x: e.clientX, y: e.clientY } : null;
   }, true);
-  document.addEventListener('dragover', e => {
-    if (!accounts || !e.target.closest) return;
-    // Over a composer: attached as .eml (the bridge allows that drop).
-    if (e.target.closest('[data-mail-attach]')) return;
-    const f = e.target.closest('[data-folder-drop]');
-    const ok = f && !f.dataset.folderCurrent && accounts.size === 1 && accounts.has(f.dataset.folderDrop);
-    document.querySelectorAll('[data-drop-target]').forEach(x => { if (x !== f) delete x.dataset.dropTarget; });
-    if (ok) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; f.dataset.dropTarget = 'true'; }
-    else { e.dataTransfer.dropEffect = 'none'; }
-    const sp = e.target.closest('[data-spring]');
+  document.addEventListener('mousemove', (e) => {
+    if (!press) return;
+    if (!(e.buttons & 1)) { press = null; return; }
+    if (Math.hypot(e.clientX - press.x, e.clientY - press.y) < 5) return;
+    mailAccounts = new Set(press.r.dataset.mailDrag.split('
+'));
+    document.documentElement.dataset.mailDragging = 'true';
+    send('mail-drag', press.r.dataset.mailKey);
+    press = null;
+  }, true);
+  document.addEventListener('mouseup', () => { press = null; }, true);
+  const mailTarget = (x, y) => {
+    const el = document.elementFromPoint(x, y);
+    if (!el || !el.closest || !mailAccounts) return null;
+    const c = el.closest('[data-mail-attach]');
+    if (c) return c;
+    const f = el.closest('[data-folder-drop]');
+    return f && !f.dataset.folderCurrent && mailAccounts.size === 1 && mailAccounts.has(f.dataset.folderDrop) ? f : null;
+  };
+  window.__pigeonMailDragAt = (x, y) => {
+    const t = mailTarget(x, y);
+    document.querySelectorAll('[data-drop-target]').forEach((n) => { if (n !== t) delete n.dataset.dropTarget; });
+    if (t) t.dataset.dropTarget = 'true';
+    const el = document.elementFromPoint(x, y);
+    const sp = el && el.closest && el.closest('[data-spring]');
     if (sp !== spring) { spring = sp; springAt = performance.now(); }
     else if (sp && performance.now() - springAt > 650) { spring = null; sp.click(); }
-  }, true);
-  document.addEventListener('drop', () => setTimeout(done, 0), true);
-  document.addEventListener('dragend', done, true);
-})();"#;
+  };
+  window.__pigeonMailDropAt = (x, y) => {
+    const t = mailTarget(x, y);
+    if (t) t.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }));
+  };
+  window.__pigeonMailDragEnd = () => {
+    mailAccounts = null; spring = null;
+    delete document.documentElement.dataset.mailDragging;
+    document.querySelectorAll('[data-drop-target]').forEach((n) => delete n.dataset.dropTarget);
+    send('mail-drag-end', '');
+  };
+"#;
 
 /// "3 conversations" / "3 messages".
 fn count_label(n: usize, threaded: bool) -> String {

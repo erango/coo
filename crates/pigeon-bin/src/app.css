@@ -1270,3 +1270,7 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .list:not([data-style]) .row[data-hover], .list[data-style="classic"] .row[data-hover] { background: var(--bg-2); }
 .list[data-style="cards"] .row[data-hover] { background: var(--card-hover); box-shadow: var(--card-lift); }
 .list[data-style="bands"] .row[data-hover] { background: var(--card-hover); }
+
+/* A message dragged over a composer (native drag, mail_drag::JS). */
+[data-mail-attach][data-drop-target] > .dropzone { display: flex; }
+.row[data-mail-drag] { -webkit-user-select: none; user-select: none; }

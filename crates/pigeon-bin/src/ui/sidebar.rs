@@ -152,7 +152,6 @@ fn MailNav(many: bool) -> Element {
                if (e.target.closest && e.target.closest('[data-account-drop]')) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }\
              }, true);",
         );
-        document::eval(super::mail_drag::JS);
     });
 
     let unified_unread = |role: FolderRole| -> u32 {

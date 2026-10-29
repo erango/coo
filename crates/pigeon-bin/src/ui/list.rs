@@ -550,10 +550,10 @@ pub fn Row(
     let time = format::row_time(h.received_at, chrono::Local::now());
     let subject = if h.subject.is_empty() { "(no subject)".to_string() } else { h.subject.clone() };
     let (i1, i2, i3, i4, i5) = (item.clone(), item.clone(), item.clone(), item.clone(), item.clone());
-    let (i6, i7, i8) = (item.clone(), item.clone(), item.clone());
+    let (i6, i7) = (item.clone(), item.clone());
     // Drafts stay put; rows on their way out can't be picked up.
     let can_drag = !h.is_draft && motion.is_none();
-    let (drag_accounts, drag_label) = super::mail_drag::row_attrs(&s, &item, &subject);
+    let (drag_accounts, _) = super::mail_drag::row_attrs(&s, &item, &subject);
     // Ringed while its right-click menu is open.
     let menu_on = s.row_menu.read().as_ref().is_some_and(|m| !m.bulk && AppState::key(&m.item) == key);
     let flagged = h.is_flagged;
@@ -583,17 +583,10 @@ pub fn Row(
             "data-focused": open.then_some("true"),
             "data-context": menu_on.then_some("true"),
             "data-edge": edge,
-            draggable: if can_drag { "true" } else { "false" },
+            // A press and move starts a native drag (mail_drag::JS): onto a
+            // folder or a composer here, or out to Finder as .eml.
             "data-mail-drag": can_drag.then_some(drag_accounts),
-            "data-drag-label": can_drag.then_some(drag_label),
-            ondragstart: move |_| super::mail_drag::start(s, &i8),
-            // Dropped nowhere that took it: it carries nothing anymore.
-            ondragend: move |_| {
-                let mut d = s.mail_drag;
-                if d.peek().is_some() {
-                    d.set(None);
-                }
-            },
+            "data-mail-key": can_drag.then_some(key.clone()),
             onclick: move |e| super::multi::click(s, &i1, super::multi::How::of(&e)),
             // Its own window (the first click has opened it here already).
             ondoubleclick: move |e| {

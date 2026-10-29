@@ -14,7 +14,7 @@ mod icloud;
 mod invite;
 mod list;
 mod list_motion;
-mod mail_drag;
+pub(crate) mod mail_drag;
 pub mod mailframe;
 mod move_picker;
 mod multi;
@@ -78,6 +78,7 @@ pub fn App() -> Element {
     crate::keymon::use_native_keys();
     zoom::use_live_zoom();
     zoom::use_wheel_zoom(s);
+    crate::dragout::use_main_js();
     // Closing the main window either hides it into the menu bar (Settings ›
     // General) or quits; quitting closes compose windows first, since they
     // read the main window's state. Launching Coo again while it's hidden
@@ -1017,6 +1018,31 @@ async fn bridge_loop(s: AppState) {
             }
             "ctx-img" => crate::ctxmenu::set_image(&msg.v),
             "attach-drag" => crate::dragout::start(&msg.v),
+            // A row pressed and moved: drag it (or the selection it's in).
+            "mail-drag" => {
+                if let Some(item) = s.visible_items().into_iter().find(|i| AppState::key(i) == msg.v) {
+                    mail_drag::start(s, &item);
+                    let files = s
+                        .mail_drag
+                        .peek()
+                        .iter()
+                        .flatten()
+                        .map(|i| crate::dragout::MailFile {
+                            account_id: i.account_id().to_string(),
+                            message_id: i.header().id.clone(),
+                            subject: i.header().subject.clone(),
+                        })
+                        .collect();
+                    crate::dragout::start_mail(files);
+                }
+            }
+            // Any drop inside Coo has taken what it needs by now.
+            "mail-drag-end" => {
+                let mut d = s.mail_drag;
+                if d.peek().is_some() {
+                    d.set(None);
+                }
+            }
             "link" => {
                 let v = msg.v.to_ascii_lowercase();
                 if v.starts_with("http://") || v.starts_with("https://") || v.starts_with("mailto:") {
@@ -1156,7 +1182,7 @@ pub fn save_eml(items: Vec<ListItem>) {
             (dialog.set_title("Save Messages").pick_folder().await, true)
         };
         if let Some(dest) = dest {
-            send_cmd(Cmd::SaveMessages { messages, dest: dest.path().to_path_buf(), into_folder });
+            send_cmd(Cmd::SaveMessages { messages, dest: dest.path().to_path_buf(), into_folder, done: None });
         }
     });
 }
