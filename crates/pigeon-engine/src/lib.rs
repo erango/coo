@@ -664,6 +664,10 @@ impl Pigeon {
                 AttachmentSource::Message { account_id, message_id, attachment_id, .. } => {
                     self.attachment(&self.account(account_id)?, message_id, attachment_id).await?
                 }
+                AttachmentSource::Email { account_id, message_id } => {
+                    bytes.push(self.raw_message(&self.account(account_id)?, message_id).await?);
+                    continue;
+                }
                 // Streamed from Drive into the message; never written to disk.
                 AttachmentSource::Drive { account_id, file_id, export_mime, .. } => {
                     bytes.push(self.drive_bytes(account_id, file_id, export_mime.as_deref()).await?);

@@ -154,6 +154,12 @@ pub enum AttachmentSource {
         #[serde(default)]
         size: Option<u64>,
     },
+    /// A whole message (dragged onto the composer), attached as .eml: its
+    /// original, fetched from that account's server at send time.
+    Email {
+        account_id: String,
+        message_id: String,
+    },
 }
 
 impl AttachmentSource {

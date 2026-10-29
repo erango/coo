@@ -31,6 +31,8 @@ pub const JS: &str = r#"(() => {
     if (!r) return;
     accounts = new Set(r.dataset.mailDrag.split('\n'));
     e.dataTransfer.setData('text/plain', r.dataset.dragLabel || '');
+    // Marks a message drag for composers (in other windows too).
+    e.dataTransfer.setData('application/x-coo-mail', '1');
     e.dataTransfer.effectAllowed = 'move';
     const pill = document.createElement('div');
     pill.className = 'drag-pill';
@@ -42,6 +44,8 @@ pub const JS: &str = r#"(() => {
   }, true);
   document.addEventListener('dragover', e => {
     if (!accounts || !e.target.closest) return;
+    // Over a composer: attached as .eml (the bridge allows that drop).
+    if (e.target.closest('[data-mail-attach]')) return;
     const f = e.target.closest('[data-folder-drop]');
     const ok = f && !f.dataset.folderCurrent && accounts.size === 1 && accounts.has(f.dataset.folderDrop);
     document.querySelectorAll('[data-drop-target]').forEach(x => { if (x !== f) delete x.dataset.dropTarget; });

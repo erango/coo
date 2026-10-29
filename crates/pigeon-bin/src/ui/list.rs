@@ -587,6 +587,13 @@ pub fn Row(
             "data-mail-drag": can_drag.then_some(drag_accounts),
             "data-drag-label": can_drag.then_some(drag_label),
             ondragstart: move |_| super::mail_drag::start(s, &i8),
+            // Dropped nowhere that took it: it carries nothing anymore.
+            ondragend: move |_| {
+                let mut d = s.mail_drag;
+                if d.peek().is_some() {
+                    d.set(None);
+                }
+            },
             onclick: move |e| super::multi::click(s, &i1, super::multi::How::of(&e)),
             // Its own window (the first click has opened it here already).
             ondoubleclick: move |e| {

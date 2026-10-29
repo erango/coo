@@ -275,6 +275,14 @@ pub enum Cmd {
     EmptyTrash {
         account_ids: Vec<String>,
     },
+    /// A message's original as a temporary .eml file, then opened,
+    /// previewed or shown in Finder (an email attached to a draft).
+    OpenEmail {
+        account_id: String,
+        message_id: String,
+        name: String,
+        how: OpenHow,
+    },
     /// Save messages as .eml files: (account id, message id, subject) each.
     /// `into_folder`: `dest` is a folder (names from the subjects, " 2"
     /// when taken); otherwise the one file to write.
@@ -1291,6 +1299,19 @@ impl Service {
                     self.clone().flush_after_grace(&MailAction::Trash, account.clone());
                     self.clone().flush(account).await;
                 }
+            }
+            Cmd::OpenEmail { account_id, message_id, name, how } => {
+                let account = self.app.account(&account_id)?;
+                let bytes = self.app.raw_message(&account, &message_id).await?;
+                let dir = std::env::temp_dir().join("coo-emails");
+                let path = dir.join(safe_file_name(&name));
+                tokio::task::spawn_blocking({
+                    let path = path.clone();
+                    move || std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(path, bytes))
+                })
+                .await
+                .map_err(|e| Error::Other(e.to_string()))??;
+                self.send(Delta::AttachmentReady(path, how));
             }
             Cmd::SaveMessages { messages, dest, into_folder } => {
                 let mut saved = 0;

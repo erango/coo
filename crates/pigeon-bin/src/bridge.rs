@@ -148,6 +148,13 @@ pub const JS: &str = r#"
   document.addEventListener('dragend', chipDone, true);
   document.addEventListener('drop', () => setTimeout(chipDone, 0), true);
 
+  // ---- Messages dragged from the list onto a composer (attached as .eml) ----
+  document.addEventListener('dragover', (e) => {
+    const t = e.dataTransfer && e.dataTransfer.types;
+    if (!t || !Array.from(t).includes('application/x-coo-mail')) return;
+    if (e.target.closest && e.target.closest('[data-mail-attach]')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }
+  }, true);
+
   // ---- Search box: report the caret (operator autocomplete) ----
   let lastCaret = '';
   const searchCaret = () => {

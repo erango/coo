@@ -568,6 +568,25 @@ fn cross_hint(s: &AppState, d: &Draft) -> Option<String> {
 }
 
 /// Add dropped files to the open draft.
+/// Messages dropped on the composer: each attached as its original (.eml).
+fn add_emails(slot: ComposeSlot, items: &[pigeon_engine::service::ListItem]) {
+    let mut draft = slot.draft;
+    if let Some(d) = draft.write().as_mut() {
+        for i in items {
+            let h = i.header();
+            let source = AttachmentSource::Email { account_id: i.account_id().to_string(), message_id: h.id.clone() };
+            if d.attachments.iter().any(|a| a.source == source) {
+                continue;
+            }
+            d.attachments.push(DraftAttachment {
+                name: pigeon_engine::service::eml_name(&h.subject),
+                content_type: Some("message/rfc822".into()),
+                source,
+            });
+        }
+    }
+}
+
 fn add_files(slot: ComposeSlot, files: Vec<dioxus::html::FileData>) {
     let mut draft = slot.draft;
     if let Some(d) = draft.write().as_mut() {
@@ -582,6 +601,7 @@ fn file_size(a: &DraftAttachment) -> String {
         }
         AttachmentSource::Message { size: Some(n), .. } => crate::format::size(*n),
         AttachmentSource::Message { .. } => "forwarded".into(),
+        AttachmentSource::Email { .. } => "email".into(),
         AttachmentSource::Drive { size: Some(n), .. } => crate::format::size(*n),
         AttachmentSource::Drive { .. } => "Google Drive".into(),
     }
@@ -732,6 +752,13 @@ fn open_attachment(a: &DraftAttachment, how: OpenHow) {
         AttachmentSource::Drive { file_id, .. } => {
             let _ = open::that_detached(format!("https://drive.google.com/file/d/{file_id}/view"));
         }
+        // The original, downloaded to a temporary .eml (Mail opens it).
+        AttachmentSource::Email { account_id, message_id } => send_cmd(Cmd::OpenEmail {
+            account_id: account_id.clone(),
+            message_id: message_id.clone(),
+            name: a.name.clone(),
+            how,
+        }),
     }
 }
 
@@ -865,6 +892,7 @@ async fn keep_quote(slot: ComposeSlot, editor: &str) {
 
 /// Drop target: files dragged over the composer show the design's drop zone.
 fn drop_handlers(
+    s: AppState,
     slot: ComposeSlot,
     mut dragging: Signal<bool>,
 ) -> (EventHandler<DragEvent>, EventHandler<DragEvent>, EventHandler<DragEvent>) {
@@ -881,8 +909,14 @@ fn drop_handlers(
         EventHandler::new(move |e: DragEvent| {
             e.prevent_default();
             dragging.set(false);
-            if !super::recipients::chip_dragging() {
-                add_files(slot, e.files());
+            if super::recipients::chip_dragging() {
+                return;
+            }
+            // Messages dragged from the list: attached as .eml.
+            let mut carried = s.mail_drag;
+            match carried.write().take() {
+                Some(items) => add_emails(slot, &items),
+                None => add_files(slot, e.files()),
             }
         }),
     )
@@ -978,7 +1012,7 @@ pub fn InlineReply(draft: Draft) -> Element {
     let current = state.read().clone().unwrap_or(draft.clone());
     let hint = cross_hint(&s, &current);
     let dragging = use_signal(|| false);
-    let (over, leave, drop) = drop_handlers(slot, dragging);
+    let (over, leave, drop) = drop_handlers(s, slot, dragging);
 
     let max = *maxed.read();
     let (size_icon, size_label) =
@@ -989,6 +1023,7 @@ pub fn InlineReply(draft: Draft) -> Element {
     rsx! {
         div { class: "{class}",
             "data-dragging": dragging.read().then_some("true"),
+            "data-mail-attach": "true",
             ondragover: move |e| over.call(e), ondragleave: move |e| leave.call(e), ondrop: move |e| drop.call(e),
             div { class: "inline-reply__head", style: "height:auto;min-height:44px",
                 FromPicker {}
@@ -1189,12 +1224,12 @@ pub fn Composer(draft: Draft, #[props(default)] docked: bool) -> Element {
     let hint = cross_hint(&s, &current);
     let title = if current.subject.is_empty() { "New message".to_string() } else { current.subject.clone() };
     let dragging = use_signal(|| false);
-    let (over, leave, drop) = drop_handlers(slot, dragging);
+    let (over, leave, drop) = drop_handlers(s, slot, dragging);
 
     let notice = slot.notice.read().clone();
 
     rsx! {
-            div { class: "composer", "data-dragging": dragging.read().then_some("true"),
+            div { class: "composer", "data-dragging": dragging.read().then_some("true"), "data-mail-attach": "true",
                 "data-docked": docked.then_some("true"), "data-windowed": slot.windowed.then_some("true"),
                 ondragover: move |e| over.call(e), ondragleave: move |e| leave.call(e), ondrop: move |e| drop.call(e),
                 div { class: "composer__titlebar",

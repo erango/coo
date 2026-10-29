@@ -27,6 +27,7 @@ pub fn file_kind(mime: &str, name: &str) -> (&'static str, &'static str) {
         }
         m if m.contains("document") || m.contains("word") || n.ends_with(".docx") => ("doc", "file"),
         m if m.starts_with("image/") || m.ends_with(".drawing") => ("file", "image"),
+        m if m == "message/rfc822" || n.ends_with(".eml") => ("file", "mail"),
         _ => ("file", "file"),
     }
 }
@@ -50,7 +51,7 @@ pub fn attached_bytes(atts: &[DraftAttachment]) -> u64 {
         .map(|a| match &a.source {
             AttachmentSource::File { path } => std::fs::metadata(path).map(|m| m.len()).unwrap_or(0),
             AttachmentSource::Drive { size, .. } => size.unwrap_or(0),
-            AttachmentSource::Message { .. } => 0,
+            AttachmentSource::Message { .. } | AttachmentSource::Email { .. } => 0,
         })
         .sum()
 }
