@@ -51,6 +51,10 @@ pub struct Pigeon {
     sources: Mutex<HashMap<String, Arc<TokenSource>>>,
     /// Domains checked for iCloud+ mail hosting (send-from detection).
     icloud_domains: Mutex<HashMap<String, bool>>,
+    /// One server save (or send) per draft at a time: two saves racing on a
+    /// draft with no server copy yet would each create one, and only the
+    /// last would be known (and removed on send).
+    draft_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 }
 
 #[derive(Debug)]
@@ -98,6 +102,7 @@ impl Pigeon {
             backends: Mutex::default(),
             sources: Mutex::default(),
             icloud_domains: Mutex::default(),
+            draft_locks: Mutex::default(),
         })
     }
 
@@ -495,6 +500,8 @@ impl Pigeon {
     /// replace). If From moved to another account, the old account's copy is
     /// deleted first. Returns the new server reference.
     pub async fn sync_draft(&self, draft_id: &str) -> Result<Option<ServerDraft>> {
+        let lock = self.draft_lock(draft_id);
+        let _held = lock.lock().await;
         let Some(mut draft) = self.store().draft(draft_id)? else { return Ok(None) };
         let account = self.account(&draft.from.account_id)?;
         let mut existing = None;
@@ -530,6 +537,13 @@ impl Pigeon {
                 Ok(None)
             }
         }
+    }
+
+    fn draft_lock(&self, draft_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        let mut locks = self.draft_locks.lock().unwrap_or_else(|p| p.into_inner());
+        // Drop locks nobody holds or waits on (their drafts are done with).
+        locks.retain(|id, l| id == draft_id || Arc::strong_count(l) > 1);
+        locks.entry(draft_id.to_string()).or_default().clone()
     }
 
     async fn delete_server_draft(&self, account: &Account, id: &str) -> Result<()> {
@@ -668,6 +682,9 @@ impl Pigeon {
     /// (Gmail re-serialized it, so the recipient got a blank message).
     /// Threading is kept by passing the thread to the send call.
     pub async fn send(&self, draft: &Draft) -> Result<String> {
+        // Wait out a server save in flight, so its copy is known (and removed).
+        let lock = self.draft_lock(&draft.id);
+        let _held = lock.lock().await;
         let (message_id, mime) = self.draft_mime(draft).await?;
         let account = self.account(&draft.from.account_id)?;
         let stored_server = self.store().draft(&draft.id)?.and_then(|d| d.server);
