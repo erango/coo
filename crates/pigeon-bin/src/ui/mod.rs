@@ -1143,9 +1143,13 @@ pub fn empty_trash(s: AppState, account_ids: Vec<String>) {
     if !can_empty_trash(&s, &account_ids) {
         return s.local_toast(pigeon_engine::GMAIL_PURGE, false);
     }
-    spawn(async move {
+    // Not tied to the right-click menu that may have asked (it closes).
+    dioxus::core::spawn_forever(async move {
         let empty = "Empty Trash".to_string();
         let answer = rfd::AsyncMessageDialog::new()
+            // A sheet on Coo's window: without a parent, macOS shows a system alert
+            // that can open apart from (or behind) Coo.
+            .set_parent(&*dioxus::desktop::window().window)
             .set_level(rfd::MessageLevel::Warning)
             .set_title("Empty Trash?")
             .set_description("Everything in Trash is deleted for good. You can undo for a few seconds.")

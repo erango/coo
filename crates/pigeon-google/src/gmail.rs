@@ -237,6 +237,19 @@ impl Google {
         Ok(label.id)
     }
 
+    /// A label's newest messages, older ones included (sync only keeps the
+    /// recent window).
+    pub async fn label_messages(&self, label_id: &str, limit: u32) -> Result<Vec<MailChange>> {
+        #[derive(Deserialize)]
+        struct List {
+            #[serde(default)]
+            messages: Vec<IdRef>,
+        }
+        let params = [("labelIds", label_id.to_string()), ("maxResults", limit.clamp(1, 100).to_string())];
+        let list: List = self.get(&format!("{GMAIL}/messages"), &params).await?;
+        self.fetch_changes(list.messages.into_iter().map(|m| m.id).collect()).await
+    }
+
     /// Delete a user label: messages lose it and keep their other labels.
     pub async fn delete_label(&self, id: &str) -> Result<()> {
         let token = self.tokens.access_token().await?;

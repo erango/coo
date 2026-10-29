@@ -398,6 +398,9 @@ pub fn asks() -> bool {
 async fn ask_to_save() -> Option<bool> {
     let (save, dont) = ("Save".to_string(), "Don't Save".to_string());
     let answer = rfd::AsyncMessageDialog::new()
+        // A sheet on Coo's window: without a parent, macOS shows a system alert
+        // that can open apart from (or behind) Coo.
+        .set_parent(&*dioxus::desktop::window().window)
         .set_level(rfd::MessageLevel::Info)
         .set_title("Save this message as a draft?")
         .set_description("You can finish it later from Drafts.")

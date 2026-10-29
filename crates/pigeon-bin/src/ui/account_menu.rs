@@ -240,7 +240,7 @@ fn entries_for(s: &AppState, m: &AccountMenu) -> Vec<Entry> {
             cal_account_entries(cals.len(), chosen)
         }
         Target::Labels => vec![Entry::NewLabel],
-        Target::Label(_) => vec![Entry::NewLabel, Entry::Sep, Entry::DeleteLabel],
+        Target::Label(_) => vec![Entry::DeleteLabel],
         Target::Trash(_) => vec![Entry::EmptyTrash],
     }
 }

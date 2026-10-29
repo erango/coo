@@ -566,6 +566,15 @@ impl Pigeon {
         self.store().replace_folders(&account.id, &folders)
     }
 
+    /// Fill in a Gmail label's newest messages from the server (beyond the
+    /// synced window). Returns how many came back.
+    pub async fn fetch_label(&self, account: &Account, label_id: &str, limit: u32) -> Result<usize> {
+        let Backend::Google(p) = &*self.backend(account)? else { return Ok(0) };
+        let found = p.label_messages(label_id, limit).await?;
+        self.store().apply_found(&account.id, &found)?;
+        Ok(found.len())
+    }
+
     /// Delete a Gmail label and refresh the account's labels.
     pub async fn delete_label(&self, account: &Account, label_id: &str) -> Result<()> {
         let Backend::Google(p) = &*self.backend(account)? else {

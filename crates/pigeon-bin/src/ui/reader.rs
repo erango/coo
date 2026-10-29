@@ -686,6 +686,7 @@ fn Body(account_id: String, message_id: String, sender: String, body: StoredBody
                                 },
                                 onclick: move |_| send_cmd(Cmd::OpenAttachment {
                                     account_id: account_id.clone(), message_id: message_id.clone(), attachment_id: attachment_id.clone(),
+                                    how: Default::default(),
                                 }),
                                 span { class: "attachment__icon", "data-kind": "{kind}", Icon { name: icon, class: "icon--sm" } }
                                 div { style: "min-width:0",

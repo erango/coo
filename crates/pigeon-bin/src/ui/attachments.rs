@@ -13,7 +13,8 @@ pub type File = (String, String);
 
 /// Ask where to save one attachment, then save it.
 pub fn save_as(account_id: String, message_id: String, file: File) {
-    spawn(async move {
+    // Outlives the right-click menu that asked (it closes right away).
+    dioxus::core::spawn_forever(async move {
         let dialog = rfd::AsyncFileDialog::new().set_title("Save Attachment").set_file_name(&file.1);
         let dialog = match super::dirs_downloads() {
             Some(d) => dialog.set_directory(d),
@@ -34,7 +35,7 @@ pub fn save_as(account_id: String, message_id: String, file: File) {
 
 /// Ask for a folder, then save every attachment into it.
 pub fn save_all(account_id: String, message_id: String, files: Vec<File>) {
-    spawn(async move {
+    dioxus::core::spawn_forever(async move {
         let dialog = rfd::AsyncFileDialog::new().set_title("Save All Attachments");
         let dialog = match super::dirs_downloads() {
             Some(d) => dialog.set_directory(d),
@@ -89,7 +90,7 @@ pub fn AttachmentMenu(account_id: String, message_id: String, all: Vec<File>, me
                 div { class: "menu-item", role: "menuitem",
                     onclick: move |_| {
                         close();
-                        send_cmd(Cmd::OpenAttachment { account_id: a1.clone(), message_id: m1.clone(), attachment_id: f1.0.clone() });
+                        send_cmd(Cmd::OpenAttachment { account_id: a1.clone(), message_id: m1.clone(), attachment_id: f1.0.clone(), how: Default::default() });
                     },
                     Icon { name: "popout" }
                     span { "Open" }

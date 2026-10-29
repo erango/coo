@@ -1242,3 +1242,7 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
   flex: none; padding: 10px 24px; background: var(--bg-1); box-shadow: inset 0 -1px 0 var(--line);
 }
 .inline-reply .composer__attachments[data-top] { padding: 8px 12px; }
+
+/* A Gmail label being deleted. */
+.nav-item[data-busy] { opacity: 0.55; pointer-events: none; }
+.nav-item__busy { margin-left: auto; font-size: var(--fs-caption); color: var(--text-3); }

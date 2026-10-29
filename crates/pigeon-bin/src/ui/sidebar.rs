@@ -381,9 +381,13 @@ pub fn delete_label(s: AppState, account_id: &str, label_id: &str) {
         .map(|f| f.folder.name.clone())
         .unwrap_or_default();
     let (account_id, label_id) = (account_id.to_string(), label_id.to_string());
-    spawn(async move {
+    // Not tied to the right-click menu that asked: it closes right away.
+    dioxus::core::spawn_forever(async move {
         let delete = "Delete".to_string();
         let answer = rfd::AsyncMessageDialog::new()
+            // A sheet on Coo's window: without a parent, macOS shows a system alert
+            // that can open apart from (or behind) Coo.
+            .set_parent(&*dioxus::desktop::window().window)
             .set_level(rfd::MessageLevel::Warning)
             .set_title(format!("Delete the label “{name}”?"))
             .set_description("Its messages stay in your mailbox with their other labels. This can't be undone.")
@@ -407,7 +411,13 @@ pub fn delete_label(s: AppState, account_id: &str, label_id: &str) {
             pins.set(v);
             crate::prefs::update(move |p| p.pinned_folders = saved);
         }
+        // Dimmed with "Deleting…" until it's gone (or, on a failure, its
+        // notice says so and it comes back).
+        let mut busy = s.deleting_labels;
+        busy.write().push(pin.clone());
         send_cmd(Cmd::DeleteLabel { account_id, label_id });
+        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        busy.write().retain(|k| *k != pin);
     });
 }
 
@@ -471,6 +481,7 @@ fn FolderRow(account_id: String, info: FolderInfo, pinned: bool, child: bool) ->
     let (drop_account, drop_info) = (account_id.clone(), info.clone());
     let own_label = custom && info.folder.kind == pigeon_core::model::FolderKind::Label;
     let is_trash = info.folder.role == Some(FolderRole::Trash);
+    let deleting = s.deleting_labels.read().contains(&pin_key(&account_id, &info.folder.id));
     let (menu_account, menu_label) = (account_id.clone(), info.folder.id.clone());
     rsx! {
         a { class: "nav-item nav-item--child", "data-grouped": child.then_some("true"), href: "#",
@@ -493,11 +504,14 @@ fn FolderRow(account_id: String, info: FolderInfo, pinned: bool, child: bool) ->
             ondrop: move |e| { e.prevent_default(); e.stop_propagation(); super::mail_drag::drop_on(s, &drop_account, &drop_info); },
             "aria-current": if active { "page" } else { "false" },
             "data-pinned": pinned.then_some("true"),
+            "data-busy": deleting.then_some("true"),
             onclick: move |e| { e.prevent_default(); mailbox.set(target.clone()); },
             Icon { name: icon, class: "icon--sm" }
             span { class: "nav-item__label", dir: "auto", "{label}" }
-            if unread > 0 { span { class: "count", "{unread}" } }
-            if custom {
+            if deleting {
+                span { class: "nav-item__busy", "Deleting…" }
+            } else if unread > 0 { span { class: "count", "{unread}" } }
+            if custom && !deleting {
                 button { class: "nav-item__pin", r#type: "button", "aria-label": "{pin_label}", title: "{pin_label}",
                     "aria-pressed": "{pinned}",
                     onclick: move |e| {

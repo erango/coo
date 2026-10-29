@@ -7,8 +7,8 @@ use dioxus::prelude::*;
 use pigeon_core::compose::{Draft, Sender};
 use pigeon_core::model::{Calendar, EventRow, FolderRole, FreeBusy, MessageRow, ProviderKind, StoredBody};
 use pigeon_engine::service::{
-    AccountNav, Delta, Elsewhere, InviteView, ListItem, Mailbox, ReaderView, SearchScope, ServerSearch, SyncState,
-    Toast,
+    AccountNav, Delta, Elsewhere, InviteView, ListItem, Mailbox, OpenHow, ReaderView, SearchScope, ServerSearch,
+    SyncState, Toast,
 };
 
 use crate::RX;
@@ -327,6 +327,8 @@ pub struct AppState {
     pub account_menu: Signal<Option<crate::ui::account_menu::AccountMenu>>,
     /// The account whose sidebar shows the "New label" field (Gmail).
     pub new_label: Signal<Option<String>>,
+    /// Gmail labels being deleted ("account|label"): shown as "Deleting…".
+    pub deleting_labels: Signal<Vec<String>>,
     /// The user asked for a sync (Sync now, ⇧⌘N): show "Syncing…" until it's
     /// done. The background ones only move the "Synced" time.
     pub sync_asked: Signal<bool>,
@@ -423,6 +425,7 @@ impl AppState {
             default_calendar: Signal::new(crate::prefs::get().default_calendar),
             account_menu: Signal::new(None),
             new_label: Signal::new(None),
+            deleting_labels: Signal::new(Vec::new()),
             sync_asked: Signal::new(false),
             undo_stack: Signal::new(Vec::new()),
             draft_saved: Signal::new(Default::default()),
@@ -903,11 +906,16 @@ fn apply(s: &mut AppState, delta: Delta) {
                     s.drive_picked.set(Some(DrivePicked { token: next_token(), draft_id, account_id, files }));
                 }
             }
-            Delta::AttachmentReady(path) => {
-                if let Err(e) = open::that_detached(&path) {
-                    tracing::warn!(error = %e, ?path, "could not open attachment");
+            Delta::AttachmentReady(path, how) => match how {
+                OpenHow::Open => {
+                    // No path in the log: it carries the file's name.
+                    if let Err(e) = open::that_detached(&path) {
+                        tracing::warn!(error = %e, "could not open attachment");
+                    }
                 }
-            }
+                OpenHow::Preview => crate::quicklook::preview(&path),
+                OpenHow::Reveal => crate::quicklook::reveal(&path),
+            },
         }
     }
 }

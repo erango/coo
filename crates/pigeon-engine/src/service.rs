@@ -17,6 +17,8 @@ use tokio::sync::{Mutex, mpsc};
 use crate::{MailAction, Pigeon};
 
 const SYNC_EVERY: Duration = Duration::from_secs(30);
+/// How many of a Gmail label's newest messages opening it fetches.
+const LABEL_FILL: u32 = 100;
 /// First screenful: what's visible plus a little, so a cold launch touches
 /// few pages. The UI asks for more (`Cmd::LoadMore`) as you scroll.
 const LIST_FIRST_PAGE: u32 = 60;
@@ -293,6 +295,7 @@ pub enum Cmd {
         account_id: String,
         message_id: String,
         attachment_id: String,
+        how: OpenHow,
     },
     /// Right-click › Save As… (`dest` is the file) or Save All Attachments…
     /// (`into_folder`: `dest` is a folder; names that are taken get " 2").
@@ -409,6 +412,18 @@ pub struct SyncState {
     pub offline: bool,
 }
 
+/// What to do with an attachment once it's on disk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OpenHow {
+    /// In its app.
+    #[default]
+    Open,
+    /// Quick Look.
+    Preview,
+    /// Show it in Finder.
+    Reveal,
+}
+
 #[derive(Debug, Clone)]
 pub enum Delta {
     /// An OAuth sign-in failed (the UI decides whether it's admin consent).
@@ -483,7 +498,7 @@ pub enum Delta {
         draft_id: String,
         error: String,
     },
-    AttachmentReady(std::path::PathBuf),
+    AttachmentReady(std::path::PathBuf, OpenHow),
     /// Files picked from Google Drive for a draft; empty when the picker
     /// was cancelled or failed (the UI stops waiting either way).
     DrivePicked {
@@ -626,6 +641,8 @@ struct Service {
     /// right away), and which opening is the current one.
     read_delay_ms: AtomicU64,
     opened: AtomicU64,
+    /// Gmail labels whose older mail was fetched this session.
+    labels_filled: std::sync::Mutex<std::collections::HashSet<String>>,
 }
 
 /// How many newest inbox rows per account are checked for new mail.
@@ -925,10 +942,14 @@ impl Service {
                     if v.mailbox != mailbox || v.threaded != threaded {
                         v.limit = LIST_FIRST_PAGE;
                     }
-                    v.mailbox = mailbox;
+                    v.mailbox = mailbox.clone();
                     v.threaded = threaded;
                 }
                 self.publish().await;
+                // A Gmail label: its older mail isn't in the synced window.
+                if let Mailbox::Folder { account_id, folder_id } = mailbox {
+                    tokio::spawn(self.clone().fill_label(account_id, folder_id));
+                }
             }
             Cmd::LoadMore { have } => {
                 {
@@ -1328,10 +1349,10 @@ impl Service {
                 }
                 self.publish().await;
             }
-            Cmd::OpenAttachment { account_id, message_id, attachment_id } => {
+            Cmd::OpenAttachment { account_id, message_id, attachment_id, how } => {
                 let account = self.app.account(&account_id)?;
                 let path = self.app.attachment(&account, &message_id, &attachment_id).await?;
-                self.send(Delta::AttachmentReady(path));
+                self.send(Delta::AttachmentReady(path, how));
             }
             Cmd::SaveAttachments { account_id, message_id, files, dest, into_folder, done } => {
                 // Answer the waiter even when this fails early.
@@ -1553,6 +1574,31 @@ impl Service {
         Ok(())
     }
 
+    /// Fetch a Gmail label's newest messages (once a session per label).
+    async fn fill_label(self: Arc<Self>, account_id: String, label_id: String) {
+        let Ok(account) = self.app.account(&account_id) else { return };
+        if account.provider != pigeon_core::model::ProviderKind::Google {
+            return;
+        }
+        let user_label = self
+            .app
+            .store()
+            .folders(&account_id)
+            .ok()
+            .is_some_and(|f| f.iter().any(|f| f.folder.id == label_id && f.folder.role.is_none()));
+        if !user_label || !self.labels_filled.lock().unwrap().insert(format!("{account_id}|{label_id}")) {
+            return;
+        }
+        match self.app.fetch_label(&account, &label_id, LABEL_FILL).await {
+            Ok(n) if n > 0 => self.publish().await,
+            Ok(_) => {}
+            Err(e) => {
+                self.labels_filled.lock().unwrap().remove(&format!("{account_id}|{label_id}"));
+                tracing::warn!(error = %e, "could not load a label's messages");
+            }
+        }
+    }
+
     async fn mark_opened_read(self: &Arc<Self>, account: &Account, unread: &[String]) -> Result<()> {
         self.app.act(account, unread, None, &MailAction::MarkRead)?;
         self.publish().await;
@@ -1654,6 +1700,7 @@ pub async fn run(app: Arc<Pigeon>, mut rx: mpsc::UnboundedReceiver<Cmd>, tx: mps
         bulk_undo: Default::default(),
         read_delay_ms: AtomicU64::new(0),
         opened: AtomicU64::new(0),
+        labels_filled: Default::default(),
     });
     // Watermark existing mail so only what arrives from now on notifies.
     svc.check_new_mail().await;
