@@ -262,6 +262,7 @@ pub async fn get_message(app: &Pigeon, account: &str, message_id: &str, max_char
             .collect(),
         in_reply_to: body.in_reply_to,
         references: body.references,
+        body_unavailable: None,
     })
 }
 
@@ -278,7 +279,20 @@ pub async fn get_thread(app: &Pigeon, account: &str, thread_id: &str, max_chars:
     for (i, m) in messages.iter().enumerate() {
         // The newest message gets the whole remaining budget.
         let budget = if i + 1 == messages.len() { max_chars.saturating_sub(per * i).max(per) } else { per };
-        out.push(get_message(app, &a.id, &m.id, budget).await?);
+        // A body that can't be fetched now (not cached, server unreachable)
+        // doesn't sink the whole thread: its snippet stands in, flagged.
+        out.push(match get_message(app, &a.id, &m.id, budget).await {
+            Ok(full) => full,
+            Err(e) => FullMessageOut {
+                message: MessageOut::new(&a.id, m),
+                text: m.snippet.clone(),
+                truncated: true,
+                attachments: Vec::new(),
+                in_reply_to: None,
+                references: Vec::new(),
+                body_unavailable: Some(format!("only the preview is shown: {}", describe(&e).1)),
+            },
+        });
     }
     Ok(out)
 }

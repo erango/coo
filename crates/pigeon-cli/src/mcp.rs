@@ -435,6 +435,31 @@ fn tool_list(w: Writes) -> Value {
     json!({ "tools": list })
 }
 
+/// Env var carrying the request a restarted server answers first.
+const REPLAY: &str = "COO_MCP_REPLAY";
+
+/// Where requests go that need this server restarted from its updated
+/// binary (see `restart_if_updated`).
+static RESTART: std::sync::OnceLock<tokio::sync::mpsc::UnboundedSender<Value>> = std::sync::OnceLock::new();
+
+/// The helper's own file as it was when this server started.
+fn exe_stamp() -> Option<(std::time::SystemTime, u64)> {
+    let m = std::fs::metadata(std::env::current_exe().ok()?).ok()?;
+    Some((m.modified().ok()?, m.len()))
+}
+
+static STARTED_AS: std::sync::OnceLock<Option<(std::time::SystemTime, u64)>> = std::sync::OnceLock::new();
+
+/// Coo updated while this server ran: the app's sign-in broker checks the
+/// caller against its file on disk, which is now the new version, so this
+/// (old) process is refused. True when that's the case and the request
+/// was handed off to restart from the new binary.
+fn restart_if_updated(e: &pigeon_core::Error, msg: &Value) -> bool {
+    let denied = matches!(e, pigeon_core::Error::TokenStore(m) if m.contains("only Coo's own programs"));
+    let updated = STARTED_AS.get().is_some_and(|was| was.is_some() && *was != exe_stamp());
+    denied && updated && RESTART.get().is_some_and(|tx| tx.send(msg.clone()).is_ok())
+}
+
 /// Handle one JSON-RPC message; `None` for notifications.
 async fn handle(app: &Pigeon, w: Writes, msg: Value) -> Option<Value> {
     let id = msg.get("id").cloned()?;
@@ -457,6 +482,7 @@ async fn handle(app: &Pigeon, w: Writes, msg: Value) -> Option<Value> {
             let name = params.get("name").and_then(Value::as_str).unwrap_or_default().to_string();
             let args = params.get("arguments").cloned().unwrap_or(json!({}));
             let known = tools().into_iter().find(|t| t.name == name);
+            let original = msg.clone();
             let outcome = match known {
                 Some(t) if t.write && !w.allowed => Err(pigeon_core::Error::Other(format!(
                     "{}: {} is a write tool and {}",
@@ -467,6 +493,12 @@ async fn handle(app: &Pigeon, w: Writes, msg: Value) -> Option<Value> {
                 Some(_) => call(app, w, &name, &args).await,
                 None => Err(pigeon_core::Error::Other(format!("unknown tool {name}"))),
             };
+            if let Err(e) = &outcome
+                && restart_if_updated(e, &original)
+            {
+                // The restarted server answers it.
+                return None;
+            }
             // Tool failures are results (isError), not protocol errors.
             Ok(match outcome {
                 Ok(v) => json!({
@@ -492,6 +524,19 @@ async fn handle(app: &Pigeon, w: Writes, msg: Value) -> Option<Value> {
     })
 }
 
+/// Become the updated `coo` in place (same process, same stdio, so the
+/// agent's connection carries on), handing it `msg` to answer first.
+/// Returns only if that failed.
+async fn restart(msg: &Value) {
+    use std::os::unix::process::CommandExt;
+    tracing::info!("Coo updated: restarting the MCP server from the new version");
+    // Let replies already on their way reach the agent.
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let Ok(exe) = std::env::current_exe() else { return };
+    let err = std::process::Command::new(exe).args(std::env::args_os().skip(1)).env(REPLAY, msg.to_string()).exec();
+    tracing::warn!(error = %err, "could not restart the MCP server");
+}
+
 pub async fn serve(app: Pigeon, allow_write: bool) -> pigeon_core::Result<()> {
     let w = Writes::for_mcp(allow_write);
     // Running as an agent's subprocess: nobody can answer a Keychain dialog,
@@ -499,6 +544,9 @@ pub async fn serve(app: Pigeon, allow_write: bool) -> pigeon_core::Result<()> {
     let _headless = pigeon_core::tokens::headless();
     tracing::info!(writes = w.allowed, "coo MCP server on stdio");
     let app = Arc::new(app);
+    STARTED_AS.get_or_init(exe_stamp);
+    let (restart_tx, mut restart_rx) = tokio::sync::mpsc::unbounded_channel::<Value>();
+    let _ = RESTART.set(restart_tx);
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Value>();
     // Writer task: replies may finish out of order (tools run concurrently).
@@ -512,7 +560,28 @@ pub async fn serve(app: Pigeon, allow_write: bool) -> pigeon_core::Result<()> {
             }
         }
     });
-    while let Some(line) = lines.next_line().await? {
+    // Restarted after an update: answer the request that was refused.
+    if let Ok(replay) = std::env::var(REPLAY)
+        && let Ok(msg) = serde_json::from_str::<Value>(&replay)
+    {
+        let (app, tx) = (app.clone(), tx.clone());
+        tokio::spawn(async move {
+            if let Some(reply) = handle(&app, w, msg).await {
+                let _ = tx.send(reply);
+            }
+        });
+    }
+    loop {
+        let line = tokio::select! {
+            line = lines.next_line() => match line? { Some(l) => l, None => break },
+            Some(msg) = restart_rx.recv() => {
+                restart(&msg).await;
+                // Only back here if the new binary couldn't start.
+                let _ = tx.send(json!({"jsonrpc": "2.0", "id": msg.get("id").cloned().unwrap_or(Value::Null),
+                    "result": { "content": [{ "type": "text", "text": "Coo updated; restart the agent to keep using your sign-ins" }], "isError": true }}));
+                continue;
+            }
+        };
         if line.trim().is_empty() {
             continue;
         }

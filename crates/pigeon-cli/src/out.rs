@@ -159,6 +159,10 @@ pub struct FullMessageOut {
     pub attachments: Vec<AttachmentOut>,
     pub in_reply_to: Option<String>,
     pub references: Vec<String>,
+    /// Set when the body couldn't be fetched (offline, sign-in trouble):
+    /// `text` is then just the list snippet, and this says why.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body_unavailable: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
