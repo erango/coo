@@ -175,6 +175,18 @@ impl Google {
 }
 
 impl BodyProvider for Google {
+    async fn raw(&self, message_id: &str) -> Result<Vec<u8>> {
+        #[derive(serde::Deserialize)]
+        struct Raw {
+            raw: String,
+        }
+        let r: Raw = self.get(&format!("{GMAIL}/messages/{message_id}"), &[("format", "raw".to_string())]).await?;
+        // base64url, padded or not.
+        base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(r.raw.trim_end_matches('='))
+            .map_err(|e| Error::Other(format!("unreadable message: {e}")))
+    }
+
     async fn body(&self, message_id: &str) -> Result<MessageBody> {
         let root = self.full(message_id).await?;
         let mut w = Walk::default();

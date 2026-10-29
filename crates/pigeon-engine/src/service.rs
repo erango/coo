@@ -275,6 +275,14 @@ pub enum Cmd {
     EmptyTrash {
         account_ids: Vec<String>,
     },
+    /// Save messages as .eml files: (account id, message id, subject) each.
+    /// `into_folder`: `dest` is a folder (names from the subjects, " 2"
+    /// when taken); otherwise the one file to write.
+    SaveMessages {
+        messages: Vec<(String, String, String)>,
+        dest: std::path::PathBuf,
+        into_folder: bool,
+    },
     /// Gmail: a new label ("Parent/Child" nests it).
     CreateLabel {
         account_id: String,
@@ -1284,6 +1292,46 @@ impl Service {
                     self.clone().flush(account).await;
                 }
             }
+            Cmd::SaveMessages { messages, dest, into_folder } => {
+                let mut saved = 0;
+                for (account_id, message_id, subject) in &messages {
+                    let account = self.app.account(account_id)?;
+                    let to = if into_folder { free_path(&dest, &eml_name(subject)) } else { dest.clone() };
+                    let written = match self.app.raw_message(&account, message_id).await {
+                        Ok(bytes) => {
+                            let to = to.clone();
+                            tokio::task::spawn_blocking(move || std::fs::write(to, bytes))
+                                .await
+                                .map_err(|e| Error::Other(e.to_string()))
+                                .and_then(|r| r.map_err(Error::from))
+                        }
+                        Err(e) => Err(e),
+                    };
+                    match written {
+                        Ok(()) => saved += 1,
+                        Err(e) => {
+                            // No subjects in the log.
+                            tracing::warn!(error = %e, "could not save a message");
+                            self.toast(format!("Couldn't save a message: {e}"), true, None);
+                        }
+                    }
+                }
+                let msg = match (saved, into_folder) {
+                    (0, _) => None,
+                    (_, false) => dest.file_name().map(|n| format!("Saved {}", n.to_string_lossy())),
+                    (n, true) => {
+                        let folder = dest.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                        Some(if n == 1 {
+                            format!("Saved 1 message to {folder}")
+                        } else {
+                            format!("Saved {n} messages to {folder}")
+                        })
+                    }
+                };
+                if let Some(msg) = msg {
+                    self.toast(msg, false, None);
+                }
+            }
             Cmd::CreateLabel { account_id, name } => {
                 let account = self.app.account(&account_id)?;
                 match self.app.create_label(&account, name.trim()).await {
@@ -1730,6 +1778,13 @@ fn safe_file_name(name: &str) -> String {
     if cleaned.is_empty() { "Attachment".into() } else { cleaned.into() }
 }
 
+/// A message's .eml file name, from its subject.
+pub fn eml_name(subject: &str) -> String {
+    let base: String = safe_file_name(subject).chars().take(120).collect();
+    let base = if subject.trim().is_empty() { "Message".to_string() } else { base };
+    format!("{base}.eml")
+}
+
 /// `dir/name`, or `dir/name 2.ext`, `name 3.ext`… when that's taken.
 fn free_path(dir: &std::path::Path, name: &str) -> std::path::PathBuf {
     let first = dir.join(name);
@@ -1768,6 +1823,14 @@ async fn save_image(url: &str, path: &std::path::Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn eml_names_come_from_the_subject() {
+        assert_eq!(super::eml_name("Q4 plan: draft/v2"), "Q4 plan- draft-v2.eml");
+        assert_eq!(super::eml_name("  "), "Message.eml");
+        assert_eq!(super::eml_name("הזמנה 4471"), "הזמנה 4471.eml");
+        assert!(super::eml_name(&"x".repeat(500)).len() <= 124);
+    }
+
     use super::*;
 
     #[tokio::test]

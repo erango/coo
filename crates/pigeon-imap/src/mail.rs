@@ -322,6 +322,10 @@ impl BodyProvider for Imap {
         Ok(body)
     }
 
+    async fn raw(&self, message_id: &str) -> Result<Vec<u8>> {
+        self.full_message(message_id).await
+    }
+
     async fn attachment(&self, message_id: &str, attachment_id: &str) -> Result<Vec<u8>> {
         let raw = self.full_message(message_id).await?;
         let m = MessageParser::default().parse(&raw).ok_or_else(|| Error::Other("unreadable message".into()))?;

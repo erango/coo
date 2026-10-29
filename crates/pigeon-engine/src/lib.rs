@@ -566,6 +566,16 @@ impl Pigeon {
         self.store().replace_folders(&account.id, &folders)
     }
 
+    /// A message as sent (RFC 822 / MIME), from its server, for .eml.
+    pub async fn raw_message(&self, account: &Account, message_id: &str) -> Result<Vec<u8>> {
+        use pigeon_core::provider::BodyProvider;
+        match &*self.backend(account)? {
+            Backend::Microsoft(p) => p.raw(message_id).await,
+            Backend::Google(p) => p.raw(message_id).await,
+            Backend::ICloud(p) => p.mail.raw(message_id).await,
+        }
+    }
+
     /// Fill in a Gmail label's newest messages from the server (beyond the
     /// synced window). Returns how many came back.
     pub async fn fetch_label(&self, account: &Account, label_id: &str, limit: u32) -> Result<usize> {

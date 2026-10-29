@@ -25,6 +25,8 @@ pub const ZOOM_OUT: &str = "pigeon-zoom-out";
 pub const ZOOM_RESET: &str = "pigeon-zoom-reset";
 /// Message › Report Phishing (no shortcut: it can't be taken back).
 pub const REPORT_PHISHING: &str = "pigeon-msg-phishing";
+/// Message › Save As… (the message as a .eml file).
+pub const SAVE_AS: &str = "pigeon-msg-save-as";
 /// Message › Open in New Window (double-click; no key).
 pub const OPEN_WINDOW: &str = "pigeon-msg-open-window";
 /// Calendar › New Event (C, in the calendar).
@@ -60,6 +62,7 @@ const MESSAGE_ROWS: &[Row] = &[
     ("pigeon-msg-next", "Next Conversation", Some(Do::Next)),
     ("pigeon-msg-prev", "Previous Conversation", Some(Do::Prev)),
     (OPEN_WINDOW, "Open in New Window", None),
+    (SAVE_AS, "Save As…", None),
     SEP,
     ("pigeon-msg-reply", "Reply", Some(Do::Reply)),
     ("pigeon-msg-reply-all", "Reply All", Some(Do::ReplyAll)),

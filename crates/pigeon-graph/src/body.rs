@@ -175,6 +175,12 @@ impl BodyProvider for Graph {
         })
     }
 
+    async fn raw(&self, message_id: &str) -> Result<Vec<u8>> {
+        let url = format!("{BASE}/me/messages/{message_id}/$value");
+        let token = self.tokens.access_token().await?;
+        Ok(send(|| client().get(&url).bearer_auth(&token)).await?.bytes().await?.to_vec())
+    }
+
     async fn attachment(&self, message_id: &str, attachment_id: &str) -> Result<Vec<u8>> {
         let url = format!("{BASE}/me/messages/{message_id}/attachments/{attachment_id}/$value");
         let token = self.tokens.access_token().await?;

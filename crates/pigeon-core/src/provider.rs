@@ -74,6 +74,12 @@ pub trait BodyProvider: Sync {
     fn body(&self, message_id: &str) -> impl Future<Output = Result<MessageBody>> + Send;
 
     fn attachment(&self, message_id: &str, attachment_id: &str) -> impl Future<Output = Result<Vec<u8>>> + Send;
+
+    /// The whole message as sent (RFC 822 / MIME), for saving as .eml.
+    fn raw(&self, message_id: &str) -> impl Future<Output = Result<Vec<u8>>> + Send {
+        let _ = message_id;
+        async { Err(crate::Error::Other("saving the original message isn't supported here".into())) }
+    }
 }
 
 pub trait MailActions: Sync {

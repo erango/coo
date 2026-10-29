@@ -696,6 +696,11 @@ fn on_menu(s: AppState, id: &str) {
         crate::menu::ZOOM_OUT => zoom::change(s, zoom::Step::Smaller),
         crate::menu::ZOOM_RESET => zoom::change(s, zoom::Step::Reset),
         crate::menu::REPORT_PHISHING => spam::report_phishing(s),
+        // The selection, else the open message.
+        crate::menu::SAVE_AS => {
+            let many = multi::items(&s);
+            save_eml(if many.is_empty() { selected_item(&s).into_iter().collect() } else { many });
+        }
         crate::menu::OPEN_WINDOW => {
             let key = s.selected.peek().clone();
             let item = key.and_then(|k| s.list.peek().iter().find(|i| AppState::key(i) == k).cloned());
@@ -1113,6 +1118,39 @@ pub fn viewing(mailbox: &Mailbox, account: &AccountNav, role: FolderRole) -> boo
                 && account.folders.iter().any(|f| f.folder.id == *folder_id && f.folder.role == Some(role))
         }
     }
+}
+
+/// Save messages as .eml files (the original message, as sent): one
+/// asks where to save it; several, which folder. A conversation saves its
+/// newest message.
+pub fn save_eml(items: Vec<ListItem>) {
+    let messages: Vec<(String, String, String)> =
+        items.iter().map(|i| (i.account_id().to_string(), i.header().id.clone(), i.header().subject.clone())).collect();
+    if messages.is_empty() {
+        return;
+    }
+    // Outlives the right-click menu that asked (it closes right away).
+    dioxus::core::spawn_forever(async move {
+        let dialog = rfd::AsyncFileDialog::new().set_parent(&*dioxus::desktop::window().window);
+        let dialog = match dirs_downloads() {
+            Some(d) => dialog.set_directory(d),
+            None => dialog,
+        };
+        let (dest, into_folder) = if let [(_, _, subject)] = messages.as_slice() {
+            let picked = dialog
+                .set_title("Save Message")
+                .set_file_name(pigeon_engine::service::eml_name(subject))
+                .add_filter("Email message", &["eml"])
+                .save_file()
+                .await;
+            (picked, false)
+        } else {
+            (dialog.set_title("Save Messages").pick_folder().await, true)
+        };
+        if let Some(dest) = dest {
+            send_cmd(Cmd::SaveMessages { messages, dest: dest.path().to_path_buf(), into_folder });
+        }
+    });
 }
 
 /// Viewing a Trash folder (one account's, or the unified one): its

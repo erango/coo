@@ -43,6 +43,7 @@ pub enum Entry {
     Unflag,
     MarkRead,
     MarkUnread,
+    SaveEml,
     Sep,
 }
 
@@ -65,6 +66,7 @@ impl Entry {
             Entry::Unflag => ("Unflag", "flag", Some(Do::Flag)),
             Entry::MarkRead => ("Mark as read", "mailopen", Some(Do::MarkRead)),
             Entry::MarkUnread => ("Mark as unread", "mail", Some(Do::MarkUnread)),
+            Entry::SaveEml => ("Save as .eml…", "download", None),
             Entry::Sep => ("", "", None),
         }
     }
@@ -92,6 +94,7 @@ pub fn entries(bulk: bool, labels: bool, flag: &MailAction, read: &MailAction, s
     v.push(Entry::Sep);
     v.push(if *flag == MailAction::Unflag { Entry::Unflag } else { Entry::Flag });
     v.push(if *read == MailAction::MarkRead { Entry::MarkRead } else { Entry::MarkUnread });
+    v.extend([Entry::Sep, Entry::SaveEml]);
     v
 }
 
@@ -180,6 +183,7 @@ fn run(s: AppState, m: &RowMenu, entry: Entry) {
             };
         }
         Entry::Sep => return,
+        Entry::SaveEml => return super::save_eml(items),
         Entry::Archive => MailAction::Archive,
         Entry::Delete => MailAction::Trash,
         Entry::Flag => MailAction::Flag,
