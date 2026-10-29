@@ -870,6 +870,10 @@ fn drop_handlers(
 ) -> (EventHandler<DragEvent>, EventHandler<DragEvent>, EventHandler<DragEvent>) {
     (
         EventHandler::new(move |e: DragEvent| {
+            // A recipient chip moving between fields isn't a file.
+            if super::recipients::chip_dragging() {
+                return;
+            }
             e.prevent_default();
             dragging.set(true);
         }),
@@ -877,7 +881,9 @@ fn drop_handlers(
         EventHandler::new(move |e: DragEvent| {
             e.prevent_default();
             dragging.set(false);
-            add_files(slot, e.files());
+            if !super::recipients::chip_dragging() {
+                add_files(slot, e.files());
+            }
         }),
     )
 }
@@ -951,7 +957,8 @@ pub fn InlineReply(draft: Draft) -> Element {
     let slot = use_context::<ComposeSlot>();
     use_senders(s);
     let state = slot.draft;
-    let mut show_cc = use_signal(|| !draft.cc.is_empty());
+    // Cc and Bcc open together, as in the full composer.
+    let mut show_cc = use_signal(|| !draft.cc.is_empty() || !draft.bcc.is_empty());
     let mut maxed = use_signal(|| false);
     let id = editor_id(&draft);
     let to_id = format!("reply-to-{}", draft.id);
@@ -989,7 +996,8 @@ pub fn InlineReply(draft: Draft) -> Element {
                 RecipientInput { id: to_id.clone(), value: current.to.clone(), placeholder: "Name or address",
                     on_change: move |l| set_field(slot, Field::To, l) }
                 if !*show_cc.read() {
-                    button { class: "btn btn--ghost btn--sm", r#type: "button", onclick: move |_| show_cc.set(true), "Cc" }
+                    button { class: "btn btn--ghost btn--sm", r#type: "button", title: "Add Cc or Bcc recipients",
+                        onclick: move |_| show_cc.set(true), "Cc Bcc" }
                 }
                 button { class: "icon-btn icon-btn--sm",
                     "aria-label": size_label, title: size_label,
@@ -1011,6 +1019,11 @@ pub fn InlineReply(draft: Draft) -> Element {
                     span { class: "t-3", style: "font-size:12.5px;padding-left:4px", "cc" }
                     RecipientInput { id: "reply-cc-{current.id}", value: current.cc.clone(),
                         on_change: move |l| set_field(slot, Field::Cc, l) }
+                }
+                div { class: "inline-reply__head", style: "height:auto;min-height:40px",
+                    span { class: "t-3", style: "font-size:12.5px;padding-left:4px", title: "Blind copy: the others don't see these", "bcc" }
+                    RecipientInput { id: "reply-bcc-{current.id}", value: current.bcc.clone(),
+                        on_change: move |l| set_field(slot, Field::Bcc, l) }
                 }
             }
             if let Some(h) = hint { div { class: "cross-account-hint", dir: "auto", "{h}" } }

@@ -124,6 +124,30 @@ pub const JS: &str = r#"
     shortcut(e, key, true);
   };
 
+  // ---- Recipient chips drag between To, Cc and Bcc ----
+  // WebKit decides on a drop during dragover, before Rust could answer:
+  // allow it here on another field's row (Rust moves the address on drop).
+  let chipFrom = null;
+  document.addEventListener('dragstart', (e) => {
+    const c = e.target.closest && e.target.closest('.recipient[draggable="true"]');
+    if (!c) return;
+    chipFrom = c.closest('.recipients');
+    e.dataTransfer.setData('text/plain', c.title || '');
+    e.dataTransfer.effectAllowed = 'move';
+  }, true);
+  document.addEventListener('dragover', (e) => {
+    if (!chipFrom) return;
+    const r = e.target.closest && e.target.closest('.recipients');
+    document.querySelectorAll('.recipients[data-chip-over]').forEach((x) => { if (x !== r) delete x.dataset.chipOver; });
+    if (r && r !== chipFrom) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; r.dataset.chipOver = '1'; }
+  }, true);
+  const chipDone = () => {
+    chipFrom = null;
+    document.querySelectorAll('.recipients[data-chip-over]').forEach((x) => delete x.dataset.chipOver);
+  };
+  document.addEventListener('dragend', chipDone, true);
+  document.addEventListener('drop', () => setTimeout(chipDone, 0), true);
+
   // ---- Search box: report the caret (operator autocomplete) ----
   let lastCaret = '';
   const searchCaret = () => {

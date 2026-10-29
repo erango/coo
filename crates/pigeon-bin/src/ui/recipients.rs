@@ -62,6 +62,38 @@ fn add_unique(list: &mut Vec<Address>, new: Vec<Address>) {
     }
 }
 
+/// A recipient chip on its way to another field (To, Cc, Bcc): its field
+/// (the input id) and address.
+#[derive(Debug, Clone, PartialEq)]
+struct ChipDrag {
+    from: String,
+    addr: Address,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Field {
+    To,
+    Cc,
+    Bcc,
+}
+
+/// Which draft field a recipient input is, by its id ("composer-cc-…",
+/// "reply-to-…").
+fn field_of(input_id: &str) -> Option<Field> {
+    let kind = input_id.strip_prefix("composer-").or_else(|| input_id.strip_prefix("reply-"))?;
+    [("to-", Field::To), ("cc-", Field::Cc), ("bcc-", Field::Bcc)]
+        .into_iter()
+        .find(|(p, _)| kind.starts_with(p))
+        .map(|(_, f)| f)
+}
+
+static CHIP_DRAG: GlobalSignal<Option<ChipDrag>> = Signal::global(|| None);
+
+/// A recipient chip is being dragged (not a file: no "Drop to attach").
+pub fn chip_dragging() -> bool {
+    CHIP_DRAG.peek().is_some()
+}
+
 #[component]
 pub fn RecipientInput(
     id: String,
@@ -128,17 +160,53 @@ pub fn RecipientInput(
     let picks = suggestions.clone();
     let field = id.clone();
 
+    // The draft these fields belong to: a dropped chip leaves its old field.
+    let slot = try_use_context::<super::compose::ComposeSlot>();
+    let (drop_id, drop_value) = (id.clone(), value.clone());
+
     rsx! {
         // A click anywhere in the row (between or after chips) types there.
+        // Chips drag between To, Cc and Bcc (the bridge allows the drop).
         div { class: "recipients", style: "position:relative", onclick: move |_| crate::bridge::focus(&field),
+            ondrop: move |e| {
+                let drag = CHIP_DRAG.peek().clone();
+                let Some(d) = drag.filter(|d| d.from != drop_id) else { return };
+                e.prevent_default();
+                e.stop_propagation();
+                *CHIP_DRAG.write() = None;
+                let mut next = drop_value.clone();
+                add_unique(&mut next, vec![d.addr.clone()]);
+                on_change.call(next);
+                if let Some(slot) = slot {
+                    let mut draft = slot.draft;
+                    if let Some(dr) = draft.write().as_mut() {
+                        let same = |a: &Address| a.email.eq_ignore_ascii_case(&d.addr.email);
+                        match field_of(&d.from) {
+                            Some(Field::To) => dr.to.retain(|a| !same(a)),
+                            Some(Field::Cc) => dr.cc.retain(|a| !same(a)),
+                            Some(Field::Bcc) => dr.bcc.retain(|a| !same(a)),
+                            None => {}
+                        }
+                    }
+                }
+            },
             for (i, a) in value.iter().enumerate() {
                 {
                     let invalid = !is_valid(&a.email);
                     let label = a.name.clone().unwrap_or_else(|| a.email.clone());
                     let hue = hue_for(&a.email);
                     let remove = v_remove.clone();
+                    let (from, addr) = (id.clone(), a.clone());
                     rsx! {
                         span { class: "recipient", key: "{a.email}-{i}", title: "{a.email}", dir: "auto",
+                            draggable: "true",
+                            ondragstart: move |_| *CHIP_DRAG.write() = Some(ChipDrag { from: from.clone(), addr: addr.clone() }),
+                            // Not dropped on another field: nothing moves.
+                            ondragend: move |_| {
+                                if CHIP_DRAG.peek().is_some() {
+                                    *CHIP_DRAG.write() = None;
+                                }
+                            },
                             "aria-invalid": invalid.then_some("true"),
                             if !invalid { span { class: "avatar avatar--20", "data-hue": "{hue}", "{format::initials(&label)}" } }
                             span { class: "recipient__name", "{label}" }
@@ -271,6 +339,16 @@ pub fn highlight_prefix(name: &str, query: &str) -> (String, String, String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fields_by_input_id() {
+        assert_eq!(field_of("composer-to-d1"), Some(Field::To));
+        assert_eq!(field_of("reply-to-d1"), Some(Field::To));
+        assert_eq!(field_of("composer-cc-d1"), Some(Field::Cc));
+        assert_eq!(field_of("reply-bcc-d1"), Some(Field::Bcc));
+        assert_eq!(field_of("event-guests"), None);
+        assert_eq!(field_of("composer-to-ab-cc-x"), Some(Field::To), "a draft id can't confuse it");
+    }
 
     #[test]
     fn validity() {
