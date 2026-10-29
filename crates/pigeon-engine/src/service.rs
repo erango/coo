@@ -738,7 +738,8 @@ impl Service {
     }
 
     fn fail(&self, context: &str, e: &Error) {
-        tracing::error!(error = %e, "{context}");
+        let (kind, status) = (e.kind(), e.status().unwrap_or(0));
+        tracing::error!(error = %e, kind, status, "{context}");
         self.toast(format!("{context}: {e}"), true, None);
     }
 
@@ -891,7 +892,8 @@ impl Service {
                         if network {
                             tracing::warn!(error = %e, provider, part, "sync failed (network)");
                         } else {
-                            tracing::error!(error = %e, provider, part, "sync failed");
+                            let (kind, status) = (e.kind(), e.status().unwrap_or(0));
+                            tracing::error!(error = %e, kind, status, provider, part, "sync failed");
                         }
                     }
                 }
@@ -902,7 +904,8 @@ impl Service {
                     network_failures += 1;
                     tracing::warn!(error = %e, "sync failed (network)");
                 } else {
-                    tracing::error!(error = %e, "sync failed");
+                    let (kind, status) = (e.kind(), e.status().unwrap_or(0));
+                    tracing::error!(error = %e, kind, status, "sync failed");
                 }
                 errors.push(e.to_string())
             }

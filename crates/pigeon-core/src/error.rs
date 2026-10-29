@@ -27,6 +27,26 @@ pub enum Error {
 }
 
 impl Error {
+    /// Which kind of failure, in words that survive Sentry's scrubbing
+    /// (the message itself often reads as sensitive and arrives filtered).
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Error::Http(e) if e.is_timeout() => "http-timeout",
+            Error::Http(e) if e.is_connect() => "http-connect",
+            Error::Http(e) if e.is_decode() => "http-decode",
+            Error::Http(_) => "http",
+            Error::Api { .. } => "api",
+            Error::CursorExpired => "cursor-expired",
+            Error::Auth(_) => "auth",
+            Error::SignInRequired(_) => "sign-in-required",
+            Error::TokenStore(_) => "token-store",
+            Error::Db(_) => "db",
+            Error::Io(_) => "io",
+            Error::Json(_) => "json",
+            Error::Other(_) => "other",
+        }
+    }
+
     pub fn status(&self) -> Option<u16> {
         match self {
             Error::Api { status, .. } => Some(*status),
