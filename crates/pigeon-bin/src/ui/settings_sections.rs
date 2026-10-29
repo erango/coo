@@ -757,7 +757,7 @@ pub fn Privacy() -> Element {
                 input { class: "switch", r#type: "checkbox", checked: cur.photos_gravatar,
                     onchange: move |_| { prefs::update(|x| x.photos_gravatar = !x.photos_gravatar); p.set(prefs::get()); } }
                 span { class: "settings-field__hint",
-                    "Show photos from Gravatar. Coo sends Gravatar a one-way hash of each sender's address (never the address itself); off by default." }
+                    "Show photos from Gravatar, and companies' own logos (BIMI, the logo a brand publishes for its mail). Coo sends Gravatar a one-way hash of each sender's address (never the address itself) and looks up company domains in public DNS; off by default." }
             }
             if !always {
                 div { class: "settings-field settings-field--top",

@@ -1219,6 +1219,17 @@ impl Service {
                         Cached::Photo(b) => Some(b),
                         Cached::None => None,
                         Cached::Miss => match photos::gravatar(&email).await {
+                            // No Gravatar: a company sender's brand logo.
+                            Ok(None) => {
+                                let found = photos::bimi(&email).await.unwrap_or_else(|e| {
+                                    tracing::debug!(error = %e, "brand logo lookup failed");
+                                    None
+                                });
+                                if let Err(e) = photos::store(&dir, &email, found.as_deref()) {
+                                    tracing::warn!(error = %e, "could not cache a sender photo");
+                                }
+                                found
+                            }
                             Ok(found) => {
                                 if let Err(e) = photos::store(&dir, &email, found.as_deref()) {
                                     tracing::warn!(error = %e, "could not cache a sender photo");

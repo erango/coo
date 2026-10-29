@@ -1,7 +1,9 @@
 //! Sender photos: a small on-disk cache keyed by a hash of the address, and
 //! the Gravatar lookup (opt-in: it sends a hash of the address to Gravatar).
-//! Provider sources (Google People, Microsoft Graph user photos) need extra
-//! OAuth scopes and plug into the same cache when enabled.
+//! When Gravatar has none, a company sender gets its brand's logo (BIMI: the
+//! logo a domain publishes in DNS for mail, what Gmail shows for verified
+//! brands). Provider sources (Google People, Microsoft Graph user photos)
+//! need extra OAuth scopes and plug into the same cache when enabled.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
@@ -76,7 +78,11 @@ pub fn store(dir: &Path, email: &str, photo: Option<&[u8]>) -> Result<()> {
 
 /// `data:` URI for an image (the webview can't load files from the cache).
 pub fn data_uri(bytes: &[u8]) -> String {
-    let mime = if bytes.starts_with(b"\x89PNG") {
+    let head = &bytes[..bytes.len().min(256)];
+    let svg = head.windows(4).any(|w| w.eq_ignore_ascii_case(b"<svg"));
+    let mime = if svg {
+        "image/svg+xml"
+    } else if bytes.starts_with(b"\x89PNG") {
         "image/png"
     } else if bytes.starts_with(b"GIF8") {
         "image/gif"
@@ -98,9 +104,119 @@ pub async fn gravatar(email: &str) -> Result<Option<Vec<u8>>> {
     }
 }
 
+/// Mail domains whose senders are people, not one brand: no BIMI lookup.
+const FREE_MAIL: &[&str] = &[
+    "gmail.com",
+    "googlemail.com",
+    "outlook.com",
+    "hotmail.com",
+    "live.com",
+    "msn.com",
+    "yahoo.com",
+    "icloud.com",
+    "me.com",
+    "mac.com",
+    "aol.com",
+    "proton.me",
+    "protonmail.com",
+    "gmx.com",
+    "gmx.net",
+    "yandex.com",
+    "mail.ru",
+    "walla.co.il",
+    "walla.com",
+    "zoho.com",
+    "fastmail.com",
+    "hey.com",
+];
+
+/// The domains to try for `email`'s BIMI record: its own, then its
+/// organizational domain (mail.shop.example.com → example.com; a.co.il keeps
+/// three labels). None for free-mail senders.
+pub fn bimi_domains(email: &str) -> Vec<String> {
+    let Some((_, domain)) = email.trim().to_lowercase().rsplit_once('@').map(|(a, d)| (a.to_string(), d.to_string()))
+    else {
+        return Vec::new();
+    };
+    if domain.is_empty() || FREE_MAIL.contains(&domain.as_str()) {
+        return Vec::new();
+    }
+    let labels: Vec<&str> = domain.split('.').collect();
+    let keep = match labels.as_slice() {
+        [.., second, tld] if tld.len() == 2 && matches!(*second, "co" | "com" | "org" | "net" | "ac" | "gov") => 3,
+        _ => 2,
+    };
+    let mut out = vec![domain.clone()];
+    if labels.len() > keep {
+        out.push(labels[labels.len() - keep..].join("."));
+    }
+    out
+}
+
+/// The logo URL in a BIMI TXT record ("v=BIMI1; l=https://…svg; a=…").
+pub fn bimi_logo_url(record: &str) -> Option<String> {
+    let record = record.replace('"', "");
+    if !record.trim_start().starts_with("v=BIMI1") {
+        return None;
+    }
+    record
+        .split(';')
+        .filter_map(|p| p.trim().strip_prefix("l="))
+        .map(str::trim)
+        .find(|u| u.starts_with("https://"))
+        .map(String::from)
+}
+
+/// A brand logo for a company sender (BIMI), or None.
+pub async fn bimi(email: &str) -> Result<Option<Vec<u8>>> {
+    #[derive(serde::Deserialize)]
+    struct Answer {
+        data: String,
+    }
+    #[derive(serde::Deserialize)]
+    struct Doh {
+        #[serde(rename = "Answer", default)]
+        answer: Vec<Answer>,
+    }
+    for domain in bimi_domains(email) {
+        let resp: Doh = client()
+            .get("https://cloudflare-dns.com/dns-query")
+            .query(&[("name", format!("default._bimi.{domain}")), ("type", "TXT".into())])
+            .header("accept", "application/dns-json")
+            .send()
+            .await?
+            .json()
+            .await?;
+        let Some(url) = resp.answer.iter().find_map(|a| bimi_logo_url(&a.data)) else { continue };
+        let logo = client().get(&url).send().await?;
+        if !logo.status().is_success() {
+            return Ok(None);
+        }
+        let bytes = logo.bytes().await?;
+        // A logo is a small SVG; anything big isn't one.
+        return Ok((bytes.len() < 128 * 1024).then(|| bytes.to_vec()));
+    }
+    Ok(None)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bimi_lookups() {
+        assert_eq!(bimi_domains("news@mail.shop.example.com"), ["mail.shop.example.com", "example.com"]);
+        assert_eq!(bimi_domains("a@bank.co.il"), ["bank.co.il"]);
+        assert_eq!(bimi_domains("a@mail.bank.co.il"), ["mail.bank.co.il", "bank.co.il"]);
+        assert!(bimi_domains("dana@gmail.com").is_empty(), "people's mail: no brand logo");
+        assert_eq!(
+            bimi_logo_url("\"v=BIMI1; l=https://ex.com/logo.svg; a=https://ex.com/vmc.pem\"").as_deref(),
+            Some("https://ex.com/logo.svg")
+        );
+        assert_eq!(bimi_logo_url("v=spf1 include:x"), None);
+        assert_eq!(bimi_logo_url("v=BIMI1; l=http://insecure/logo.svg"), None);
+        assert!(data_uri(b"<?xml version=\"1.0\"?><svg xmlns=").starts_with("data:image/svg+xml;base64,"));
+    }
 
     #[test]
     fn hashes_match_gravatar() {
