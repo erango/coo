@@ -324,8 +324,9 @@ pub fn autosave(slot: ComposeSlot, editor: &str) {
         if let Some(q) = quote {
             d.html = q;
         }
-        // Typed and deleted again: no empty draft on the server.
-        if !is_blank(&d, &d.body_html) {
+        // Typed and deleted again: no empty draft on the server. Asking
+        // before saving: nothing goes to Drafts until the message closes.
+        if !asks() && !is_blank(&d, &d.body_html) {
             send_cmd(Cmd::SaveDraft(d));
         }
     });
@@ -336,25 +337,80 @@ pub fn autosave(slot: ComposeSlot, editor: &str) {
 pub fn save_and_close(slot: ComposeSlot) {
     let Some(draft) = slot.draft.read().clone() else { return };
     spawn(async move {
-        let typed = bridge::editor_html(&editor_id(&draft)).await;
-        let quote = bridge::quote_html(&editor_id(&draft)).await;
+        let d = with_editor_content(draft).await;
         let mut state = slot.draft;
-        state.set(None);
-        let mut d = draft;
-        if !typed.is_empty() {
-            d.body_html = typed;
-        }
-        if let Some(q) = quote {
-            d.html = q;
-        }
         // Nothing written: drop it instead of leaving an empty draft behind;
         // opened and left as it was: no new version.
         match closing(&d, &d.body_html.clone()) {
-            Close::Save => send_cmd(Cmd::SaveDraft(d)),
-            Close::Discard => send_cmd(Cmd::DiscardDraft { draft_id: d.id }),
-            Close::Keep => {}
+            Close::Save if asks() => match ask_to_save().await {
+                Some(true) => {
+                    state.set(None);
+                    send_cmd(Cmd::SaveDraft(d));
+                }
+                // Don't save: a draft from Drafts keeps its saved version.
+                Some(false) => {
+                    state.set(None);
+                    if d.server.is_none() {
+                        send_cmd(Cmd::DiscardDraft { draft_id: d.id });
+                    }
+                }
+                // Cancel: keep writing (a closing window comes back).
+                None => {
+                    state.set(Some(d.clone()));
+                    remember_opened(&d);
+                    mark_typed(&d.id);
+                    if slot.windowed {
+                        let w = dioxus::desktop::window();
+                        w.set_visible(true);
+                        w.set_focus();
+                    }
+                }
+            },
+            Close::Save => {
+                state.set(None);
+                send_cmd(Cmd::SaveDraft(d));
+            }
+            Close::Discard => {
+                state.set(None);
+                send_cmd(Cmd::DiscardDraft { draft_id: d.id });
+            }
+            Close::Keep => state.set(None),
         }
     });
+}
+
+/// Auto-saving: "Saved · 14:02" once the latest version is in Drafts.
+fn saved_note(s: &AppState, draft_id: &str) -> Option<String> {
+    if asks() {
+        return None;
+    }
+    s.draft_saved.read().get(draft_id).map(|&at| format!("Saved · {}", crate::format::hhmm(at)))
+}
+
+/// Settings › Composing: ask before saving a draft (else drafts save
+/// themselves as you write).
+pub fn asks() -> bool {
+    crate::prefs::get().draft_saving != "auto"
+}
+
+/// "Save this message as a draft?": Some(true) save, Some(false) don't,
+/// None cancel.
+async fn ask_to_save() -> Option<bool> {
+    let (save, dont) = ("Save".to_string(), "Don't Save".to_string());
+    let answer = rfd::AsyncMessageDialog::new()
+        .set_level(rfd::MessageLevel::Info)
+        .set_title("Save this message as a draft?")
+        .set_description("You can finish it later from Drafts.")
+        .set_buttons(rfd::MessageButtons::YesNoCancelCustom(save.clone(), dont.clone(), "Cancel".into()))
+        .show()
+        .await;
+    match answer {
+        rfd::MessageDialogResult::Custom(a) if a == save => Some(true),
+        rfd::MessageDialogResult::Custom(a) if a == dont => Some(false),
+        rfd::MessageDialogResult::Yes => Some(true),
+        rfd::MessageDialogResult::No => Some(false),
+        _ => None,
+    }
 }
 
 /// Save from the last autosaved state without reading the editor (its window
@@ -861,6 +917,9 @@ pub fn InlineReply(draft: Draft) -> Element {
             div { class: "inline-reply__footer",
                 super::drive::AttachMenu {}
                 span { class: "spacer" }
+                if let Some(note) = saved_note(&s, &current.id) {
+                    span { class: "t-caption composer__saved-note", title: "Saved to Drafts as you write", "{note}" }
+                }
                 SendButton {}
             }
         }
@@ -930,7 +989,7 @@ pub fn leave_docked(s: AppState) {
         // Set aside, still open: saved only if it changed.
         let changed =
             OPENED.with(|o| o.borrow().get(&kept.id).is_none_or(|(f, typed_in)| *typed_in || *f != fields(&kept)));
-        if changed || kept.server.is_none() {
+        if !asks() && (changed || kept.server.is_none()) {
             send_cmd(Cmd::SaveDraft(kept));
         }
         let mut hidden = s.docked_hidden;
@@ -1019,7 +1078,7 @@ pub fn Composer(draft: Draft, #[props(default)] docked: bool) -> Element {
                         Icon { name: "x" }
                     }
                     span { class: "composer__title", dir: "auto", "{title}" }
-                    span { class: "composer__saved", "Draft" }
+                    span { class: "composer__saved", {saved_note(&s, &current.id).unwrap_or_else(|| "Draft".into())} }
                 }
                 div { class: "composer__fields",
                     div { class: "composer-field",

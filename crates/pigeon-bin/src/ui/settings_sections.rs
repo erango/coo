@@ -228,12 +228,16 @@ pub fn General() -> Element {
 
 /// Where new messages open (prefs `compose_mode`).
 const COMPOSE_MODES: [(&str, &str); 2] = [("window", "In a separate window"), ("docked", "Docked in the reading pane")];
+/// When drafts are saved (prefs `draft_saving`).
+const DRAFT_SAVING: [(&str, &str); 2] = [("ask", "Ask when closing"), ("auto", "Save as I write")];
 /// Where replies open (prefs `reply_mode`).
 const REPLY_MODES: [(&str, &str); 2] = [("inline", "Inline in the conversation"), ("window", "In a separate window")];
 
 #[component]
 pub fn Composing() -> Element {
     let mut undo = use_signal(|| prefs::get().undo_send_seconds);
+    let mut saving = use_signal(|| prefs::get().draft_saving);
+    let current_saving = saving.read().clone();
     let mut mode = use_signal(|| prefs::get().compose_mode);
     let mut rmode = use_signal(|| prefs::get().reply_mode);
     let current_rmode = rmode.read().clone();
@@ -269,6 +273,27 @@ pub fn Composing() -> Element {
                             },
                             "{label}"
                         }
+                    }
+                }
+            }
+            div { class: "settings-field",
+                span { class: "settings-field__label", "Drafts" }
+                div { class: "segmented", role: "radiogroup", "aria-label": "Saving drafts",
+                    for (value, label) in DRAFT_SAVING {
+                        button { role: "radio", "aria-checked": "{current_saving == value}", "aria-selected": "{current_saving == value}",
+                            onclick: move |_| {
+                                prefs::update(|p| p.draft_saving = value.to_string());
+                                saving.set(value.to_string());
+                            },
+                            "{label}"
+                        }
+                    }
+                }
+                span { class: "settings-field__hint",
+                    if current_saving == "auto" {
+                        "Drafts save to your Drafts folder as you write; the message shows when it last saved."
+                    } else {
+                        "Closing a message you changed asks whether to keep it in Drafts."
                     }
                 }
             }

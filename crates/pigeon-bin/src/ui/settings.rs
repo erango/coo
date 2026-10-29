@@ -26,7 +26,7 @@ pub const PAGES: &[(&str, &str, &str)] = &[
         "at",
         "account sign in sign out add microsoft google gmail icloud zoom video calls order nickname name rename default from sender alias aliases address",
     ),
-    ("Composing", "edit", "undo send later reply new message window docked"),
+    ("Composing", "edit", "undo send later reply new message window docked draft save autosave ask"),
     ("Signatures", "text", "signature signatures sign-off footer html"),
     (
         "Calendar",

@@ -333,6 +333,8 @@ pub struct AppState {
     /// Actions that can still be undone, oldest first: (account id, handle).
     /// ⌘Z takes the last, whether or not its notice is still up.
     pub undo_stack: Signal<Vec<(String, i64)>>,
+    /// When each draft last reached the server's Drafts (auto-save).
+    pub draft_saved: Signal<std::collections::HashMap<String, i64>>,
 }
 
 impl AppState {
@@ -423,6 +425,7 @@ impl AppState {
             new_label: Signal::new(None),
             sync_asked: Signal::new(false),
             undo_stack: Signal::new(Vec::new()),
+            draft_saved: Signal::new(Default::default()),
         }
     }
 
@@ -833,6 +836,9 @@ fn apply(s: &mut AppState, delta: Delta) {
                 s.docked_hidden.set(false);
                 s.compose_notice.set(None);
                 s.draft.set(Some(d))
+            }
+            Delta::DraftSaved { draft_id } => {
+                s.draft_saved.write().insert(draft_id, pigeon_core::now_ms());
             }
             Delta::Scheduled(drafts) => {
                 let mut out = s.outgoing.write();

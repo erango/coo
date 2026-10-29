@@ -93,6 +93,8 @@ pub fn App() -> Element {
                         crate::menubar::did_hide(compose_window::any_open() || reader_window::any_open());
                     });
                 } else {
+                    // A message being written here is kept in Drafts.
+                    compose::save_now(s.main_slot());
                     compose_window::close_all();
                     reader_window::close_all();
                 }

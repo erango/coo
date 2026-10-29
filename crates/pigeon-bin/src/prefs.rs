@@ -65,6 +65,9 @@ pub struct Prefs {
     pub attachments_position: String,
     /// Keyboard shortcut set: "gmail" (single keys) or "outlook" (⌘ keys).
     pub shortcut_style: String,
+    /// Drafts: "ask" (when closing a changed message) or "auto" (saved to
+    /// Drafts as you write).
+    pub draft_saving: String,
     /// Undo-send window in seconds (0 = send immediately).
     pub undo_send_seconds: u32,
     /// Signature HTML per sending address (lowercased email); the key
@@ -145,6 +148,7 @@ impl Default for Prefs {
             after_remove: "next".into(),
             attachments_position: "top".into(),
             shortcut_style: "gmail".into(),
+            draft_saving: "ask".into(),
             signatures: Default::default(),
             signature_modes: Default::default(),
             list_width: 0,

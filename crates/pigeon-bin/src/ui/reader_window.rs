@@ -202,15 +202,20 @@ fn hand_back(s: AppState, slot: ComposeSlot) {
         send_cmd(Cmd::DiscardDraft { draft_id: d.id });
         return;
     }
-    send_cmd(Cmd::SaveDraft(d.clone()));
     // Back inline only where it shows: the main reader on its conversation.
+    // Anywhere else it's saved to Drafts (else it would be lost).
     let here =
         s.reader.peek().as_ref().is_some_and(|v| {
             d.reply.as_ref().is_some_and(|r| r.account_id == v.account_id && r.thread_id == v.thread_id)
         });
     let mut main = s.draft;
     if here && main.peek().is_none() {
+        if !super::compose::asks() {
+            send_cmd(Cmd::SaveDraft(d.clone()));
+        }
         main.set(Some(d));
+    } else {
+        send_cmd(Cmd::SaveDraft(d));
     }
 }
 

@@ -467,6 +467,10 @@ pub enum Delta {
         uri: Option<String>,
     },
     Draft(Draft),
+    /// A draft's latest version reached the server's Drafts.
+    DraftSaved {
+        draft_id: String,
+    },
     Sent {
         draft_id: String,
     },
@@ -667,7 +671,8 @@ impl Service {
                 return;
             }
             match svc.app.sync_draft(&draft_id).await {
-                Ok(_) => {}
+                Ok(Some(_)) => svc.send(Delta::DraftSaved { draft_id }),
+                Ok(None) => {}
                 // Drafts stay local when the server can't take them.
                 Err(e) => tracing::warn!(error = %e, "draft not saved to the server"),
             }
