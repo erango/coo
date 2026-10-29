@@ -34,8 +34,7 @@ pub const JS: &str = r#"
     if (!press) return;
     if (!(e.buttons & 1)) { press = null; return; }
     if (Math.hypot(e.clientX - press.x, e.clientY - press.y) < 5) return;
-    mailAccounts = new Set(press.r.dataset.mailDrag.split('
-'));
+    mailAccounts = new Set(press.r.dataset.mailDrag.split('\n'));
     document.documentElement.dataset.mailDragging = 'true';
     send('mail-drag', press.r.dataset.mailKey);
     press = null;

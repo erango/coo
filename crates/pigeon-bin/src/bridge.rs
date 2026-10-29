@@ -677,3 +677,32 @@ pub fn focus(id: &str) {
          if (e) e.focus(); else if (n++ < 40) setTimeout(go, 25); }}; setTimeout(go, 0); }})()"
     ));
 }
+
+#[cfg(test)]
+mod js_syntax {
+    /// The bridge as the app sends it (with the message-drag part, the rich
+    /// text editor and a shortcut style) must parse: one syntax error stops
+    /// all of it, and with it message bodies, shortcuts and links. Checked
+    /// with Node when it's installed.
+    #[test]
+    fn bridge_parses() {
+        let js = super::JS.replacen(
+            "  // ---- Search box:",
+            &format!("{}\n  // ---- Search box:", crate::ui::mail_drag::JS),
+            1,
+        );
+        assert!(js.contains("__pigeonMailDragAt"), "the message-drag part is in");
+        let all = format!(
+            "{js}\n{}\n{}",
+            crate::richtext::script(),
+            crate::shortcuts::bridge_js(crate::shortcuts::Style::Outlook)
+        );
+        let path = std::env::temp_dir().join(format!("coo-bridge-{}.js", std::process::id()));
+        std::fs::write(&path, all).unwrap();
+        match std::process::Command::new("node").arg("--check").arg(&path).output() {
+            Ok(out) => assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr)),
+            Err(_) => eprintln!("node not found: JS syntax not checked"),
+        }
+        let _ = std::fs::remove_file(path);
+    }
+}
