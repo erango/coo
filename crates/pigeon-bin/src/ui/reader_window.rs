@@ -108,13 +108,6 @@ pub fn reply_here(s: AppState, account_id: String, message_id: String, kind: Rep
     send_cmd(Cmd::StartReply { account_id, message_id, kind });
 }
 
-/// Switch a message window (its `Want`, from context) from one message to
-/// its whole conversation.
-pub fn show_whole(mut want: Signal<Want>, account_id: String, thread_id: String) {
-    want.set(Want::Thread { account_id: account_id.clone(), thread_id: thread_id.clone() });
-    send_cmd(Cmd::OpenThread { account_id, thread_id });
-}
-
 /// Open `item` in its own window, or bring its window forward.
 pub fn open(s: AppState, item: ListItem) {
     let key = AppState::key(&item);

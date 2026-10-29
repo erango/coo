@@ -180,7 +180,6 @@ fn SubjectLine(subject: String) -> Element {
 #[component]
 pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Element {
     let s = use_context::<AppState>();
-    let window_want = try_use_context::<Signal<super::reader_window::Want>>();
     // The newest message is always open, plus the one the user picked.
     let latest_id = latest_message_id(&view.messages).unwrap_or_default();
     let mut expanded = use_signal(|| HashSet::from([view.focus.clone(), latest_id.clone()]));
@@ -290,28 +289,6 @@ pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Elem
                                     span { class: "msg-collapsed__snip", dir: "auto", "{m.snippet}" }
                                     span { class: "msg-collapsed__time", "{format::row_time(m.received_at, chrono::Local::now())}" }
                                 }
-                            }
-                        }
-                    }
-                }
-            }
-            if view.single && count == 1 {
-                {
-                    let (account_id, thread_id) = (view.account_id.clone(), view.thread_id.clone());
-                    rsx! {
-                        div { class: "conversation-link",
-                            Icon { name: "lines", class: "icon--sm" }
-                            "Part of a conversation"
-                            a { class: "conversation-link__action", href: "#",
-                                onclick: move |e| {
-                                    e.prevent_default();
-                                    let (account_id, thread_id) = (account_id.clone(), thread_id.clone());
-                                    match window_want {
-                                        Some(want) => super::reader_window::show_whole(want, account_id, thread_id),
-                                        None => send_cmd(Cmd::OpenThread { account_id, thread_id }),
-                                    }
-                                },
-                                "View whole conversation"
                             }
                         }
                     }
