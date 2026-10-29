@@ -103,6 +103,11 @@ pub fn take_alert(kind: Kind) -> bool {
 /// None: silent.
 pub fn notification_sound(theme: &str, kind: Kind) -> Option<String> {
     let dir = std::path::PathBuf::from(std::env::var_os("HOME")?).join("Library/Sounds");
+    sound_in(&dir, theme, kind)
+}
+
+/// `notification_sound`, copying into `dir`.
+fn sound_in(dir: &std::path::Path, theme: &str, kind: Kind) -> Option<String> {
     let (name, bytes): (String, std::borrow::Cow<'static, [u8]>) = match wav(theme, kind) {
         Some(b) => (format!("Coo {}", bundled_name(theme, kind)), b.into()),
         None => {
@@ -117,7 +122,7 @@ pub fn notification_sound(theme: &str, kind: Kind) -> Option<String> {
     let dest = dir.join(&name);
     // Rewritten when a release changes the sound.
     if std::fs::metadata(&dest).map(|m| m.len()).ok() != Some(bytes.len() as u64) {
-        let written = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&dest, &bytes));
+        let written = std::fs::create_dir_all(dir).and_then(|_| std::fs::write(&dest, &bytes));
         if let Err(e) = written {
             tracing::warn!(error = %e, "could not copy a sound for notifications");
             return wav(theme, kind).is_some().then(|| bundled_name(theme, kind));
@@ -265,14 +270,16 @@ mod tests {
     }
 
     #[test]
-    fn bundled_notification_sounds_match_the_asset_files() {
-        let assets = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/sounds");
+    fn notification_sounds_are_copied_beside_the_user_alert_sounds() {
+        let dir = std::env::temp_dir().join(format!("coo-sounds-{}", std::process::id()));
         for t in THEMES {
             for kind in [Kind::Mail, Kind::Meeting] {
-                let name = notification_sound(t.id, kind).unwrap();
-                assert!(assets.join(&name).exists(), "{name}");
+                let name = sound_in(&dir, t.id, kind).unwrap();
+                assert_eq!(name, format!("Coo {}", bundled_name(t.id, kind)));
+                assert_eq!(std::fs::read(dir.join(&name)).unwrap(), wav(t.id, kind).unwrap(), "{name}");
             }
         }
-        assert_eq!(notification_sound(NONE, Kind::Mail), None);
+        assert_eq!(sound_in(&dir, NONE, Kind::Mail), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

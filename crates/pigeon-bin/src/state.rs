@@ -330,6 +330,9 @@ pub struct AppState {
     /// The user asked for a sync (Sync now, ⇧⌘N): show "Syncing…" until it's
     /// done. The background ones only move the "Synced" time.
     pub sync_asked: Signal<bool>,
+    /// Actions that can still be undone, oldest first: (account id, handle).
+    /// ⌘Z takes the last, whether or not its notice is still up.
+    pub undo_stack: Signal<Vec<(String, i64)>>,
 }
 
 impl AppState {
@@ -419,6 +422,7 @@ impl AppState {
             account_menu: Signal::new(None),
             new_label: Signal::new(None),
             sync_asked: Signal::new(false),
+            undo_stack: Signal::new(Vec::new()),
         }
     }
 
@@ -611,6 +615,9 @@ impl AppState {
     }
 }
 
+/// How many undoable actions ⌘Z can walk back through.
+const UNDO_KEEP: usize = 50;
+
 /// Debug builds: fake list states for screenshots, e.g.
 /// PIGEON_DEBUG_OPEN=auth-expired | offline | cold | outgoing.
 fn debug_patch(s: &AppState, delta: Delta) -> Delta {
@@ -774,6 +781,12 @@ fn apply(s: &mut AppState, delta: Delta) {
             Delta::Toast(t) => {
                 if t.error {
                     s.signing_in.set(false);
+                }
+                if let Some(u) = t.undo.clone() {
+                    let mut stack = s.undo_stack.write();
+                    stack.push(u);
+                    let extra = stack.len().saturating_sub(UNDO_KEEP);
+                    stack.drain(..extra);
                 }
                 s.push_toast(t)
             }

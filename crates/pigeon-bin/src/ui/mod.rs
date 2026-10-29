@@ -1231,6 +1231,18 @@ fn on_key(s: AppState, key: &str) {
     }
 }
 
+/// Undo the latest action that can still be undone (its notice may be
+/// long gone).
+pub fn undo_last(s: AppState) {
+    let mut stack = s.undo_stack;
+    let Some((account_id, handle)) = stack.write().pop() else {
+        return s.local_toast("Nothing to undo", false);
+    };
+    let mut toasts = s.toasts;
+    toasts.write().retain(|t| t.undo.as_ref().map(|u| u.1) != Some(handle));
+    send_cmd(Cmd::Undo { account_id, handle });
+}
+
 /// A sync the user asked for: the footer says "Syncing…" until it's done.
 pub fn sync_now(s: AppState) {
     let mut asked = s.sync_asked;
@@ -1325,15 +1337,7 @@ pub fn run(s: AppState, what: Do) {
             }
             return;
         }
-        Do::Undo => {
-            let undo = s.toasts.read().iter().rev().find_map(|t| t.undo.clone());
-            if let Some((account_id, handle)) = undo {
-                let mut toasts = s.toasts;
-                toasts.write().retain(|t| t.undo.as_ref().map(|u| u.1) != Some(handle));
-                send_cmd(Cmd::Undo { account_id, handle });
-            }
-            return;
-        }
+        Do::Undo => return undo_last(s),
         _ => {}
     }
     if *s.mode.read() != Mode::Mail {

@@ -94,7 +94,7 @@ const TABLE: &[Row] = &[
     (Do::Flag, "Organize", "Flag / unflag", &["s"], &["meta+shift+l"]),
     (Do::MarkRead, "Organize", "Mark as read", &["I"], &["meta+t"]),
     (Do::MarkUnread, "Organize", "Mark as unread", &["U"], &["meta+shift+t"]),
-    (Do::Undo, "Organize", "Undo the last action", &["z", "meta+z"], &["meta+z"]),
+    (Do::Undo, "Organize", "Undo the last action (also after its notice is gone)", &["meta+z"], &["meta+z"]),
     (Do::Sync, "App", "Get new mail (sync now)", &["meta+shift+n"], &["meta+shift+n"]),
     (Do::Join, "App", "Join the meeting that's on now", &["J"], &["J"]),
     (Do::Bigger, "App", "Bigger text", &["zoom-in"], &["zoom-in"]),

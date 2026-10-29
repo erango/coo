@@ -39,7 +39,9 @@ use pigeon_graph::Graph;
 const CALENDAR_PAST_DAYS: i64 = 30;
 const CALENDAR_FUTURE_DAYS: i64 = 365;
 /// Sent ops stay undoable this long.
-const UNDO_WINDOW_MS: i64 = 10 * 60_000;
+/// How long a finished action can still be undone (⌘Z works after its
+/// notice is gone).
+const UNDO_WINDOW_MS: i64 = 24 * 60 * 60_000;
 
 pub struct Pigeon {
     pub store: Arc<Mutex<Store>>,

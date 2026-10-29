@@ -271,11 +271,11 @@ fn suggestions(
     };
     match &c.target {
         // A bare word: operators it starts, then people it names (a pick
-        // searches mail from them).
+        // searches for their address anywhere: from, to, cc, the text).
         Target::Operator(p) => {
             let mut v = plain(complete::operators(p));
             if contact_word(p).is_some() {
-                v.extend(people(p.trim(), "from:"));
+                v.extend(people(p.trim(), ""));
             }
             (v, None)
         }

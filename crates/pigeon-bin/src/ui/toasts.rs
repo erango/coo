@@ -58,6 +58,8 @@ fn ToastItem(toast: Toast) -> Element {
                 button { class: "btn btn--ghost btn--sm", r#type: "button", style: "color:var(--text-1)",
                     onclick: move |_| {
                         toasts.write().retain(|x| x.id != id);
+                        let mut stack = s.undo_stack;
+                        stack.write().retain(|u| u.1 != handle);
                         send_cmd(Cmd::Undo { account_id: account_id.clone(), handle });
                     },
                     "Undo"
