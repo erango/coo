@@ -50,6 +50,7 @@ fn ToastItem(toast: Toast) -> Element {
     let id = toast.id;
     let undo = toast.undo.clone();
     let cancel_send = toast.cancel_send.clone();
+    let reveal = toast.reveal.clone();
     rsx! {
         div { class: "toast", role: "status", "data-tone": tone,
             Icon { name: icon }
@@ -64,6 +65,16 @@ fn ToastItem(toast: Toast) -> Element {
                     },
                     "Undo"
                     kbd { class: "kbd", {hint(Do::Undo)} }
+                }
+            }
+            if let Some(path) = reveal {
+                button { class: "icon-btn icon-btn--sm toast__reveal", r#type: "button",
+                    "aria-label": "Show in Finder", title: "Show in Finder",
+                    onclick: move |_| {
+                        toasts.write().retain(|x| x.id != id);
+                        crate::quicklook::reveal(&path);
+                    },
+                    Icon { name: "folder" }
                 }
             }
             if let Some(draft_id) = cancel_send {

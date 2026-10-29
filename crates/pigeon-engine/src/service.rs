@@ -415,6 +415,8 @@ pub struct Toast {
     pub cancel_send: Option<String>,
     /// The mail action an undo toast confirms (picks its icon).
     pub action: Option<MailAction>,
+    /// A file just saved: the toast offers to show it in Finder.
+    pub reveal: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -728,6 +730,12 @@ impl Service {
     fn toast(&self, message: impl Into<String>, error: bool, undo: Option<(String, i64)>) {
         let id = self.toast_seq.fetch_add(1, Ordering::Relaxed);
         self.send(Delta::Toast(Toast { id, message: message.into(), error, undo, ..Default::default() }));
+    }
+
+    /// "Saved …", with a button that shows `path` in Finder.
+    fn saved_toast(&self, message: String, path: std::path::PathBuf) {
+        let id = self.toast_seq.fetch_add(1, Ordering::Relaxed);
+        self.send(Delta::Toast(Toast { id, message, reveal: Some(path), ..Default::default() }));
     }
 
     /// "Archived …" with Undo, after `action`.
@@ -1153,7 +1161,7 @@ impl Service {
             Cmd::SaveImage { url, path } => {
                 let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                 match save_image(&url, &path).await {
-                    Ok(()) => self.toast(format!("Saved {name}"), false, None),
+                    Ok(()) => self.saved_toast(format!("Saved {name}"), path.clone()),
                     Err(e) => {
                         // No URL in the log: it can carry tracking tokens.
                         tracing::warn!(error = %e, "could not save an image");
@@ -1329,6 +1337,7 @@ impl Service {
             }
             Cmd::SaveMessages { messages, dest, into_folder } => {
                 let mut saved = 0;
+                let mut last = None;
                 for (account_id, message_id, subject) in &messages {
                     let account = self.app.account(account_id)?;
                     let to = if into_folder { free_path(&dest, &eml_name(subject)) } else { dest.clone() };
@@ -1343,7 +1352,10 @@ impl Service {
                         Err(e) => Err(e),
                     };
                     match written {
-                        Ok(()) => saved += 1,
+                        Ok(()) => {
+                            saved += 1;
+                            last = Some(to.clone());
+                        }
                         Err(e) => {
                             // No subjects in the log.
                             tracing::warn!(error = %e, "could not save a message");
@@ -1363,8 +1375,8 @@ impl Service {
                         })
                     }
                 };
-                if let Some(msg) = msg {
-                    self.toast(msg, false, None);
+                if let (Some(msg), Some(last)) = (msg, last) {
+                    self.saved_toast(msg, last);
                 }
             }
             Cmd::CreateLabel { account_id, name } => {
@@ -1479,8 +1491,8 @@ impl Service {
                         Some(format!("Saved {} attachments to {folder}", many.len()))
                     }
                 };
-                if let Some(msg) = msg {
-                    self.toast(msg, false, None);
+                if let (Some(msg), Some(first)) = (msg, saved.first()) {
+                    self.saved_toast(msg, first.clone());
                 }
                 reply.1 = saved.len() == files.len();
             }

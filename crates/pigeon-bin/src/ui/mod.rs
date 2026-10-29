@@ -210,6 +210,14 @@ pub fn App() -> Element {
                     undo: Some(("debug".into(), 0)),
                     cancel_send: None,
                     action: Some(pigeon_engine::MailAction::Archive),
+                    reveal: None,
+                }),
+                // saved-toast — a "Saved …" toast with Show in Finder (screenshots)
+                "saved-toast" => s.push_toast(pigeon_engine::service::Toast {
+                    id: 2,
+                    message: "Saved Q4-roadmap.pdf".into(),
+                    reveal: Some(std::env::temp_dir()),
+                    ..Default::default()
                 }),
                 // open:<account_id>|<thread_id>
                 // menu-shot:<Message|View|…>: pop up a menu-bar menu (screenshots)
