@@ -263,6 +263,16 @@ pub enum Cmd {
     DiscardDraft {
         draft_id: String,
     },
+    /// Gmail: a new label ("Parent/Child" nests it).
+    CreateLabel {
+        account_id: String,
+        name: String,
+    },
+    /// Gmail: delete a label (its messages keep their other labels).
+    DeleteLabel {
+        account_id: String,
+        label_id: String,
+    },
     /// Open a synced server draft in the composer.
     EditDraft {
         account_id: String,
@@ -1193,6 +1203,22 @@ impl Service {
                 self.draft_gen.lock().unwrap_or_else(|p| p.into_inner()).remove(&draft_id);
                 self.app.discard_draft(&draft_id).await?;
                 self.toast("Draft discarded", false, None);
+            }
+            Cmd::CreateLabel { account_id, name } => {
+                let account = self.app.account(&account_id)?;
+                match self.app.create_label(&account, name.trim()).await {
+                    Ok(()) => self.toast("Label created", false, None),
+                    Err(e) => self.fail("Could not create the label", &e),
+                }
+                self.publish().await;
+            }
+            Cmd::DeleteLabel { account_id, label_id } => {
+                let account = self.app.account(&account_id)?;
+                match self.app.delete_label(&account, &label_id).await {
+                    Ok(()) => self.toast("Label deleted", false, None),
+                    Err(e) => self.fail("Could not delete the label", &e),
+                }
+                self.publish().await;
             }
             Cmd::EditDraft { account_id, message_id } => {
                 let account = self.app.account(&account_id)?;

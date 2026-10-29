@@ -8,7 +8,7 @@
 //! viewed) is decided there from the rows' and folders' data attributes.
 
 use dioxus::prelude::*;
-use pigeon_core::model::{FolderInfo, FolderRole};
+use pigeon_core::model::{FolderInfo, FolderKind, FolderRole};
 use pigeon_engine::MailAction;
 use pigeon_engine::service::{ListItem, Mailbox};
 
@@ -88,7 +88,7 @@ pub fn row_attrs(s: &AppState, item: &ListItem, subject: &str) -> (String, Strin
 /// What dropping on `folder` does: Trash and Archive are those actions (so
 /// the toast reads "Deleted…" / "Archived…"), other real folders and labels
 /// a move. Virtual ones (drafts, starred, important, Gmail categories)
-/// take nothing.
+/// take nothing. On a Gmail label of your own, the message gets the label.
 pub fn drop_action(folder: &FolderInfo) -> Option<MailAction> {
     let f = &folder.folder;
     match f.role {
@@ -96,6 +96,8 @@ pub fn drop_action(folder: &FolderInfo) -> Option<MailAction> {
         _ if f.id.starts_with("CATEGORY_") => None,
         Some(FolderRole::Trash) => Some(MailAction::Trash),
         Some(FolderRole::Archive) => Some(MailAction::Archive),
+        // Your own Gmail labels: add the label, the message stays put.
+        None if f.kind == FolderKind::Label => Some(MailAction::AddLabel(f.id.clone())),
         _ => Some(MailAction::MoveTo(f.id.clone())),
     }
 }
@@ -160,6 +162,12 @@ mod tests {
         assert_eq!(drop_action(&folder("d", Some(FolderRole::Drafts))), None);
         assert_eq!(drop_action(&folder("s", Some(FolderRole::Starred))), None);
         assert_eq!(drop_action(&folder("CATEGORY_SOCIAL", None)), None);
+        let mut label = folder("Label_1", None);
+        label.folder.kind = FolderKind::Label;
+        assert_eq!(drop_action(&label), Some(MailAction::AddLabel("Label_1".into())));
+        let mut inbox = folder("INBOX", Some(FolderRole::Inbox));
+        inbox.folder.kind = FolderKind::Label;
+        assert_eq!(drop_action(&inbox), Some(MailAction::MoveTo("INBOX".into())));
     }
 
     #[test]

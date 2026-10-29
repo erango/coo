@@ -216,6 +216,38 @@ fn system_label(id: &str) -> Option<(Option<FolderRole>, &'static str)> {
     })
 }
 
+impl Google {
+    /// Create a user label ("Parent/Child" nests it); returns its id.
+    pub async fn create_label(&self, name: &str) -> Result<String> {
+        let token = self.tokens.access_token().await?;
+        let body = serde_json::json!({
+            "name": name,
+            "labelListVisibility": "labelShow",
+            "messageListVisibility": "show",
+        });
+        let resp = pigeon_core::http::send_once(
+            pigeon_core::http::client().post(format!("{GMAIL}/labels")).bearer_auth(&token).json(&body),
+        )
+        .await
+        .map_err(|e| match e.status() {
+            Some(409) => Error::Other("there's already a label with that name".into()),
+            _ => e,
+        })?;
+        let label: IdRef = resp.json().await?;
+        Ok(label.id)
+    }
+
+    /// Delete a user label: messages lose it and keep their other labels.
+    pub async fn delete_label(&self, id: &str) -> Result<()> {
+        let token = self.tokens.access_token().await?;
+        let url = format!("{GMAIL}/labels/{id}");
+        match pigeon_core::http::send(|| pigeon_core::http::client().delete(&url).bearer_auth(&token)).await {
+            Err(e) if e.status() == Some(404) => Ok(()),
+            r => r.map(drop),
+        }
+    }
+}
+
 fn normalize_labels(labels: Vec<Label>) -> Vec<Folder> {
     // Nested user labels are "Parent/Child".
     let by_name: HashMap<String, String> = labels.iter().map(|l| (l.name.clone(), l.id.clone())).collect();

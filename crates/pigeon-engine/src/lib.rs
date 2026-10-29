@@ -540,6 +540,26 @@ impl Pigeon {
         }
     }
 
+    /// Create a Gmail label and refresh the account's labels.
+    pub async fn create_label(&self, account: &Account, name: &str) -> Result<()> {
+        let Backend::Google(p) = &*self.backend(account)? else {
+            return Err(Error::Other("only Gmail accounts have labels".into()));
+        };
+        p.create_label(name).await?;
+        let folders = pigeon_core::provider::MailProvider::folders(p).await?;
+        self.store().replace_folders(&account.id, &folders)
+    }
+
+    /// Delete a Gmail label and refresh the account's labels.
+    pub async fn delete_label(&self, account: &Account, label_id: &str) -> Result<()> {
+        let Backend::Google(p) = &*self.backend(account)? else {
+            return Err(Error::Other("only Gmail accounts have labels".into()));
+        };
+        p.delete_label(label_id).await?;
+        let folders = pigeon_core::provider::MailProvider::folders(p).await?;
+        self.store().replace_folders(&account.id, &folders)
+    }
+
     /// Throw a draft away, here and on the server.
     pub async fn discard_draft(&self, draft_id: &str) -> Result<()> {
         let stored = self.store().draft(draft_id)?;

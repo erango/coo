@@ -5,6 +5,8 @@
 //! its address, and its settings. Calendar sidebar: on a calendar, a new
 //! event in it and making it the default for new events; on an account
 //! header, its calendars that take new events, to pick the default from.
+//! Gmail labels: on the Labels group, a new label; on one of your labels, a
+//! new label or deleting it.
 //! Same popover as the list rows' menu (`row_menu`): at the pointer, kept
 //! inside the window; Esc, a click outside or picking an item closes it.
 
@@ -38,6 +40,10 @@ pub enum Target {
     CalAccount,
     /// A calendar (its id) in the calendar sidebar.
     Calendar(String),
+    /// A Gmail account's Labels group.
+    Labels,
+    /// One of your Gmail labels (its id).
+    Label(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,6 +78,8 @@ pub enum Entry {
     /// The n-th writable calendar is the chosen default: checked.
     PickedCal(usize),
     CalSettings,
+    NewLabel,
+    DeleteLabel,
     Sep,
 }
 
@@ -100,6 +108,8 @@ impl Entry {
             Entry::PickCal(_) => ("", "cal"),
             Entry::PickedCal(_) => ("", "check"),
             Entry::CalSettings => ("Calendar settings…", "gear"),
+            Entry::NewLabel => ("New label…", "plus"),
+            Entry::DeleteLabel => ("Delete label…", "trash"),
             Entry::Sep => ("", ""),
         }
     }
@@ -225,6 +235,8 @@ fn entries_for(s: &AppState, m: &AccountMenu) -> Vec<Entry> {
                 .and_then(|(_, c)| cals.iter().position(|x| x.id == c));
             cal_account_entries(cals.len(), chosen)
         }
+        Target::Labels => vec![Entry::NewLabel],
+        Target::Label(_) => vec![Entry::NewLabel, Entry::Sep, Entry::DeleteLabel],
     }
 }
 
@@ -290,6 +302,11 @@ fn run(s: AppState, m: &AccountMenu, entry: Entry) {
         }
         Entry::ClearDefaultCal => s.set_default_calendar(None),
         Entry::CalSettings => super::open_settings_at(s, "Calendar"),
+        Entry::NewLabel => super::sidebar::start_new_label(s, &id),
+        Entry::DeleteLabel => {
+            let Target::Label(label) = &m.target else { return };
+            super::sidebar::delete_label(s, &id, label);
+        }
         Entry::IsDefault
         | Entry::IsDefaultCal
         | Entry::PickedCal(_)
@@ -333,6 +350,17 @@ pub fn AccountMenuView() -> Element {
     let account = s.account_label(&m.account_id, &email);
     // The heading names what was clicked; its tooltip, where that lives.
     let (name, tip) = match &m.target {
+        Target::Labels => ("Labels".to_string(), account.clone()),
+        Target::Label(id) => {
+            let name = s
+                .accounts
+                .read()
+                .iter()
+                .find(|a| a.account.id == m.account_id)
+                .and_then(|a| a.folders.iter().find(|f| &f.folder.id == id))
+                .map(|f| f.folder.name.clone());
+            (name.unwrap_or_default(), account.clone())
+        }
         Target::Calendar(id) => {
             let cal = s
                 .calendar

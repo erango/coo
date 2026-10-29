@@ -325,6 +325,8 @@ pub struct AppState {
     pub default_calendar: Signal<String>,
     /// An account header's right-click menu while open.
     pub account_menu: Signal<Option<crate::ui::account_menu::AccountMenu>>,
+    /// The account whose sidebar shows the "New label" field (Gmail).
+    pub new_label: Signal<Option<String>>,
 }
 
 impl AppState {
@@ -412,6 +414,7 @@ impl AppState {
             default_account: Signal::new(crate::prefs::get().default_from_account),
             default_calendar: Signal::new(crate::prefs::get().default_calendar),
             account_menu: Signal::new(None),
+            new_label: Signal::new(None),
         }
     }
 

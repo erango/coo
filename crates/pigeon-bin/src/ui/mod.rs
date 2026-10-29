@@ -1288,6 +1288,10 @@ pub fn run(s: AppState, what: Do) {
                 let mut e = s.editor;
                 return e.set(None);
             }
+            if s.new_label.read().is_some() {
+                let mut n = s.new_label;
+                return n.set(None);
+            }
             if s.find.read().is_some() {
                 let mut f = s.find;
                 return f.set(None);

@@ -293,16 +293,26 @@ fn AccountSection(
                     .collect();
                 let rest: Vec<&FolderInfo> = custom.iter().copied().filter(|f| !is_pinned(f)).collect();
                 let hidden_unread: u32 = if open { 0 } else { rest.iter().map(|f| f.unread).sum() };
-                let group = if nav.account.provider == ProviderKind::Google { "Labels" } else { "Folders" };
+                let gmail = nav.account.provider == ProviderKind::Google;
+                let group = if gmail { "Labels" } else { "Folders" };
                 let toggle = id.clone();
+                let (add_id, menu_id) = (id.clone(), id.clone());
+                let adding = s.new_label.read().as_deref() == Some(id.as_str());
                 let chev = if open { "chev-down" } else { "chev-right" };
                 rsx! {
                     for f in shown {
                         FolderRow { key: "{f.folder.id}", account_id: id.clone(), info: f.clone(), pinned: is_pinned(f), child: false }
                     }
-                    if !rest.is_empty() {
-                        button { class: "nav-item nav-item--child nav-group", r#type: "button", "aria-expanded": "{open}",
+                    if !rest.is_empty() || gmail {
+                        div { class: "nav-item nav-item--child nav-group", role: "button", tabindex: "0", "aria-expanded": "{open}",
                             "data-spring": (!open).then_some("true"),
+                            oncontextmenu: move |e| {
+                                if gmail {
+                                    e.prevent_default();
+                                    let p = e.client_coordinates();
+                                    super::account_menu::open_for(s, &menu_id, super::account_menu::Target::Labels, p.x, p.y);
+                                }
+                            },
                             onclick: move |_| {
                                 let mut o = s.folders_open;
                                 let mut v = o.read().clone();
@@ -314,6 +324,15 @@ fn AccountSection(
                             Icon { name: chev, class: "icon--sm" }
                             span { class: "nav-item__label", "{group}" }
                             if hidden_unread > 0 { span { class: "count", "{hidden_unread}" } }
+                            if gmail {
+                                button { class: "nav-item__pin nav-item__add", r#type: "button", "aria-label": "New label", title: "New label",
+                                    onclick: move |e| { e.stop_propagation(); start_new_label(s, &add_id); },
+                                    Icon { name: "plus", class: "icon--xs" }
+                                }
+                            }
+                        }
+                        if adding {
+                            NewLabelField { account_id: id.clone() }
                         }
                         if open {
                             for f in rest {
@@ -324,6 +343,97 @@ fn AccountSection(
                 }
             }
         }
+        }
+    }
+}
+
+/// Show the "New label" field under the account's Labels group (opened).
+pub fn start_new_label(s: AppState, account_id: &str) {
+    let mut open = s.folders_open;
+    if !open.peek().iter().any(|a| a == account_id) {
+        let mut v = open.peek().clone();
+        v.push(account_id.to_string());
+        let saved = v.clone();
+        open.set(v);
+        crate::prefs::update(move |p| p.folders_open = saved);
+    }
+    let mut n = s.new_label;
+    n.set(Some(account_id.to_string()));
+}
+
+/// Ask, then delete a Gmail label. Viewing it: back to the inbox.
+pub fn delete_label(s: AppState, account_id: &str, label_id: &str) {
+    let name = s
+        .accounts
+        .peek()
+        .iter()
+        .find(|a| a.account.id == account_id)
+        .and_then(|a| a.folders.iter().find(|f| f.folder.id == label_id))
+        .map(|f| f.folder.name.clone())
+        .unwrap_or_default();
+    let (account_id, label_id) = (account_id.to_string(), label_id.to_string());
+    spawn(async move {
+        let delete = "Delete".to_string();
+        let answer = rfd::AsyncMessageDialog::new()
+            .set_level(rfd::MessageLevel::Warning)
+            .set_title(format!("Delete the label “{name}”?"))
+            .set_description("Its messages stay in your mailbox with their other labels. This can't be undone.")
+            .set_buttons(rfd::MessageButtons::OkCancelCustom(delete.clone(), "Cancel".into()))
+            .show()
+            .await;
+        if answer != rfd::MessageDialogResult::Custom(delete) {
+            return;
+        }
+        let viewing = Mailbox::Folder { account_id: account_id.clone(), folder_id: label_id.clone() };
+        let mut mailbox = s.mailbox;
+        if *mailbox.peek() == viewing {
+            mailbox.set(Mailbox::Unified(FolderRole::Inbox));
+        }
+        let pin = pin_key(&account_id, &label_id);
+        let mut pins = s.pinned_folders;
+        if pins.peek().contains(&pin) {
+            let mut v = pins.peek().clone();
+            v.retain(|k| *k != pin);
+            let saved = v.clone();
+            pins.set(v);
+            crate::prefs::update(move |p| p.pinned_folders = saved);
+        }
+        send_cmd(Cmd::DeleteLabel { account_id, label_id });
+    });
+}
+
+/// The "New label" field: ↵ creates it ("Parent/Child" nests), Esc or
+/// leaving it empty cancels.
+#[component]
+fn NewLabelField(account_id: String) -> Element {
+    let s = use_context::<AppState>();
+    let mut name = use_signal(String::new);
+    let mut n = s.new_label;
+    use_hook(|| crate::bridge::focus("new-label-input"));
+    let mut create = move |account_id: String| {
+        let v = name.peek().trim().to_string();
+        // Cleared first: closing the field blurs it, which mustn't create it twice.
+        name.set(String::new());
+        n.set(None);
+        if !v.is_empty() {
+            send_cmd(Cmd::CreateLabel { account_id, name: v });
+        }
+    };
+    let (a1, a2) = (account_id.clone(), account_id.clone());
+    rsx! {
+        div { class: "nav-item nav-item--child new-label",
+            Icon { name: "tag", class: "icon--sm" }
+            input { class: "new-label__input", id: "new-label-input", r#type: "text", dir: "auto",
+                placeholder: "New label", autocomplete: "off", spellcheck: "false",
+                value: "{name}",
+                oninput: move |e| name.set(e.value()),
+                onkeydown: move |e| match e.key() {
+                    Key::Enter => { e.prevent_default(); create(a1.clone()); }
+                    Key::Escape => n.set(None),
+                    _ => {}
+                },
+                onblur: move |_| if name.peek().trim().is_empty() { n.set(None) } else { create(a2.clone()) },
+            }
         }
     }
 }
@@ -350,8 +460,17 @@ fn FolderRow(account_id: String, info: FolderInfo, pinned: bool, child: bool) ->
     let droppable = super::mail_drag::drop_action(&info).is_some();
     let here = super::mail_drag::is_current(&mailbox.read(), &account_id, &info);
     let (drop_account, drop_info) = (account_id.clone(), info.clone());
+    let own_label = custom && info.folder.kind == pigeon_core::model::FolderKind::Label;
+    let (menu_account, menu_label) = (account_id.clone(), info.folder.id.clone());
     rsx! {
         a { class: "nav-item nav-item--child", "data-grouped": child.then_some("true"), href: "#",
+            oncontextmenu: move |e| {
+                if own_label {
+                    e.prevent_default();
+                    let p = e.client_coordinates();
+                    super::account_menu::open_for(s, &menu_account, super::account_menu::Target::Label(menu_label.clone()), p.x, p.y);
+                }
+            },
             "data-folder-drop": droppable.then_some(account_id.clone()),
             "data-folder-current": here.then_some("true"),
             ondrop: move |e| { e.prevent_default(); e.stop_propagation(); super::mail_drag::drop_on(s, &drop_account, &drop_info); },
