@@ -14,7 +14,7 @@ use dioxus::prelude::*;
 use pigeon_core::compose::{AttachmentSource, Draft, DraftAttachment, Sender};
 use pigeon_core::model::Address;
 use pigeon_core::text::parse_address_list;
-use pigeon_engine::service::{Cmd, Toast};
+use pigeon_engine::service::{Cmd, OpenHow, Toast};
 
 use super::Icon;
 use super::recipients::{RecipientInput, is_valid};
@@ -602,13 +602,46 @@ fn Attachments(#[props(default)] top: bool) -> Element {
         .as_ref()
         .map(|d| d.attachments.iter().cloned().enumerate().filter(|(_, a)| a.source.inline_cid().is_none()).collect())
         .unwrap_or_default();
+    // A click previews (after a beat, so a double-click can open instead).
+    let mut clicks = use_signal(|| 0u64);
+    let mut menu = use_signal(|| None::<(f64, f64, usize)>);
     if atts.is_empty() {
         return rsx! {};
     }
+    let menu_for =
+        menu.read().and_then(|(x, y, i)| atts.iter().find(|(j, _)| *j == i).map(|(_, a)| (x, y, i, a.clone())));
     rsx! {
         div { class: "composer__attachments", "data-top": top.then_some("true"),
             for (i, a) in atts.into_iter() {
-                div { class: "attachment", key: "{i}-{a.name}",
+                div { class: "attachment attachment--open", key: "{i}-{a.name}",
+                    title: "Click to preview · double-click to open",
+                    onclick: {
+                        let a = a.clone();
+                        move |_| {
+                            let n = *clicks.peek() + 1;
+                            clicks.set(n);
+                            let a = a.clone();
+                            spawn(async move {
+                                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                                if *clicks.peek() == n {
+                                    open_attachment(&a, OpenHow::Preview);
+                                }
+                            });
+                        }
+                    },
+                    ondoubleclick: {
+                        let a = a.clone();
+                        move |_| {
+                            let n = *clicks.peek() + 1;
+                            clicks.set(n);
+                            open_attachment(&a, OpenHow::Open);
+                        }
+                    },
+                    oncontextmenu: move |e| {
+                        e.prevent_default();
+                        let p = e.client_coordinates();
+                        menu.set(Some((p.x, p.y, i)));
+                    },
                     {
                         let (kind, icon) = super::drive::file_kind(a.content_type.as_deref().unwrap_or_default(), &a.name);
                         rsx! { span { class: "attachment__icon", "data-kind": "{kind}", Icon { name: icon, class: "icon--sm" } } }
@@ -623,11 +656,81 @@ fn Attachments(#[props(default)] top: bool) -> Element {
                         }
                     }
                     button { class: "icon-btn icon-btn--sm", "aria-label": "Remove attachment",
-                        onclick: move |_| { if let Some(d) = draft.write().as_mut() && i < d.attachments.len() { d.attachments.remove(i); } },
+                        onclick: move |e| {
+                            e.stop_propagation();
+                            if let Some(d) = draft.write().as_mut() && i < d.attachments.len() { d.attachments.remove(i); }
+                        },
                         Icon { name: "x", class: "icon--sm" }
                     }
                 }
             }
+        }
+        if let Some((x, y, i, a)) = menu_for {
+            {
+                let local = matches!(a.source, AttachmentSource::File { .. });
+                let (a1, a2, a3) = (a.clone(), a.clone(), a.clone());
+                rsx! {
+                    div { class: "row-menu-scrim",
+                        onclick: move |_| menu.set(None),
+                        oncontextmenu: move |e| { e.prevent_default(); menu.set(None) },
+                        div { class: "menu row-menu", role: "menu",
+                            style: "width:220px;left:max(8px, min({x}px, calc(100vw / var(--ui-zoom, 1) - 228px)));top:max(8px, min({y}px, calc(100vh / var(--ui-zoom, 1) - 180px)))",
+                            onclick: move |e| e.stop_propagation(),
+                            div { class: "menu-item", role: "menuitem",
+                                onclick: move |_| { menu.set(None); open_attachment(&a1, OpenHow::Preview); },
+                                Icon { name: "eye" } span { "Quick Look" }
+                            }
+                            div { class: "menu-item", role: "menuitem",
+                                onclick: move |_| { menu.set(None); open_attachment(&a2, OpenHow::Open); },
+                                Icon { name: "popout" } span { "Open" }
+                            }
+                            if local {
+                                div { class: "menu-item", role: "menuitem",
+                                    onclick: move |_| { menu.set(None); open_attachment(&a3, OpenHow::Reveal); },
+                                    Icon { name: "folder" } span { "Show in Finder" }
+                                }
+                            }
+                            div { class: "menu-sep", role: "separator" }
+                            div { class: "menu-item menu-item--danger", role: "menuitem",
+                                onclick: move |_| {
+                                    menu.set(None);
+                                    if let Some(d) = draft.write().as_mut() && i < d.attachments.len() { d.attachments.remove(i); }
+                                },
+                                Icon { name: "trash" } span { "Remove" }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Preview, open or reveal an attachment added to a draft: a file on this
+/// Mac directly; one carried over from a message once it's downloaded; a
+/// Google Drive file in Drive.
+fn open_attachment(a: &DraftAttachment, how: OpenHow) {
+    match &a.source {
+        AttachmentSource::File { path } => {
+            let path = std::path::Path::new(path);
+            match how {
+                OpenHow::Preview => crate::quicklook::preview(path),
+                OpenHow::Reveal => crate::quicklook::reveal(path),
+                OpenHow::Open => {
+                    if let Err(e) = open::that_detached(path) {
+                        tracing::warn!(error = %e, "could not open an attachment");
+                    }
+                }
+            }
+        }
+        AttachmentSource::Message { account_id, message_id, attachment_id, .. } => send_cmd(Cmd::OpenAttachment {
+            account_id: account_id.clone(),
+            message_id: message_id.clone(),
+            attachment_id: attachment_id.clone(),
+            how,
+        }),
+        AttachmentSource::Drive { file_id, .. } => {
+            let _ = open::that_detached(format!("https://drive.google.com/file/d/{file_id}/view"));
         }
     }
 }
