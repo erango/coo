@@ -7,8 +7,10 @@
 //! itself (mail-frame sizing, links, keys). The engine keeps one reader
 //! view, so opening a window also opens the conversation in the main
 //! reader, and the window copies that view whenever the main reader shows
-//! its conversation (so it keeps up with new messages). Replies started
-//! here open in a compose window: the main window may be hidden behind.
+//! its conversation (so it keeps up with new messages). Replies are written
+//! inline here too (Settings › Composing › Replies), in the window's own
+//! compose slot: one started in the main window moves here when the window
+//! opens, and goes back there when it closes.
 
 use std::cell::RefCell;
 
@@ -19,6 +21,7 @@ use pigeon_core::compose::{Draft, ReplyKind};
 use pigeon_engine::MailAction;
 use pigeon_engine::service::{Cmd, ListItem, ReaderView};
 
+use super::compose::ComposeSlot;
 use super::{Icon, act};
 use crate::bridge::{self, Msg};
 use crate::send_cmd;
@@ -31,6 +34,9 @@ type Frame = (f64, f64, f64, f64);
 struct Open {
     key: String,
     window: DesktopContext,
+    /// The conversation shown (account id, thread id) and its inline reply.
+    thread: (String, String),
+    slot: ComposeSlot,
 }
 
 thread_local! {
@@ -79,6 +85,22 @@ pub fn wants_window(pending: Option<&(String, String)>, d: &Draft) -> bool {
     }
 }
 
+/// A reply that belongs in an open message window's inline reply (its
+/// conversation is open there): handed to it. False: no such window.
+pub fn take_reply(d: &Draft) -> bool {
+    let Some(r) = &d.reply else { return false };
+    let slot = OPEN
+        .with(|o| o.borrow().iter().find(|w| w.thread.0 == r.account_id && w.thread.1 == r.thread_id).map(|w| w.slot));
+    match slot {
+        Some(slot) => {
+            let mut draft = slot.draft;
+            draft.set(Some(d.clone()));
+            true
+        }
+        None => false,
+    }
+}
+
 /// Start a reply from a message window.
 pub fn reply_here(s: AppState, account_id: String, message_id: String, kind: ReplyKind) {
     let mut pending = s.reply_to_window;
@@ -110,6 +132,27 @@ pub fn open(s: AppState, item: ListItem) {
         super::select(s, &item);
     }
     let main = dioxus::desktop::window();
+    // A reply being written inline for this conversation moves to the
+    // window, with what's in its editor right now.
+    let thread = (item.account_id().to_string(), item.header().thread_id.clone());
+    let inline = s.draft.peek().clone().filter(|d| {
+        !super::compose::reply_window_mode()
+            && d.reply.as_ref().is_some_and(|r| r.account_id == thread.0 && r.thread_id == thread.1)
+    });
+    match inline {
+        Some(d) => {
+            spawn(async move {
+                let d = super::compose::with_editor_content(d).await;
+                let mut draft = s.draft;
+                draft.set(None);
+                create(s, main, item, Some(d));
+            });
+        }
+        None => create(s, main, item, None),
+    }
+}
+
+fn create(s: AppState, main: DesktopContext, item: ListItem, reply: Option<Draft>) {
     let frame = visible_frame(&main);
     let (w, h) = frame.map(|f| (f.2, f.3)).unwrap_or((1100.0, 800.0));
     let mut window = WindowBuilder::new()
@@ -130,7 +173,7 @@ pub fn open(s: AppState, item: ListItem) {
         .with_menu(None)
         .with_close_behaviour(WindowCloseBehaviour::WindowCloses)
         .with_background_color((17, 18, 21, 255));
-    let dom = VirtualDom::new_with_props(ReaderWindow, ReaderWindowProps { app: s, item, frame });
+    let dom = VirtualDom::new_with_props(ReaderWindow, ReaderWindowProps { app: s, item, frame, reply });
     // Created on the event loop's next turn; nothing to wait for.
     let _ = main.new_window(dom, cfg);
 }
@@ -149,9 +192,45 @@ pub fn close_all() {
     }
 }
 
-fn close_me() {
+/// The window is closing with a reply open: it goes back to the main
+/// window's inline reply (saved, unless empty).
+fn hand_back(s: AppState, slot: ComposeSlot) {
+    let Some(d) = slot.draft.peek().clone() else { return };
+    let mut draft = slot.draft;
+    draft.set(None);
+    if super::compose::is_blank(&d, &d.body_html) {
+        send_cmd(Cmd::DiscardDraft { draft_id: d.id });
+        return;
+    }
+    send_cmd(Cmd::SaveDraft(d.clone()));
+    // Back inline only where it shows: the main reader on its conversation.
+    let here =
+        s.reader.peek().as_ref().is_some_and(|v| {
+            d.reply.as_ref().is_some_and(|r| r.account_id == v.account_id && r.thread_id == v.thread_id)
+        });
+    let mut main = s.draft;
+    if here && main.peek().is_none() {
+        main.set(Some(d));
+    }
+}
+
+/// This window's compose slot.
+fn slot_of_window() -> Option<ComposeSlot> {
+    let me = dioxus::desktop::window().id();
+    OPEN.with(|o| o.borrow().iter().find(|w| w.window.id() == me).map(|w| w.slot))
+}
+
+fn close_me(s: AppState) {
     let me = dioxus::desktop::window();
-    OPEN.with(|o| o.borrow_mut().retain(|w| w.window.id() != me.id()));
+    let slot = OPEN.with(|o| {
+        let mut o = o.borrow_mut();
+        let slot = o.iter().find(|w| w.window.id() == me.id()).map(|w| w.slot);
+        o.retain(|w| w.window.id() != me.id());
+        slot
+    });
+    if let Some(slot) = slot {
+        hand_back(s, slot);
+    }
     me.close();
 }
 
@@ -190,6 +269,8 @@ pub struct ReaderWindowProps {
     app: AppState,
     item: ListItem,
     frame: Option<Frame>,
+    /// An inline reply moved over from the main window.
+    reply: Option<Draft>,
 }
 
 impl PartialEq for ReaderWindowProps {
@@ -203,6 +284,13 @@ fn ReaderWindow(props: ReaderWindowProps) -> Element {
     crate::keymon::use_native_keys();
     super::zoom::use_live_zoom();
     let s = use_context_provider(|| props.app);
+    let moved = props.reply.clone();
+    let slot = use_context_provider(move || ComposeSlot {
+        draft: Signal::new(moved),
+        sending: Signal::new(false),
+        notice: Signal::new(None),
+        windowed: true,
+    });
     let first = props.item.clone();
     let key = AppState::key(&first);
     let want = use_context_provider(|| Signal::new(Want::of(&first)));
@@ -217,7 +305,8 @@ fn ReaderWindow(props: ReaderWindowProps) -> Element {
             }
             window.set_visible(true);
             window.set_focus();
-            OPEN.with(|o| o.borrow_mut().push(Open { key, window }));
+            let thread = (item.account_id().to_string(), item.header().thread_id.clone());
+            OPEN.with(|o| o.borrow_mut().push(Open { key, window, thread, slot }));
             spawn(bridge_loop(s, item));
         }
     });
@@ -226,9 +315,12 @@ fn ReaderWindow(props: ReaderWindowProps) -> Element {
         OPEN.with(|o| o.borrow_mut().retain(|w| w.window.id() != me));
     });
     dioxus::desktop::use_wry_event_handler(move |event, _| {
-        if let Event::WindowEvent { event: WindowEvent::CloseRequested, .. } = event {
+        if let Event::WindowEvent { event: WindowEvent::CloseRequested, window_id, .. } = event
+            && *window_id == dioxus::desktop::window().id()
+        {
             let me = dioxus::desktop::window().id();
             OPEN.with(|o| o.borrow_mut().retain(|w| w.window.id() != me));
+            hand_back(s, slot);
         }
     });
 
@@ -300,7 +392,7 @@ fn reply(s: AppState, item: &ListItem, kind: ReplyKind) {
 /// Archive or delete, then close the window: the conversation is gone.
 fn archive(s: AppState, item: &ListItem, action: MailAction) {
     act(s, item, action);
-    close_me();
+    close_me(s);
 }
 
 /// This window's half of the JS bridge: message keys, links, mail-frame
@@ -333,7 +425,11 @@ async fn bridge_loop(s: AppState, item: ListItem) {
                     }
                     Do::MarkRead => act(s, &item, MailAction::MarkRead),
                     Do::MarkUnread => act(s, &item, MailAction::MarkUnread),
-                    Do::Close => close_me(),
+                    // Esc in a reply closes the reply (saved); otherwise the window.
+                    Do::Close => match slot_of_window() {
+                        Some(slot) if slot.draft.peek().is_some() => super::compose::save_and_close(slot),
+                        _ => close_me(s),
+                    },
                     Do::Compose => super::new_message(s),
                     Do::Bigger => super::zoom::change(s, super::zoom::Step::Bigger),
                     Do::Smaller => super::zoom::change(s, super::zoom::Step::Smaller),

@@ -822,7 +822,11 @@ fn apply(s: &mut AppState, delta: Delta) {
                 // Started from a message window: write it in its own window.
                 if crate::ui::reader_window::wants_window(s.reply_to_window.peek().as_ref(), &d) {
                     s.reply_to_window.set(None);
-                    crate::ui::compose_window::open(*s, d);
+                    // Inline in the message window it was started from, or
+                    // in a compose window (Settings › Composing › Replies).
+                    if crate::ui::compose::reply_window_mode() || !crate::ui::reader_window::take_reply(&d) {
+                        crate::ui::compose_window::open(*s, d);
+                    }
                     return;
                 }
                 // A new draft replaces a set-aside docked one (already saved).

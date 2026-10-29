@@ -370,6 +370,30 @@ pub fn save_now(slot: ComposeSlot) {
     }
 }
 
+/// `d` with what its editor (and edited quote) hold right now.
+pub async fn with_editor_content(mut d: Draft) -> Draft {
+    let id = editor_id(&d);
+    let typed = bridge::editor_html(&id).await;
+    if !typed.is_empty() {
+        d.body_html = typed;
+    }
+    if let Some(q) = bridge::quote_html(&id).await {
+        d.html = q;
+    }
+    d
+}
+
+/// An inline reply moves to its own compose window, as written so far.
+fn pop_out(s: AppState, slot: ComposeSlot) {
+    let Some(d) = slot.draft.peek().clone() else { return };
+    spawn(async move {
+        let d = with_editor_content(d).await;
+        let mut draft = slot.draft;
+        draft.set(None);
+        super::compose_window::open(s, d);
+    });
+}
+
 /// Throw the draft away, including its server copy.
 fn discard(slot: ComposeSlot) {
     let Some(draft) = slot.draft.read().clone() else { return };
@@ -804,6 +828,11 @@ pub fn InlineReply(draft: Draft) -> Element {
                     "aria-label": size_label, title: size_label,
                     onclick: move |_| maxed.set(!max),
                     Icon { name: size_icon }
+                }
+                button { class: "icon-btn icon-btn--sm",
+                    "aria-label": "Open in its own window", title: "Open in its own window",
+                    onclick: move |_| pop_out(s, slot),
+                    Icon { name: "popout" }
                 }
                 button { class: "icon-btn icon-btn--sm", "aria-label": "Discard draft",
                     onclick: move |_| discard(slot),

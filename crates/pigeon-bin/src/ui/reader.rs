@@ -216,9 +216,12 @@ pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Elem
         view.messages.iter().filter(|m| expanded.read().contains(&m.id)).map(|m| m.id.clone()).collect();
     let matches = match_count(&s, &view.account_id, &open_ids, &terms);
     let finding = !windowed && s.find.read().is_some();
-    let draft = s.draft.read().clone();
+    // The reply being written here: the main window's, or this message
+    // window's own (its compose slot).
+    let slot = use_context::<super::compose::ComposeSlot>();
+    let draft = slot.draft.read().clone();
     let inline_draft = draft
-        .filter(|_| !windowed && !super::compose::reply_window_mode())
+        .filter(|_| !super::compose::reply_window_mode())
         .filter(|d| d.reply.as_ref().is_some_and(|r| r.account_id == view.account_id && r.thread_id == view.thread_id));
     // A reply draft at the end of the conversation opens for editing right
     // away (inline, or in its own window per Settings › Composing); while it's
