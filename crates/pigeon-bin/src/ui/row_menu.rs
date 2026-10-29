@@ -295,12 +295,24 @@ mod tests {
                 Entry::Sep,
                 Entry::Flag,
                 Entry::MarkUnread,
+                Entry::Sep,
+                Entry::SaveEml,
             ]
         );
         let many = entries(true, true, &MailAction::Unflag, &MailAction::MarkRead, &[]);
         assert_eq!(
             many,
-            [Entry::Archive, Entry::Delete, Entry::Move, Entry::Label, Entry::Sep, Entry::Unflag, Entry::MarkRead]
+            [
+                Entry::Archive,
+                Entry::Delete,
+                Entry::Move,
+                Entry::Label,
+                Entry::Sep,
+                Entry::Unflag,
+                Entry::MarkRead,
+                Entry::Sep,
+                Entry::SaveEml
+            ]
         );
     }
 
