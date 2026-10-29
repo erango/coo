@@ -1266,8 +1266,15 @@ impl Service {
             }
             Cmd::EditDraft { account_id, message_id } => {
                 let account = self.app.account(&account_id)?;
-                let draft = self.app.edit_draft(&account, &message_id).await?;
-                self.send(Delta::Draft(draft));
+                match self.app.edit_draft(&account, &message_id).await {
+                    Ok(draft) => self.send(Delta::Draft(draft)),
+                    // Usually a draft that changed since the last sync: not a bug.
+                    Err(e) => {
+                        tracing::warn!(error = %e, "could not open a draft");
+                        self.toast(format!("Could not open the draft: {e}"), true, None);
+                        tokio::spawn(self.clone().sync());
+                    }
+                }
             }
             Cmd::Send(mut draft) => {
                 draft.scheduled_at = None;

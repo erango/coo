@@ -306,6 +306,7 @@ pub fn autosave(slot: ComposeSlot, editor: &str) {
     }
     let editor = editor.to_string();
     let mut state = slot.draft;
+    mark_typed(&draft.id);
     spawn(async move {
         let typed = bridge::editor_html(&editor).await;
         let quote = bridge::quote_html(&editor).await;
@@ -323,7 +324,10 @@ pub fn autosave(slot: ComposeSlot, editor: &str) {
         if let Some(q) = quote {
             d.html = q;
         }
-        send_cmd(Cmd::SaveDraft(d));
+        // Typed and deleted again: no empty draft on the server.
+        if !is_blank(&d, &d.body_html) {
+            send_cmd(Cmd::SaveDraft(d));
+        }
     });
 }
 
@@ -343,11 +347,12 @@ pub fn save_and_close(slot: ComposeSlot) {
         if let Some(q) = quote {
             d.html = q;
         }
-        // Nothing written: drop it instead of leaving an empty draft behind.
-        if is_blank(&d, &d.body_html) {
-            send_cmd(Cmd::DiscardDraft { draft_id: d.id });
-        } else {
-            send_cmd(Cmd::SaveDraft(d));
+        // Nothing written: drop it instead of leaving an empty draft behind;
+        // opened and left as it was: no new version.
+        match closing(&d, &d.body_html.clone()) {
+            Close::Save => send_cmd(Cmd::SaveDraft(d)),
+            Close::Discard => send_cmd(Cmd::DiscardDraft { draft_id: d.id }),
+            Close::Keep => {}
         }
     });
 }
@@ -358,10 +363,10 @@ pub fn save_now(slot: ComposeSlot) {
     let Some(d) = slot.draft.peek().clone() else { return };
     let mut state = slot.draft;
     state.set(None);
-    if is_blank(&d, &d.body_html) {
-        send_cmd(Cmd::DiscardDraft { draft_id: d.id });
-    } else {
-        send_cmd(Cmd::SaveDraft(d));
+    match closing(&d, &d.body_html.clone()) {
+        Close::Save => send_cmd(Cmd::SaveDraft(d)),
+        Close::Discard => send_cmd(Cmd::DiscardDraft { draft_id: d.id }),
+        Close::Keep => {}
     }
 }
 
@@ -691,8 +696,61 @@ fn drop_handlers(
 /// feeding that to `dangerous_inner_html` reset the editor's contents
 /// mid-typing, which threw the caret to the start.
 fn use_editor_body(draft: &Draft) -> String {
+    remember_opened(draft);
     let body = draft.body_html.clone();
     use_hook(move || body)
+}
+
+thread_local! {
+    /// Each open draft's fields as it opened, and whether anything was typed
+    /// in it since: a draft closed untouched isn't saved again.
+    static OPENED: std::cell::RefCell<std::collections::HashMap<String, (String, bool)>> = Default::default();
+}
+
+/// The fields besides the text that make a draft (to compare at close).
+fn fields(d: &Draft) -> String {
+    serde_json::to_string(&(&d.from, &d.to, &d.cc, &d.bcc, &d.subject, &d.attachments)).unwrap_or_default()
+}
+
+fn remember_opened(d: &Draft) {
+    OPENED.with(|o| {
+        o.borrow_mut().entry(d.id.clone()).or_insert_with(|| (fields(d), false));
+    });
+}
+
+fn mark_typed(draft_id: &str) {
+    OPENED.with(|o| {
+        if let Some(e) = o.borrow_mut().get_mut(draft_id) {
+            e.1 = true;
+        }
+    });
+}
+
+/// What closing a draft does with it.
+#[derive(Debug, PartialEq)]
+enum Close {
+    /// Save it (here, then on the server).
+    Save,
+    /// Nothing in it: throw it away.
+    Discard,
+    /// Opened and left as it was: its saved copy stands, no new version.
+    Keep,
+}
+
+/// How to close `d` (its editor holding `typed`).
+fn closing(d: &Draft, typed: &str) -> Close {
+    let opened = OPENED.with(|o| o.borrow_mut().remove(&d.id));
+    if is_blank(d, typed) {
+        return Close::Discard;
+    }
+    let untouched = opened.is_some_and(|(f, typed_in)| !typed_in && f == fields(d));
+    let nothing_written = pigeon_core::text::html_to_text(typed).trim().is_empty() && d.attachments.is_empty();
+    match (untouched, d.server.is_some()) {
+        (true, true) => Close::Keep,
+        // A reply or new message opened and closed without a word.
+        (true, false) if nothing_written => Close::Discard,
+        _ => Close::Save,
+    }
 }
 
 #[component]
@@ -831,6 +889,7 @@ pub fn leave_docked(s: AppState) {
         let mut draft = slot.draft;
         if is_blank(&d, &typed) {
             draft.set(None);
+            OPENED.with(|o| o.borrow_mut().remove(&d.id));
             send_cmd(Cmd::DiscardDraft { draft_id: d.id });
             return;
         }
@@ -839,7 +898,12 @@ pub fn leave_docked(s: AppState) {
             kept.body_html = typed;
         }
         draft.set(Some(kept.clone()));
-        send_cmd(Cmd::SaveDraft(kept));
+        // Set aside, still open: saved only if it changed.
+        let changed =
+            OPENED.with(|o| o.borrow().get(&kept.id).is_none_or(|(f, typed_in)| *typed_in || *f != fields(&kept)));
+        if changed || kept.server.is_none() {
+            send_cmd(Cmd::SaveDraft(kept));
+        }
         let mut hidden = s.docked_hidden;
         hidden.set(true);
     });
@@ -1002,6 +1066,44 @@ mod tests {
             Draft::new(Sender { account_id: "google:me@x.io".into(), address: Address::new(Some("Me"), "me@x.io") }, 0);
         d.to = vec![Address::new(None, "dana@x.io")];
         d
+    }
+
+    #[test]
+    fn closing_saves_only_what_changed() {
+        use pigeon_core::compose::ServerDraft;
+        // A reply opened and closed without a word: thrown away.
+        let mut reply = draft();
+        reply.reply = Some(pigeon_core::compose::ReplyContext {
+            kind: pigeon_core::compose::ReplyKind::Reply,
+            account_id: "google:me@x.io".into(),
+            message_id: "m1".into(),
+            thread_id: "t1".into(),
+            internet_message_id: None,
+            references: Vec::new(),
+        });
+        remember_opened(&reply);
+        assert_eq!(closing(&reply, ""), Close::Discard);
+        // A server draft opened and left as it was: no new version.
+        let mut edited = draft();
+        edited.subject = "Plans".into();
+        edited.body_html = "<div>hi</div>".into();
+        edited.server = Some(ServerDraft { account_id: "google:me@x.io".into(), id: "d1".into() });
+        remember_opened(&edited);
+        assert_eq!(closing(&edited, "<div>hi</div>"), Close::Keep);
+        // Typed in: saved.
+        remember_opened(&edited);
+        mark_typed(&edited.id);
+        assert_eq!(closing(&edited, "<div>hi there</div>"), Close::Save);
+        // A field changed: saved.
+        remember_opened(&edited);
+        let mut more = edited.clone();
+        more.cc = vec![Address::new(None, "lee@x.io")];
+        assert_eq!(closing(&more, "<div>hi</div>"), Close::Save);
+        // Nothing anywhere: thrown away.
+        let mut empty = draft();
+        empty.to.clear();
+        remember_opened(&empty);
+        assert_eq!(closing(&empty, ""), Close::Discard);
     }
 
     #[test]

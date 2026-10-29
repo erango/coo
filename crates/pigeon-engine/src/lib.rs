@@ -590,11 +590,20 @@ impl Pigeon {
     /// Open a draft that synced in from the server (e.g. written on the
     /// phone) as an editable local draft linked to its server copy.
     pub async fn edit_draft(&self, account: &Account, message_id: &str) -> Result<Draft> {
+        // Saved from this Mac (Exchange drafts are their message): our copy.
+        let ours = ServerDraft { account_id: account.id.clone(), id: message_id.to_string() };
+        if let Some(d) = self.store().drafts()?.into_iter().find(|d| d.server.as_ref() == Some(&ours)) {
+            return Ok(d);
+        }
         let h = self
             .store()
             .message(&account.id, message_id)?
             .ok_or_else(|| Error::Other(format!("draft {message_id} is not synced")))?;
-        let body = self.body(account, message_id).await?;
+        // Exchange gives a draft a new id on every save: an old one is gone.
+        let body = self.body(account, message_id).await.map_err(|e| match e.status() {
+            Some(404) => Error::Other("it was changed elsewhere; it shows again after the next sync".into()),
+            _ => e,
+        })?;
         let senders = self.senders().await?;
         let from = h
             .from
