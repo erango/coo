@@ -1235,3 +1235,10 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 /* Settings › General › Mark as read: the seconds field. */
 .read-delay { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-ui); color: var(--text-2); }
 .read-delay__input { width: 72px; }
+
+/* Attachments above the text (Settings › General): their own strip under
+   the header fields, set apart from what you're writing. */
+.composer__attachments[data-top] {
+  flex: none; padding: 10px 24px; background: var(--bg-1); box-shadow: inset 0 -1px 0 var(--line);
+}
+.inline-reply .composer__attachments[data-top] { padding: 8px 12px; }

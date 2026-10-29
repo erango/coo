@@ -584,8 +584,13 @@ fn file_size(a: &DraftAttachment) -> String {
     }
 }
 
+/// Attachments go above the text (Settings › General), as in messages.
+fn attachments_on_top() -> bool {
+    crate::prefs::get().attachments_position != "bottom"
+}
+
 #[component]
-fn Attachments() -> Element {
+fn Attachments(#[props(default)] top: bool) -> Element {
     let slot = use_context::<ComposeSlot>();
     let mut draft = slot.draft;
     // Images the quote shows inline travel with it, without a chip.
@@ -598,7 +603,7 @@ fn Attachments() -> Element {
         return rsx! {};
     }
     rsx! {
-        div { class: "composer__attachments",
+        div { class: "composer__attachments", "data-top": top.then_some("true"),
             for (i, a) in atts.into_iter() {
                 div { class: "attachment", key: "{i}-{a.name}",
                     {
@@ -904,6 +909,7 @@ pub fn InlineReply(draft: Draft) -> Element {
             }
             if let Some(h) = hint { div { class: "cross-account-hint", dir: "auto", "{h}" } }
             div { class: "dropzone", Icon { name: "upload" } "Drop to attach" span { class: "dropzone__meta", "files are added to this reply" } }
+            if attachments_on_top() { Attachments { top: true } }
             super::format_bar::FormatBar { editor: id.clone() }
             div { class: "inline-reply__editor", id: "{id}", contenteditable: "true", "data-editor": "true",
                 dir: "auto", "data-placeholder": "Write a reply…  Ctrl+Right Shift for RTL",
@@ -911,7 +917,7 @@ pub fn InlineReply(draft: Draft) -> Element {
             }
             div { style: "padding:0 16px", SignaturePreview {} }
             QuotedOriginal { html: current.html.clone() }
-            Attachments {}
+            if !attachments_on_top() { Attachments {} }
             super::drive::DriveWaiting {}
             super::drive::DriveSheet { editor: id.clone() }
             div { class: "inline-reply__footer",
@@ -1117,6 +1123,9 @@ pub fn Composer(draft: Draft, #[props(default)] docked: bool) -> Element {
                         }
                     }
                 }
+                // Settings › General › Attachments above: a strip under the
+                // fields, apart from the text.
+                if attachments_on_top() { Attachments { top: true } }
                 super::format_bar::FormatBar { editor: id.clone() }
                 div { class: "dropzone", Icon { name: "upload" } "Drop to attach" span { class: "dropzone__meta", "files are added to this message" } }
                 div { class: "composer__body",
@@ -1127,7 +1136,7 @@ pub fn Composer(draft: Draft, #[props(default)] docked: bool) -> Element {
                         div { class: "composer__quote", QuotedOriginal { html: current.html.clone() } }
                     }
                 }
-                Attachments {}
+                if !attachments_on_top() { Attachments {} }
                 super::drive::DriveWaiting {}
                 super::drive::DriveSheet { editor: id.clone() }
                 div { class: "composer__footer",
