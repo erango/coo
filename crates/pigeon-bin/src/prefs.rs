@@ -71,6 +71,8 @@ pub struct Prefs {
     /// Seconds a conversation stays open before it's marked read (0: as
     /// soon as it opens).
     pub read_delay_secs: u32,
+    /// The buttons a message row shows under the pointer (ui/row_actions.rs).
+    pub row_actions: Vec<String>,
     /// Undo-send window in seconds (0 = send immediately).
     pub undo_send_seconds: u32,
     /// Signature HTML per sending address (lowercased email); the key
@@ -153,6 +155,7 @@ impl Default for Prefs {
             shortcut_style: "gmail".into(),
             draft_saving: "ask".into(),
             read_delay_secs: 0,
+            row_actions: crate::ui::row_actions::DEFAULT.iter().map(|s| s.to_string()).collect(),
             signatures: Default::default(),
             signature_modes: Default::default(),
             list_width: 0,

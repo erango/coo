@@ -1274,3 +1274,15 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 /* A message dragged over a composer (native drag, mail_drag::JS). */
 [data-mail-attach][data-drop-target] > .dropzone { display: flex; }
 .row[data-mail-drag] { -webkit-user-select: none; user-select: none; }
+
+/* Settings › Appearance › Hover actions. */
+.hover-actions { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.hover-actions__preview { display: flex; gap: 4px; align-items: center; min-height: 36px; padding: 4px 8px; border-radius: 10px; background: var(--bg-1); box-shadow: inset 0 0 0 1px var(--line); width: fit-content; }
+.hover-actions__preview .icon-btn { pointer-events: none; }
+.hover-actions__list { display: flex; flex-direction: column; border-radius: 10px; box-shadow: inset 0 0 0 1px var(--line); max-width: 420px; }
+.hover-actions__item { display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 8px 0 12px; }
+.hover-actions__item + .hover-actions__item { box-shadow: inset 0 1px 0 var(--line); }
+.hover-actions__label { flex: 1; font-size: var(--fs-ui); }
+.hover-actions__add { display: flex; flex-wrap: wrap; gap: 6px; }
+.hover-actions__chip { gap: 6px; }
+.hover-actions__chip:disabled { opacity: 0.45; }

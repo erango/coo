@@ -23,6 +23,7 @@ mod palette;
 mod reader;
 pub mod reader_window;
 mod recipients;
+pub(crate) mod row_actions;
 pub mod row_menu;
 pub mod search;
 pub mod sender_card;

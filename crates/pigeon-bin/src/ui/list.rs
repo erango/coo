@@ -1,15 +1,14 @@
 use dioxus::prelude::*;
 use pigeon_core::model::FolderRole;
-use pigeon_engine::MailAction;
 use pigeon_engine::service::{ListItem, Mailbox};
 
 use pigeon_core::model::ProviderKind;
 use pigeon_engine::service::Cmd;
 
-use super::{Icon, act, vlist};
+use super::{Icon, vlist};
 use crate::format;
 use crate::send_cmd;
-use crate::shortcuts::{Do, hint, tip};
+use crate::shortcuts::{Do, hint};
 use crate::state::{AppState, OutState, Outgoing};
 
 /// Accounts a mailbox shows mail from.
@@ -549,7 +548,7 @@ pub fn Row(
         .unwrap_or('?');
     let time = format::row_time(h.received_at, chrono::Local::now());
     let subject = if h.subject.is_empty() { "(no subject)".to_string() } else { h.subject.clone() };
-    let (i1, i2, i3, i4, i5) = (item.clone(), item.clone(), item.clone(), item.clone(), item.clone());
+    let i1 = item.clone();
     let (i6, i7) = (item.clone(), item.clone());
     // Drafts stay put; rows on their way out can't be picked up.
     let can_drag = !h.is_draft && motion.is_none();
@@ -557,9 +556,13 @@ pub fn Row(
     // Ringed while its right-click menu is open.
     let menu_on = s.row_menu.read().as_ref().is_some_and(|m| !m.bulk && AppState::key(&m.item) == key);
     let flagged = h.is_flagged;
-    let flag_label = tip(if flagged { "Unflag" } else { "Flag" }, Do::Flag);
     let in_trash = super::trash_view(&s).is_some();
-    let read_label = if unread { tip("Mark read", Do::MarkRead) } else { tip("Mark unread", Do::MarkUnread) };
+    let row_buttons: Vec<&super::row_actions::RowAction> = super::row_actions::CHOSEN
+        .read()
+        .iter()
+        .filter_map(|id| super::row_actions::find(id))
+        .filter(|a| super::row_actions::applies(&s, a, &item))
+        .collect();
     // Inline invite only when the body is already loaded (never fetch for the list).
     let invite_key = (item.account_id().to_string(), h.id.clone());
     let row_invite = s
@@ -630,27 +633,23 @@ pub fn Row(
                 // None in Trash: mail there is only restored or deleted for good.
                 if !in_trash {
                 span { class: "row__actions", ondoubleclick: move |e| e.stop_propagation(),
-                    button { class: "icon-btn icon-btn--sm", "aria-label": tip("Archive", Do::Archive),
-                        onclick: move |e| { e.stop_propagation(); act(s, &i2, MailAction::Archive) },
-                        Icon { name: "archive" }
-                    }
-                    button { class: "icon-btn icon-btn--sm", "aria-label": tip("Delete", Do::Delete),
-                        onclick: move |e| { e.stop_propagation(); act(s, &i3, MailAction::Trash) },
-                        Icon { name: "trash" }
-                    }
-                    button { class: "icon-btn icon-btn--sm", "aria-label": flag_label,
-                        onclick: move |e| {
-                            e.stop_propagation();
-                            act(s, &i4, if flagged { MailAction::Unflag } else { MailAction::Flag })
-                        },
-                        Icon { name: "flag" }
-                    }
-                    button { class: "icon-btn icon-btn--sm", "aria-label": read_label,
-                        onclick: move |e| {
-                            e.stop_propagation();
-                            act(s, &i5, if unread { MailAction::MarkRead } else { MailAction::MarkUnread })
-                        },
-                        Icon { name: "mailopen" }
+                    // Right-click the buttons: choose them (Settings › Appearance).
+                    oncontextmenu: move |e| {
+                        e.prevent_default();
+                        e.stop_propagation();
+                        super::open_settings_at(s, "Appearance");
+                    },
+                    for action in row_buttons.iter() {
+                        {
+                            let (id, item) = (action.id, item.clone());
+                            let tip = super::row_actions::label_for(action, &item);
+                            rsx! {
+                                button { class: "icon-btn icon-btn--sm", key: "{id}", "aria-label": "{tip}",
+                                    onclick: move |e| { e.stop_propagation(); super::row_actions::run(s, &item, id) },
+                                    Icon { name: action.icon }
+                                }
+                            }
+                        }
                     }
                 }
                 }

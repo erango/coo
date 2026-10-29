@@ -20,7 +20,11 @@ pub const PAGES: &[(&str, &str, &str)] = &[
         "gear",
         "close window menu bar quit startup archive delete next message after attachments files top bottom mark read unread seconds delay",
     ),
-    ("Appearance", "sun", "theme dark light mode color colour text size font zoom list cards bands avatars density"),
+    (
+        "Appearance",
+        "sun",
+        "theme dark light mode color colour text size font zoom list cards bands avatars density hover actions buttons row toolbar",
+    ),
     (
         "Accounts",
         "at",
@@ -256,6 +260,7 @@ fn Appearance() -> Element {
                 }
                 span { class: "settings-field__hint", "Initials, or the sender's photo when Privacy › Sender photos is on." }
             }
+            HoverActions {}
             div { class: "settings-field",
                 span { class: "settings-field__label", "Text size" }
                 div { class: "text-size",
@@ -264,6 +269,88 @@ fn Appearance() -> Element {
                     button { class: "icon-btn icon-btn--sm", "aria-label": "Bigger text (⌘+)", onclick: move |_| step(Step::Bigger), "+" }
                     button { class: "btn btn--ghost btn--sm", r#type: "button", disabled: pct == 100.0,
                         onclick: move |_| step(Step::Reset), "Reset" kbd { class: "kbd", "⌘0" } }
+                }
+            }
+        }
+    }
+}
+
+/// Settings › Appearance › Hover actions: the buttons a row shows under the
+/// pointer, up to five, in order, from anything in its right-click menu.
+#[component]
+fn HoverActions() -> Element {
+    use super::row_actions::{ALL, CHOSEN, DEFAULT, MAX, find, set};
+    let chosen = CHOSEN.read().clone();
+    let full = chosen.len() >= MAX;
+    let rest: Vec<_> = ALL.iter().filter(|a| !chosen.iter().any(|c| c == a.id)).collect();
+    let is_default = chosen.iter().map(String::as_str).eq(DEFAULT.iter().copied());
+    let moved = |from: usize, to: usize| {
+        let mut v = CHOSEN.peek().clone();
+        if to < v.len() {
+            v.swap(from, to);
+            set(v);
+        }
+    };
+    rsx! {
+        div { class: "settings-field settings-field--top",
+            span { class: "settings-field__label", "Hover actions" }
+            div { class: "hover-actions",
+                // The buttons as a row shows them.
+                div { class: "hover-actions__preview", "aria-hidden": "true",
+                    for id in chosen.iter() {
+                        if let Some(a) = find(id) {
+                            span { class: "icon-btn icon-btn--sm", key: "{id}", Icon { name: a.icon } }
+                        }
+                    }
+                    if chosen.is_empty() { span { class: "t-caption", "No buttons" } }
+                }
+                div { class: "hover-actions__list", role: "list", "aria-label": "Row buttons, in order",
+                    for (i, id) in chosen.iter().enumerate() {
+                        if let Some(a) = find(id) {
+                            {
+                                let (last, id_rm) = (i + 1 == chosen.len(), id.clone());
+                                rsx! {
+                                    div { class: "hover-actions__item", role: "listitem", key: "{id}",
+                                        Icon { name: a.icon, class: "icon--sm" }
+                                        span { class: "hover-actions__label", "{a.label}" }
+                                        button { class: "icon-btn icon-btn--xs", r#type: "button", "aria-label": "Move {a.label} earlier",
+                                            disabled: i == 0, onclick: move |_| if i > 0 { moved(i, i - 1) },
+                                            Icon { name: "chev-up", class: "icon--xs" } }
+                                        button { class: "icon-btn icon-btn--xs", r#type: "button", "aria-label": "Move {a.label} later",
+                                            disabled: last, onclick: move |_| moved(i, i + 1),
+                                            Icon { name: "chev-down", class: "icon--xs" } }
+                                        button { class: "icon-btn icon-btn--xs", r#type: "button", "aria-label": "Remove {a.label}",
+                                            onclick: move |_| {
+                                                let v: Vec<String> = CHOSEN.peek().iter().filter(|x| **x != id_rm).cloned().collect();
+                                                set(v);
+                                            },
+                                            Icon { name: "x", class: "icon--xs" } }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                div { class: "hover-actions__add",
+                    for a in rest {
+                        button { class: "chip hover-actions__chip", r#type: "button", key: "{a.id}", disabled: full,
+                            title: if full { "Up to 5: remove one first" } else { "Add to the row" },
+                            onclick: move |_| {
+                                let mut v = CHOSEN.peek().clone();
+                                v.push(a.id.to_string());
+                                set(v);
+                            },
+                            Icon { name: a.icon, class: "icon--xs" }
+                            "{a.label}"
+                        }
+                    }
+                }
+                span { class: "settings-field__hint",
+                    "Up to 5, from the right-click menu. Right-click a row's buttons to come back here. "
+                    if !is_default {
+                        a { href: "#", onclick: move |e| { e.prevent_default(); set(DEFAULT.iter().map(|s| s.to_string()).collect()); },
+                            "Restore defaults" }
+                    }
                 }
             }
         }
