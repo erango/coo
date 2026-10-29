@@ -97,22 +97,30 @@ pub fn take_alert(kind: Kind) -> bool {
 }
 
 /// The file name a notification plays `kind` of `theme` by, for
-/// UNNotificationSound: bundled themes sit in Coo.app's Resources
-/// (scripts/bundle.sh); macOS's own sounds are copied once into
-/// ~/Library/Sounds, the other place macOS looks. None: silent.
+/// UNNotificationSound. Every sound is copied into ~/Library/Sounds (as
+/// "Coo …"): macOS 26 turns down sounds named from an app's bundle and
+/// plays its default one instead, but takes the user's alert sounds folder.
+/// None: silent.
 pub fn notification_sound(theme: &str, kind: Kind) -> Option<String> {
-    if wav(theme, kind).is_some() {
-        return Some(bundled_name(theme, kind));
-    }
-    let src = system_file(theme, kind)?;
-    let name = format!("Coo {}", std::path::Path::new(src).file_name()?.to_str()?);
     let dir = std::path::PathBuf::from(std::env::var_os("HOME")?).join("Library/Sounds");
+    let (name, bytes): (String, std::borrow::Cow<'static, [u8]>) = match wav(theme, kind) {
+        Some(b) => (format!("Coo {}", bundled_name(theme, kind)), b.into()),
+        None => {
+            let src = system_file(theme, kind)?;
+            let name = format!("Coo {}", std::path::Path::new(src).file_name()?.to_str()?);
+            if dir.join(&name).exists() {
+                return Some(name);
+            }
+            (name, std::fs::read(src).ok()?.into())
+        }
+    };
     let dest = dir.join(&name);
-    if !dest.exists() {
-        let copied = std::fs::create_dir_all(&dir).and_then(|_| std::fs::copy(src, &dest));
-        if let Err(e) = copied {
-            tracing::warn!(error = %e, "could not copy a macOS sound for notifications");
-            return None;
+    // Rewritten when a release changes the sound.
+    if std::fs::metadata(&dest).map(|m| m.len()).ok() != Some(bytes.len() as u64) {
+        let written = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&dest, &bytes));
+        if let Err(e) = written {
+            tracing::warn!(error = %e, "could not copy a sound for notifications");
+            return wav(theme, kind).is_some().then(|| bundled_name(theme, kind));
         }
     }
     Some(name)

@@ -551,6 +551,20 @@ pub fn Notifications() -> Element {
                             "Play" }
                     }
                     span { class: "settings-field__hint", "Each theme pairs a new-mail sound with a matching meeting reminder; turn either off on its own. Plays once per batch, at macOS's alert volume, and stays quiet in Focus and Do Not Disturb like the banner." }
+                    div {
+                        button { class: "btn btn--secondary btn--sm", r#type: "button",
+                            title: "Post a real notification with the new-mail sound, the way new mail arrives",
+                            onclick: move |_| crate::notify::post(&crate::notify::Note {
+                                title: "Coo".into(),
+                                body: "This is how new mail sounds.".into(),
+                                target: crate::notify::Target::Inbox,
+                                join_url: None,
+                                sound: (prefs::get().sound_theme != crate::sound::NONE).then_some(crate::sound::Kind::Mail),
+                                banner: true,
+                            }),
+                            "Send a test notification"
+                        }
+                    }
                 }
             }
             div { class: "settings-field",
