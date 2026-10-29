@@ -352,6 +352,7 @@ fn ReaderWindow(props: ReaderWindowProps) -> Element {
     let item = s.visible_items().into_iter().find(|i| AppState::key(i) == key).unwrap_or(first);
     let flagged = item.header().is_flagged;
     let (i1, i2, i3, i4, i5, i6) = (item.clone(), item.clone(), item.clone(), item.clone(), item.clone(), item.clone());
+    let i7 = item.clone();
     let current = view.read().clone();
 
     rsx! {
@@ -368,6 +369,8 @@ fn ReaderWindow(props: ReaderWindowProps) -> Element {
                     button { class: "icon-btn", "aria-label": tip("Reply", Do::Reply), onclick: move |_| reply(s, &i4, ReplyKind::Reply), Icon { name: "reply", class: "icon--lg" } }
                     button { class: "icon-btn", "aria-label": tip("Reply all", Do::ReplyAll), onclick: move |_| reply(s, &i5, ReplyKind::ReplyAll), Icon { name: "replyall", class: "icon--lg" } }
                     button { class: "icon-btn", "aria-label": tip("Forward", Do::Forward), onclick: move |_| reply(s, &i6, ReplyKind::Forward), Icon { name: "forward", class: "icon--lg" } }
+                    button { class: "icon-btn", "aria-label": "Reuse message: send it again to the same people, editable", title: "Reuse message",
+                        onclick: move |_| reply(s, &i7, ReplyKind::Reuse), Icon { name: "repeat", class: "icon--lg" } }
                 }
                 match current {
                     Some(v) => rsx! {

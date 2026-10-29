@@ -132,6 +132,7 @@ fn build(s: &AppState, query: &str) -> Vec<Item> {
                 item("Actions", "reply", "Reply", hint(Do::Reply), Action::Reply(ReplyKind::Reply)),
                 item("Actions", "replyall", "Reply all", hint(Do::ReplyAll), Action::Reply(ReplyKind::ReplyAll)),
                 item("Actions", "forward", "Forward", hint(Do::Forward), Action::Reply(ReplyKind::Forward)),
+                item("Actions", "repeat", "Reuse message", "", Action::Reply(ReplyKind::Reuse)),
                 item("Actions", "archive", "Archive", hint(Do::Archive), Action::Mail(MailAction::Archive)),
                 item("Actions", "trash", "Delete", hint(Do::Delete), Action::Mail(MailAction::Trash)),
                 item("Actions", "folder", "Move to…", hint(Do::Move), Action::MoveTo),

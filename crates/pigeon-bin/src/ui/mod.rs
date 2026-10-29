@@ -266,7 +266,11 @@ pub fn App() -> Element {
                 "reply" => {
                     let p: Vec<&str> = arg.split('|').collect();
                     if let [account_id, thread_id, message_id, ref rest @ ..] = p[..] {
-                        let kind = if rest.first() == Some(&"forward") { ReplyKind::Forward } else { ReplyKind::Reply };
+                        let kind = match rest.first() {
+                            Some(&"forward") => ReplyKind::Forward,
+                            Some(&"reuse") => ReplyKind::Reuse,
+                            _ => ReplyKind::Reply,
+                        };
                         let mut sel = s.selected;
                         sel.set(Some(format!("{account_id}|{thread_id}")));
                         send_cmd(Cmd::OpenThread { account_id: account_id.into(), thread_id: thread_id.into() });

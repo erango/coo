@@ -94,7 +94,7 @@ fn ThreadReader() -> Element {
     // In Trash, mail is only restored (Move) or deleted for good (#).
     let in_trash = super::trash_view(&s).is_some();
     let (i1, i2, i3, i4, i5, i6) = (item.clone(), item.clone(), item.clone(), item.clone(), item.clone(), item.clone());
-    let (i7, i8) = (item.clone(), item.clone());
+    let (i7, i8, i9) = (item.clone(), item.clone(), item.clone());
     // Spam, or Not spam in the spam folder (phishing is under More).
     let spam = item.as_ref().and_then(|i| {
         super::spam::for_items(&s, std::slice::from_ref(i)).into_iter().find(|a| *a != MailAction::Phishing)
@@ -142,6 +142,8 @@ fn ThreadReader() -> Element {
                 button { class: "icon-btn", "aria-label": tip("Reply", Do::Reply), onclick: move |_| if let Some(i) = &i4 { reply(i, ReplyKind::Reply) }, Icon { name: "reply", class: "icon--lg" } }
                 button { class: "icon-btn", "aria-label": tip("Reply all", Do::ReplyAll), onclick: move |_| if let Some(i) = &i5 { reply(i, ReplyKind::ReplyAll) }, Icon { name: "replyall", class: "icon--lg" } }
                 button { class: "icon-btn", "aria-label": tip("Forward", Do::Forward), onclick: move |_| if let Some(i) = &i6 { reply(i, ReplyKind::Forward) }, Icon { name: "forward", class: "icon--lg" } }
+                button { class: "icon-btn", "aria-label": "Reuse message: send it again to the same people, editable", title: "Reuse message",
+                    onclick: move |_| if let Some(i) = &i9 { reply(i, ReplyKind::Reuse) }, Icon { name: "repeat", class: "icon--lg" } }
             }
             Thread { key: "{view.account_id}|{view.thread_id}|{view.focus}", view: view.clone() }
         }

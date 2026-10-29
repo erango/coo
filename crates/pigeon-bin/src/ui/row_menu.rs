@@ -31,6 +31,7 @@ pub enum Entry {
     Reply,
     ReplyAll,
     Forward,
+    Reuse,
     OpenWindow,
     Archive,
     Delete,
@@ -54,6 +55,7 @@ impl Entry {
             Entry::Reply => ("Reply", "reply", Some(Do::Reply)),
             Entry::ReplyAll => ("Reply all", "replyall", Some(Do::ReplyAll)),
             Entry::Forward => ("Forward", "forward", Some(Do::Forward)),
+            Entry::Reuse => ("Reuse message", "repeat", None),
             Entry::OpenWindow => ("Open in new window", "popout", None),
             Entry::Archive => ("Archive", "archive", Some(Do::Archive)),
             Entry::Delete => ("Delete", "trash", Some(Do::Delete)),
@@ -79,7 +81,15 @@ impl Entry {
 pub fn entries(bulk: bool, labels: bool, flag: &MailAction, read: &MailAction, spam: &[MailAction]) -> Vec<Entry> {
     let mut v = Vec::new();
     if !bulk {
-        v.extend([Entry::Reply, Entry::ReplyAll, Entry::Forward, Entry::Sep, Entry::OpenWindow, Entry::Sep]);
+        v.extend([
+            Entry::Reply,
+            Entry::ReplyAll,
+            Entry::Forward,
+            Entry::Reuse,
+            Entry::Sep,
+            Entry::OpenWindow,
+            Entry::Sep,
+        ]);
     }
     v.extend([Entry::Archive, Entry::Delete, Entry::Move]);
     if labels {
@@ -173,6 +183,7 @@ fn run(s: AppState, m: &RowMenu, entry: Entry) {
         Entry::Reply => return reply(item, ReplyKind::Reply),
         Entry::ReplyAll => return reply(item, ReplyKind::ReplyAll),
         Entry::Forward => return reply(item, ReplyKind::Forward),
+        Entry::Reuse => return reply(item, ReplyKind::Reuse),
         Entry::OpenWindow => return super::reader_window::open(s, item.clone()),
         Entry::Move | Entry::Label => {
             let label = entry == Entry::Label;
@@ -286,6 +297,7 @@ mod tests {
                 Entry::Reply,
                 Entry::ReplyAll,
                 Entry::Forward,
+                Entry::Reuse,
                 Entry::Sep,
                 Entry::OpenWindow,
                 Entry::Sep,
@@ -330,8 +342,8 @@ mod tests {
         let e = entries(false, false, &MailAction::Flag, &MailAction::MarkRead, &[]);
         assert_eq!(step(&e, None, true), Some(0));
         assert_eq!(step(&e, None, false), Some(e.len() - 1));
-        assert_eq!(step(&e, Some(2), true), Some(4), "skips the separator after Forward");
-        assert_eq!(step(&e, Some(4), false), Some(2));
+        assert_eq!(step(&e, Some(3), true), Some(5), "skips the separator after Reuse");
+        assert_eq!(step(&e, Some(5), false), Some(3));
         assert_eq!(step(&e, Some(0), false), Some(0));
         assert_eq!(step(&e, Some(e.len() - 1), true), Some(e.len() - 1));
     }

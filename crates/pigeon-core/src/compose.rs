@@ -101,6 +101,9 @@ pub enum ReplyKind {
     Reply,
     ReplyAll,
     Forward,
+    /// Send a message again with small changes: a new message to the same
+    /// people (as Reply all), same subject, its text and files ready to edit.
+    Reuse,
 }
 
 /// What the draft answers; kept independent of the sending account.
@@ -358,6 +361,30 @@ pub fn reply_draft(
     });
 
     match kind {
+        ReplyKind::Reuse => {
+            // A new message, not an answer: same subject, no threading.
+            d.reply = None;
+            d.subject = original.subject.clone();
+            let from_me = original.from.as_ref().is_some_and(is_me);
+            d.to = match (&original.from, from_me) {
+                (Some(f), false) => vec![f.clone()],
+                _ => original.to.iter().filter(|a| !is_me(a)).cloned().collect(),
+            };
+            let mut seen: Vec<String> = d.to.iter().map(|a| a.email.to_lowercase()).collect();
+            let others = if from_me {
+                original.cc.iter().collect::<Vec<_>>()
+            } else {
+                original.to.iter().chain(&original.cc).collect()
+            };
+            for a in others {
+                if !is_me(a) && !seen.contains(&a.email.to_lowercase()) {
+                    seen.push(a.email.to_lowercase());
+                    d.cc.push(a.clone());
+                }
+            }
+            d.body_html = original_html(body);
+            d.attachments = carried_attachments(account_id, &original.id, &d.body_html, &body.attachments, true);
+        }
         ReplyKind::Reply | ReplyKind::ReplyAll => {
             d.subject = prefixed("Re:", &original.subject);
             // Answering our own sent message goes back to its recipients.
@@ -751,6 +778,39 @@ mod tests {
         assert_eq!(r.references, ["<root@cust.com>", "<orig@cust.com>"]);
         assert_eq!(d.thread_hint(), Some("t1"));
         assert!(!d.crosses_accounts());
+    }
+
+    #[test]
+    fn reuse_starts_a_new_message_to_the_same_people_with_the_text_editable() {
+        let mine = vec!["support@biz.com".to_string(), "me@work.com".to_string()];
+        let d = reply_draft(
+            ReplyKind::Reuse,
+            "google:main",
+            &original(),
+            &body(),
+            sender("google:main", "support@biz.com"),
+            &mine,
+            0,
+        );
+        assert_eq!(d.to.iter().map(|a| a.email.as_str()).collect::<Vec<_>>(), ["c@cust.com"]);
+        assert_eq!(d.cc.iter().map(|a| a.email.as_str()).collect::<Vec<_>>(), ["boss@biz.com"]);
+        assert_eq!(d.subject, "Order שלום", "same subject, no Re:");
+        assert!(d.body_html.contains("<p>Hi</p>") && d.html.is_empty(), "the text is editable, not quoted");
+        assert!(d.reply.is_none(), "a new message, not threaded");
+        // Our own sent message goes again to its recipients.
+        let mut sent = original();
+        sent.from = Some(Address::new(None, "support@biz.com"));
+        let d = reply_draft(
+            ReplyKind::Reuse,
+            "google:main",
+            &sent,
+            &body(),
+            sender("google:main", "support@biz.com"),
+            &mine,
+            0,
+        );
+        assert!(d.to.iter().chain(&d.cc).all(|a| a.email != "support@biz.com"));
+        assert!(!d.to.is_empty());
     }
 
     #[test]
