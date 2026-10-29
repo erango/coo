@@ -1,5 +1,7 @@
-//! Text size (⌘+ / ⌘- / ⌘0): CSS `zoom` on the root, persisted in prefs.
+//! Text size (⌘+ / ⌘- / ⌘0, or ⌘ + scroll): CSS `zoom` on the root of
+//! every window (main, messages, composers), persisted in prefs.
 
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use dioxus::prelude::*;
@@ -33,14 +35,60 @@ pub fn head_css(scale: f32) -> String {
     format!(":root{{zoom:{scale};--ui-zoom:{scale}}}")
 }
 
-/// Change the text size, apply it live, save it, and say so.
+/// The current scale, for every window to follow.
+fn scale_tx() -> &'static tokio::sync::watch::Sender<f32> {
+    static TX: OnceLock<tokio::sync::watch::Sender<f32>> = OnceLock::new();
+    TX.get_or_init(|| tokio::sync::watch::channel(prefs::get().font_scale).0)
+}
+
+/// ⌘ + scroll steps (from the app's event monitor, `keymon`), for the main
+/// window to apply.
+pub fn wheel_tx() -> &'static tokio::sync::broadcast::Sender<Step> {
+    static TX: OnceLock<tokio::sync::broadcast::Sender<Step>> = OnceLock::new();
+    TX.get_or_init(|| tokio::sync::broadcast::channel(8).0)
+}
+
+/// In each window's root: follow text size changes made in any window.
+pub fn use_live_zoom() {
+    use_hook(|| {
+        spawn(async {
+            let mut rx = scale_tx().subscribe();
+            while rx.changed().await.is_ok() {
+                let scale = *rx.borrow_and_update();
+                document::eval(&format!(
+                    "const r = document.documentElement.style; r.zoom = '{scale}'; r.setProperty('--ui-zoom', '{scale}'); \
+                     window.pigeonFitFrames && window.pigeonFitFrames();"
+                ));
+            }
+        })
+    });
+}
+
+/// In the main window: apply ⌘ + scroll steps.
+pub fn use_wheel_zoom(s: AppState) {
+    use_hook(|| {
+        spawn(async move {
+            let mut rx = wheel_tx().subscribe();
+            loop {
+                match rx.recv().await {
+                    Ok(step) => change(s, step),
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(_) => break,
+                }
+            }
+        })
+    });
+}
+
+/// Change the text size in every window, save it, and say so.
 pub fn change(s: AppState, step: Step) {
-    let scale = next(prefs::get().font_scale, step);
+    let before = prefs::get().font_scale;
+    let scale = next(before, step);
     let scale = prefs::update(|p| p.font_scale = scale).font_scale;
-    document::eval(&format!(
-        "const r = document.documentElement.style; r.zoom = '{scale}'; r.setProperty('--ui-zoom', '{scale}'); \
-         window.pigeonFitFrames && window.pigeonFitFrames();"
-    ));
+    scale_tx().send_replace(scale);
+    if scale == before && step != Step::Reset {
+        return;
+    }
     // Local toasts use ids far above the engine's counter.
     static SEQ: AtomicU64 = AtomicU64::new(1 << 62);
     let id = SEQ.fetch_add(1, Ordering::Relaxed);

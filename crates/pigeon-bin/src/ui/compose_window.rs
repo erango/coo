@@ -101,6 +101,7 @@ impl PartialEq for ComposeWindowProps {
 #[allow(non_snake_case)]
 fn ComposeWindow(props: ComposeWindowProps) -> Element {
     let s = use_context_provider(|| props.app);
+    super::zoom::use_live_zoom();
     let first = props.draft.clone();
     let slot = use_context_provider(move || ComposeSlot {
         draft: Signal::new(Some(first)),

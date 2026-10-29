@@ -201,6 +201,7 @@ impl PartialEq for ReaderWindowProps {
 #[allow(non_snake_case)]
 fn ReaderWindow(props: ReaderWindowProps) -> Element {
     crate::keymon::use_native_keys();
+    super::zoom::use_live_zoom();
     let s = use_context_provider(|| props.app);
     let first = props.item.clone();
     let key = AppState::key(&first);

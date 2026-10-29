@@ -5,6 +5,9 @@
 //! (`__pigeonNativeKey`), which acts on it only when its window has focus
 //! and that focus is in a read-only message. The key still goes on to the
 //! web view as usual.
+//!
+//! It also turns ⌘ + scroll (mouse wheel or trackpad) into text size steps,
+//! over message content too, and keeps those scrolls from scrolling.
 
 use std::sync::OnceLock;
 
@@ -102,6 +105,20 @@ pub fn start() {
             // SAFETY: AppKit hands the monitor a valid event for this call.
             let e = unsafe { event.as_ref() };
             let flags = e.modifierFlags();
+            if e.r#type() == objc2_app_kit::NSEventType::ScrollWheel {
+                if !flags.contains(NSEventModifierFlags::Command) {
+                    return event.as_ptr();
+                }
+                // Wheel up (whatever the scroll direction setting) is bigger.
+                let mut dy = e.scrollingDeltaY();
+                if e.isDirectionInvertedFromDevice() {
+                    dy = -dy;
+                }
+                if let Some(step) = wheel_step(dy, e.hasPreciseScrollingDeltas()) {
+                    let _ = crate::ui::zoom::wheel_tx().send(step);
+                }
+                return std::ptr::null_mut();
+            }
             let chars = e.charactersIgnoringModifiers().map(|s| s.to_string()).unwrap_or_default();
             if let Some(json) = event_json(
                 &chars,
@@ -116,12 +133,43 @@ pub fn start() {
             event.as_ptr()
         });
         // SAFETY: the handler returns the event it was given (valid).
-        unsafe { NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &block) }.map(Monitor)
+        unsafe {
+            NSEvent::addLocalMonitorForEventsMatchingMask_handler(
+                NSEventMask::KeyDown | NSEventMask::ScrollWheel,
+                &block,
+            )
+        }
+        .map(Monitor)
     });
 }
 
 #[cfg(not(target_os = "macos"))]
 pub fn start() {}
+
+/// A text size step from ⌘ + scroll: each wheel notch is one; a trackpad's
+/// fine deltas add up to one per ~40 pt of travel.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn wheel_step(dy: f64, precise: bool) -> Option<crate::ui::zoom::Step> {
+    use crate::ui::zoom::Step;
+    use std::sync::Mutex;
+    static TRAVEL: Mutex<f64> = Mutex::new(0.0);
+    let mut travel = TRAVEL.lock().unwrap_or_else(|p| p.into_inner());
+    if !precise {
+        *travel = 0.0;
+        return (dy != 0.0).then_some(if dy > 0.0 { Step::Bigger } else { Step::Smaller });
+    }
+    // A change of direction starts over.
+    if *travel * dy < 0.0 {
+        *travel = 0.0;
+    }
+    *travel += dy;
+    if travel.abs() < 40.0 {
+        return None;
+    }
+    let step = if *travel > 0.0 { Step::Bigger } else { Step::Smaller };
+    *travel = 0.0;
+    Some(step)
+}
 
 /// In a window's root component: pass monitored keys to this window's bridge.
 pub fn use_native_keys() {
@@ -159,5 +207,15 @@ mod tests {
             serde_json::from_str(&event_json("", 51, false, false, false, false).unwrap()).unwrap();
         assert_eq!(v["key"], "Backspace");
         assert!(event_json("", 122, false, false, false, false).is_none(), "F1 isn't a shortcut key");
+    }
+
+    #[test]
+    fn scroll_steps() {
+        use crate::ui::zoom::Step;
+        assert_eq!(wheel_step(3.0, false), Some(Step::Bigger));
+        assert_eq!(wheel_step(-1.0, false), Some(Step::Smaller));
+        assert_eq!(wheel_step(25.0, true), None);
+        assert_eq!(wheel_step(25.0, true), Some(Step::Bigger));
+        assert_eq!(wheel_step(-30.0, true), None, "turning back starts over");
     }
 }

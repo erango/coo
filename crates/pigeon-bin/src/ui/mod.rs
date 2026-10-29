@@ -76,6 +76,8 @@ pub fn App() -> Element {
     let s = use_context_provider(AppState::new);
     use_context_provider(|| s.main_slot());
     crate::keymon::use_native_keys();
+    zoom::use_live_zoom();
+    zoom::use_wheel_zoom(s);
     // Closing the main window either hides it into the menu bar (Settings ›
     // General) or quits; quitting closes compose windows first, since they
     // read the main window's state. Launching Coo again while it's hidden
