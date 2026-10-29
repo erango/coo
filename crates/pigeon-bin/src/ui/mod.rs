@@ -679,7 +679,7 @@ fn on_menu(s: AppState, id: &str) {
             crate::menubar::show_main();
             run(s, Do::Compose);
         }
-        crate::menubar::SYNC => send_cmd(Cmd::SyncNow),
+        crate::menubar::SYNC => sync_now(s),
         crate::menubar::SETTINGS => open_settings_at(s, "General"),
         crate::menu::AGENT_SETUP => {
             let mut o = s.agent_setup_open;
@@ -1231,6 +1231,13 @@ fn on_key(s: AppState, key: &str) {
     }
 }
 
+/// A sync the user asked for: the footer says "Syncing…" until it's done.
+pub fn sync_now(s: AppState) {
+    let mut asked = s.sync_asked;
+    asked.set(true);
+    send_cmd(Cmd::SyncNow);
+}
+
 /// Run a shortcut's action (from its key or its menu item).
 pub fn run(s: AppState, what: Do) {
     let (mut mode, draft, mut settings) = (s.mode, s.draft, s.settings_open);
@@ -1244,7 +1251,7 @@ pub fn run(s: AppState, what: Do) {
             settings.set(false);
             return mode.set(Mode::Calendar);
         }
-        Do::Sync => return send_cmd(Cmd::SyncNow),
+        Do::Sync => return sync_now(s),
         // Join the meeting that's on now (or starting soon), from anywhere.
         Do::Join => return join_now(s),
         Do::Bigger => return zoom::change(s, zoom::Step::Bigger),

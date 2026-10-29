@@ -553,8 +553,10 @@ fn SyncFooter() -> Element {
         let who: Vec<&str> =
             st.needs_sign_in.iter().map(|id| id.split_once(':').map_or(id.as_str(), |(_, e)| e)).collect();
         ("auth", "lock", format!("Sign in again · {}", who.join(", ")))
-    } else if st.syncing {
-        ("syncing", "sync", "Syncing…".to_string())
+    } else if st.syncing && (*s.sync_asked.read() || st.last_ok.is_none()) {
+        // Background syncs run all the time: only one you asked for (or the
+        // very first) shows; otherwise the "Synced" time just moves.
+        ("syncing", "sync", if st.last_ok.is_none() { "Connecting…" } else { "Syncing…" }.to_string())
     } else if st.offline {
         ("offline", "offline", "Offline · showing saved mail".to_string())
     } else if let Some(err) = &st.error {
@@ -596,7 +598,7 @@ fn SyncFooter() -> Element {
             // A button once there's nothing in flight: hover reads "Sync now".
             button { class: "sync-status", r#type: "button", "data-state": "{state}", title: "{text}",
                 disabled: state == "syncing",
-                onclick: move |_| send_cmd(Cmd::SyncNow),
+                onclick: move |_| super::sync_now(s),
                 span { class: "sync-status__now", Icon { name: icon, class: "icon--sm" } span { class: "sync-status__text", "{text}" } }
                 span { class: "sync-status__hover", "aria-hidden": "true", Icon { name: "sync", class: "icon--sm" } span { class: "sync-status__text", "Sync now" } }
             }

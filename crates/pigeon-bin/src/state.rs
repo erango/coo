@@ -327,6 +327,9 @@ pub struct AppState {
     pub account_menu: Signal<Option<crate::ui::account_menu::AccountMenu>>,
     /// The account whose sidebar shows the "New label" field (Gmail).
     pub new_label: Signal<Option<String>>,
+    /// The user asked for a sync (Sync now, ⇧⌘N): show "Syncing…" until it's
+    /// done. The background ones only move the "Synced" time.
+    pub sync_asked: Signal<bool>,
 }
 
 impl AppState {
@@ -415,6 +418,7 @@ impl AppState {
             default_calendar: Signal::new(crate::prefs::get().default_calendar),
             account_menu: Signal::new(None),
             new_label: Signal::new(None),
+            sync_asked: Signal::new(false),
         }
     }
 
@@ -778,6 +782,9 @@ fn apply(s: &mut AppState, delta: Delta) {
                 if !st.syncing {
                     let done = st.last_ok.unwrap_or(0);
                     s.outgoing.write().retain(|o| !matches!(o.state, OutState::Sent(at) if at <= done));
+                    if *s.sync_asked.peek() {
+                        s.sync_asked.set(false);
+                    }
                 }
                 s.sync.set(st)
             }

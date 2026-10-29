@@ -205,7 +205,7 @@ fn run(mut s: AppState, action: Action) {
             s.settings_open.set(false);
             s.mode.set(m);
         }
-        Action::Sync => send_cmd(Cmd::SyncNow),
+        Action::Sync => super::sync_now(s),
         Action::Settings => s.settings_open.set(true),
         Action::AgentSetup => s.agent_setup_open.set(true),
         Action::ReportBug => super::report_bug(s),
