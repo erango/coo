@@ -610,15 +610,30 @@ fn SyncFooter() -> Element {
     let mut shown = use_signal(|| line.clone());
     let mut leaving = use_signal(|| false);
     let mut epoch = use_signal(|| 0u64);
-    use_effect(use_reactive!(|line| {
+    // A sync you asked for that just finished: "Synced" shows for a moment,
+    // its cloud-check hopping in (app.css), before the line slides away.
+    let done = (state == "synced").then(|| ("synced".to_string(), "cloud-check", text.clone()));
+    use_effect(use_reactive!(|line, done| {
         if line.is_some() {
             leaving.set(false);
             shown.set(line);
         } else if shown.peek().is_some() && !*leaving.peek() {
-            leaving.set(true);
+            let finished = shown.peek().as_ref().is_some_and(|(k, _, _)| k == "syncing") && done.is_some();
             let g = *epoch.peek() + 1;
             epoch.set(g);
+            if finished {
+                shown.set(done);
+            } else {
+                leaving.set(true);
+            }
             spawn(async move {
+                if finished {
+                    tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+                    if *epoch.peek() != g {
+                        return;
+                    }
+                    leaving.set(true);
+                }
                 tokio::time::sleep(std::time::Duration::from_millis(260)).await;
                 if *epoch.peek() == g && *leaving.peek() {
                     shown.set(None);

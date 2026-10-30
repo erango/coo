@@ -1609,6 +1609,17 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 }
 @keyframes flag-down { to { transform: translateY(5px) scaleY(0.2); opacity: 0; } }
 
+/* A sync you asked for finished: the cloud hops up, wobbles like the
+   flag, and the check settles in the accent. */
+.sidebar__status .sync-status[data-state="synced"] .icon {
+  color: var(--accent); transform-origin: 50% 90%;
+  animation: cloud-done 800ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes cloud-done {
+  0% { transform: scale(0.4) translateY(4px); opacity: 0; } 35% { transform: scale(1.18) translateY(-2px) rotate(-8deg); opacity: 1; }
+  60% { transform: scale(0.96) rotate(6deg); } 80% { transform: rotate(-3deg); } 100% { transform: none; }
+}
+
 /* An unread count reaching zero: it pops, and a feather floats away. */
 .count--zero { position: relative; animation: count-pop 900ms cubic-bezier(0.22, 1, 0.36, 1) both; }
 @keyframes count-pop { 0% { transform: scale(1); } 25% { transform: scale(1.4); } 100% { transform: scale(0.6); color: transparent; } }
@@ -1623,6 +1634,6 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .server-more__msg > .bird--tiny { margin-right: 2px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .bird *, .perch__coo, .perch__feather, .list[data-sweep] .row, .flag-wave > .icon, .count--zero, .count__feather { animation: none !important; }
+  .bird *, .perch__coo, .perch__feather, .list[data-sweep] .row, .flag-wave > .icon, .sidebar__status .sync-status .icon, .count--zero, .count__feather { animation: none !important; }
   .count__feather { display: none; }
 }
