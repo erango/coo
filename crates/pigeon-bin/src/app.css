@@ -1710,3 +1710,7 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 @media (prefers-reduced-motion: reduce) {
   .settings-perch .bird *, .about-bird .bird *, .about-bird__coo, .about-bird__letter { animation: none !important; }
 }
+/* With the Go-to field and tabs gone, the mailboxes start right under the
+   window buttons (as in the design), not a toolbar's height below them. */
+.app:not(.reader-window) > .sidebar > .sidebar__top { height: 40px; }
+.app:not(.reader-window) > .sidebar > .sidebar__nav { padding-top: 4px; }
