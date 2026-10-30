@@ -609,6 +609,15 @@ pub fn SearchPane() -> Element {
                     },
                 }
             }
+            // Nothing found (and nothing still coming): the pigeon looks
+            // through its magnifier, then shrugs.
+            if has_query && st.items.is_empty() && st.server != ServerSearch::Loading {
+                div { class: "search-empty",
+                    super::bird::Bird { pose: super::bird::Pose::Magnifier, class: "bird--shrug" }
+                    div { class: "search-empty__title", "Nothing found" }
+                    div { class: "search-empty__body", "Try fewer words, or another place to look." }
+                }
+            }
             // An empty box: what the operators are, and a few to try.
             if !has_query {
                 div { class: "search-tips",
@@ -656,7 +665,11 @@ pub fn SearchPane() -> Element {
             if has_query {
                 div { class: "server-more", "data-state": match st.server { ServerSearch::Loading => "loading", _ => "idle" },
                     div { class: "server-more__msg",
-                        Icon { name: server_icon }
+                        if st.server == ServerSearch::Loading {
+                            super::bird::Bird { pose: super::bird::Pose::Pecking, class: "bird--peck bird--tiny" }
+                        } else {
+                            Icon { name: server_icon }
+                        }
                         match st.server {
                             ServerSearch::Idle => rsx! { span { "Showing mail stored on this Mac. " b { "Search the servers" } " for older messages." } },
                             ServerSearch::Loading => rsx! { span { "Searching every account…" } },

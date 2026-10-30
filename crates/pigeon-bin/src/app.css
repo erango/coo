@@ -1546,3 +1546,83 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .sidebar .settings-nav__search:focus-within { box-shadow: inset 0 0 0 1.5px var(--accent); }
 .sidebar .settings-nav__search input::placeholder { color: var(--text-3); }
 .sidebar .settings-nav { padding-top: 10px; }
+
+/* ---- Delight: the Coo pigeon and its little moments (ui/bird.rs) ----
+   Short, never in the way, and off under Reduce Motion (end of block).
+   Transform origins are in the drawing's own units (viewBox 4 4 60 56). */
+.bird { overflow: visible; }
+.bird--breathe .bird__body { transform-origin: 34px 52px; animation: bird-breathe 3.4s ease-in-out infinite; }
+@keyframes bird-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.035, 1.025); } }
+.bird--startle .bird__body { transform-origin: 34px 54px; animation: bird-startle 700ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.bird--startle .bird__wing { transform-origin: 32px 30px; animation: bird-ruffle 600ms ease-in-out 550ms both; }
+@keyframes bird-startle {
+  0% { transform: none; } 18% { transform: translateY(2px) scale(1.08, 0.9); }
+  45% { transform: translateY(-14px) scale(0.96, 1.06); } 70% { transform: translateY(0) scale(1.05, 0.95); } 100% { transform: none; }
+}
+@keyframes bird-ruffle { 0%, 100% { transform: none; } 20% { transform: rotate(-14deg); } 40% { transform: rotate(10deg); } 60% { transform: rotate(-8deg); } 80% { transform: rotate(4deg); } }
+.bird--peck .bird__body { transform-origin: 32px 54px; animation: bird-peck 1.2s cubic-bezier(0.45, 0, 0.55, 1) infinite; }
+@keyframes bird-peck { 0%, 40%, 100% { transform: none; } 55% { transform: rotate(-24deg); } 65% { transform: rotate(-15deg); } 75% { transform: rotate(-24deg); } }
+.bird--peck .bird__crumbs circle { animation: bird-crumb 1.2s ease-in-out infinite; }
+.bird--peck .bird__crumbs circle:nth-child(2) { animation-delay: 80ms; }
+.bird--peck .bird__crumbs circle:nth-child(3) { animation-delay: 160ms; }
+@keyframes bird-crumb { 0%, 52%, 100% { transform: none; } 60% { transform: translateY(-1.6px); } }
+.bird--shrug .bird__lens { transform-origin: 9px 15px; animation: bird-peer 1.8s ease-in-out both; }
+.bird--shrug .bird__body { transform-origin: 34px 54px; animation: bird-shrug 600ms cubic-bezier(0.22, 1, 0.36, 1) 1.8s both; }
+.bird--shrug .bird__wing { transform-origin: 32px 30px; animation: bird-lift 600ms cubic-bezier(0.22, 1, 0.36, 1) 1.8s both; }
+@keyframes bird-peer { 0%, 100% { transform: none; } 30% { transform: translate(-3px, 1px); } 60% { transform: translate(2px, -1px); } }
+@keyframes bird-shrug { 0%, 100% { transform: none; } 40% { transform: translateY(-3px); } }
+@keyframes bird-lift { 0%, 100% { transform: none; } 40% { transform: rotate(-16deg); } }
+.bird--tiny { width: 26px; height: 20px; flex: none; }
+
+/* Inbox zero: poke the napping pigeon. */
+.perch__poke { position: absolute; left: 66px; top: 26px; width: 88px; height: 80px; padding: 0; border: 0; background: none; cursor: default; }
+.perch__poke > svg { width: 100%; height: 100%; display: block; }
+.perch__poke:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 8px; }
+.perch__coo {
+  position: absolute; left: 34px; top: 0; padding: 4px 9px; border-radius: 11px 11px 11px 3px;
+  background: var(--bg-2); color: var(--text-2); font-size: var(--fs-caption); font-weight: var(--fw-semibold);
+  animation: bird-say 2.2s cubic-bezier(0.22, 1, 0.36, 1) 200ms both;
+}
+@keyframes bird-say { 0% { opacity: 0; transform: translateY(6px) scale(0.6); } 25% { opacity: 1; transform: scale(1.08); } 35% { transform: none; } 80% { opacity: 1; } 100% { opacity: 0; transform: translateY(-6px); } }
+/* Fetching: wider drawing (it pecks at crumbs on its left). */
+.perch--pecking > svg { left: 46px; width: 112px; }
+/* Trash emptied: a feather drifts down and settles on the line. */
+.perch__feather { position: absolute; left: 92px; top: 52px; width: 40px; height: 40px; animation: feather-drift 2.2s cubic-bezier(0.3, 0.7, 0.4, 1) both; }
+@keyframes feather-drift {
+  0% { opacity: 0; transform: translate(0, -70px) rotate(-30deg); } 10% { opacity: 1; }
+  30% { transform: translate(24px, -46px) rotate(20deg); } 55% { transform: translate(-12px, -20px) rotate(-16deg); }
+  80% { transform: translate(8px, -4px) rotate(9deg); } 100% { opacity: 1; transform: rotate(-6deg); }
+}
+
+/* Empty Trash: the rows sweep down into the bin (ui/mod.rs SWEEP_JS). */
+.list[data-sweep] .row { animation: row-sweep 520ms cubic-bezier(0.55, 0, 0.75, 0.2) both; pointer-events: none; }
+.list[data-sweep] .row[data-leaving] { display: none; }
+@keyframes row-sweep { to { transform: translateY(220px) scale(0.3) rotate(4deg); opacity: 0; } }
+
+/* Flag flutter: a flag set waves once; one taken down lowers. */
+.flag-wave { display: inline-flex; }
+.flag-wave[data-flag="up"] > .icon { transform-origin: 15% 95%; animation: flag-up 700ms cubic-bezier(0.22, 1, 0.36, 1); }
+.flag-wave[data-flag="down"] > .icon { transform-origin: 15% 95%; animation: flag-down 450ms cubic-bezier(0.4, 0, 1, 1) both; }
+@keyframes flag-up {
+  0% { transform: scaleY(0.3) translateY(4px); } 35% { transform: skewY(-10deg) scaleY(1.05); }
+  60% { transform: skewY(7deg); } 80% { transform: skewY(-3deg); } 100% { transform: none; }
+}
+@keyframes flag-down { to { transform: translateY(5px) scaleY(0.2); opacity: 0; } }
+
+/* An unread count reaching zero: it pops, and a feather floats away. */
+.count--zero { position: relative; animation: count-pop 900ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+@keyframes count-pop { 0% { transform: scale(1); } 25% { transform: scale(1.4); } 100% { transform: scale(0.6); color: transparent; } }
+.count__feather { position: absolute; left: 50%; top: -4px; width: 13px; height: 13px; margin-left: -6px; animation: count-feather 900ms ease-out both; pointer-events: none; }
+@keyframes count-feather { 0% { opacity: 0; transform: translateY(4px) rotate(-20deg); } 25% { opacity: 1; } 100% { opacity: 0; transform: translate(6px, -18px) rotate(25deg); } }
+
+/* Search: nothing found. */
+.search-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 36px 16px 12px; text-align: center; }
+.search-empty > .bird { width: 92px; height: 72px; margin-bottom: 6px; }
+.search-empty__title { font-size: var(--fs-heading); font-weight: var(--fw-semibold); color: var(--text-1); }
+.search-empty__body { font-size: var(--fs-caption); color: var(--text-3); }
+.server-more__msg > .bird--tiny { margin-right: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .bird *, .perch__coo, .perch__feather, .list[data-sweep] .row, .flag-wave > .icon, .count--zero, .count__feather { animation: none !important; }
+  .count__feather { display: none; }
+}

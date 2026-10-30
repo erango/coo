@@ -51,7 +51,7 @@ pub fn Onboarding() -> Element {
                     div { class: "onboard__col", FlowView { flow, embedded: true } }
                 } else if accounts.is_empty() {
                     div { class: "onboard__col",
-                        svg { view_box: "4 4 60 56", style: "width:52px;height:48px", "aria-hidden": "true", dangerous_inner_html: super::list::AWAKE_BIRD }
+                        super::bird::Bird { pose: super::bird::Pose::Awake, style: "width:52px;height:48px" }
                         div { class: "onboard__title", "Welcome to Coo" }
                         div { class: "onboard__lede", "Add your accounts: work, personal, as many as you like. They all land in one inbox and one calendar. Coo works with Google, Microsoft 365 and iCloud." }
                         FlowView { flow, embedded: true }

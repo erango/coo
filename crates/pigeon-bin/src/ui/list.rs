@@ -384,12 +384,9 @@ pub fn MailList() -> Element {
             if searching.is_some() {
                 super::search::SearchPane {}
             } else if items.is_empty() && out_display.is_empty() && cold {
+                // First sync of an empty list: the pigeon pecks at the crumbs.
                 div { class: "list", role: "listbox", "aria-busy": "true",
-                    for i in 0..9 {
-                        div { class: "row row--skeleton", key: "sk{i}",
-                            span { class: "skeleton" } span { class: "skeleton" } span { class: "skeleton" }
-                        }
-                    }
+                    Empty { syncing: true }
                 }
             } else if items.is_empty() && out_display.is_empty() && expired.is_empty() {
                 Empty { syncing: s.sync.read().syncing }
@@ -434,17 +431,13 @@ pub fn MailList() -> Element {
 /// "Sending…" band (app.css `.row__send-band`).
 const SEND_BAND_EXTRA: f64 = 30.0;
 
-const SLEEPING_BIRD: &str = r##"<path d="M22 9C28 9 30 14 31 20C36 22 48 26 60 33L58 38C50 42 40 46 30 45C20 44 13 38 13 30C13 25 15 22 16 20C14 18 13 15 14 13C15 10 18 9 22 9Z" fill="#EDEEF0" stroke="var(--line-strong)" stroke-width="1"/><path d="M30 26C38 27 48 30 56 35C46 38 36 38 30 34Z" fill="#B9C3CF"/><path d="M16 20C18 24 22 26 27 25" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linecap="round"/><path d="M14 13.8L8 16.4L14 17.6Z" fill="var(--warning)"/><path d="M17.6 14.4Q19.5 16 21.4 14.4" fill="none" stroke="#1F3A5C" stroke-width="1.2" stroke-linecap="round"/><path d="M28 45V54M35 45V54" stroke="var(--warning)" stroke-width="2.4" stroke-linecap="round"/>"##;
-/// Same bird, awake (onboarding).
-pub const AWAKE_BIRD: &str = r##"<path d="M22 9C28 9 30 14 31 20C36 22 48 26 60 33L58 38C50 42 40 46 30 45C20 44 13 38 13 30C13 25 15 22 16 20C14 18 13 15 14 13C15 10 18 9 22 9Z" fill="#EDEEF0" stroke="var(--line-strong)" stroke-width="1"/><path d="M30 26C38 27 48 30 56 35C46 38 36 38 30 34Z" fill="#B9C3CF"/><path d="M16 20C18 24 22 26 27 25" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linecap="round"/><path d="M14 13.8L8 16.4L14 17.6Z" fill="var(--warning)"/><circle cx="19.5" cy="14" r="1.5" fill="#1F3A5C"/><path d="M28 45V54M35 45V54" stroke="var(--warning)" stroke-width="2.4" stroke-linecap="round"/>"##;
-
 /// What an empty mailbox says: only the inbox gets the sleeping pigeon.
 fn empty_copy(role: Option<FolderRole>) -> (&'static str, &'static str) {
     match role {
         Some(FolderRole::Inbox) => ("All caught up", "Nothing left here. Enjoy the quiet."),
         Some(FolderRole::Sent) => ("Nothing sent yet", "Messages you send show up here."),
         Some(FolderRole::Drafts) => ("No drafts", "Unsent messages are kept here as you write."),
-        Some(FolderRole::Trash) => ("Trash is empty", "Delete a message here to remove it for good."),
+        Some(FolderRole::Trash) => ("Trash is empty", "Fresh start."),
         Some(FolderRole::Spam) => ("No junk", "Nothing suspicious got through."),
         Some(FolderRole::Starred) => ("Nothing flagged", "Flag a message with F to keep it here."),
         _ => ("No messages here", "This folder is empty."),
@@ -465,7 +458,24 @@ fn Empty(syncing: bool) -> Element {
             .and_then(|f| f.folder.role),
     };
     let inbox = role == Some(FolderRole::Inbox);
+    let trash = role == Some(FolderRole::Trash);
     let (title, body) = empty_copy(role);
+    // Inbox zero: poke the napping pigeon and it startles awake, coos, and
+    // settles back after a moment.
+    let mut startled = use_signal(|| false);
+    let mut nap_epoch = use_signal(|| 0u64);
+    let poke = move |_| {
+        startled.set(true);
+        let e = *nap_epoch.peek() + 1;
+        nap_epoch.set(e);
+        spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(2600)).await;
+            if *nap_epoch.peek() == e {
+                startled.set(false);
+            }
+        });
+    };
+    let awake = *startled.read();
     // Inbox zero shows what's next today, as in the design.
     let now = pigeon_core::now_ms();
     let next = if inbox && !syncing {
@@ -478,14 +488,32 @@ fn Empty(syncing: bool) -> Element {
     };
     rsx! {
         div { class: "empty-state",
-            if inbox || syncing {
+            if syncing {
+                // Fetching: the pigeon pecks at the first crumbs.
+                div { class: "perch perch--pecking",
+                    super::bird::Bird { pose: super::bird::Pose::Pecking, class: "bird--peck" }
+                }
+            } else if inbox {
                 div { class: "perch",
-                    // The app icon's bird, asleep (closed eye); collar and feet follow the theme.
-                    svg { view_box: "4 4 60 56", "aria-hidden": "true", dangerous_inner_html: SLEEPING_BIRD }
-                    if !syncing {
+                    button { class: "perch__poke", r#type: "button", "aria-label": "The Coo pigeon, napping",
+                        key: "{nap_epoch}", onclick: poke,
+                        if awake {
+                            super::bird::Bird { pose: super::bird::Pose::Awake, class: "bird--startle" }
+                        } else {
+                            super::bird::Bird { pose: super::bird::Pose::Sleeping, class: "bird--breathe" }
+                        }
+                    }
+                    if awake {
+                        span { class: "perch__coo", "coo?" }
+                    } else {
                         span { class: "perch__z", "z" }
                         span { class: "perch__z", "z" }
                     }
+                }
+            } else if trash {
+                // Emptied: one feather drifts down and settles.
+                div { class: "perch perch--feather",
+                    svg { class: "perch__feather", view_box: "0 0 44 44", "aria-hidden": "true", dangerous_inner_html: super::bird::FEATHER }
                 }
             }
             if syncing {
@@ -625,7 +653,7 @@ pub fn Row(
                 }
                 if let Some(n) = count { span { class: "row__count", "{n}" } }
                 span { class: "row__meta",
-                    if flagged { Icon { name: "flag", class: "row__flag" } }
+                    super::bird::FlagIcon { flagged }
                     if h.has_attachments { Icon { name: "clip" } }
                     time { class: "row__time", "{time}" }
                 }

@@ -97,7 +97,7 @@ pub fn MilestoneCard() -> Element {
             onmouseenter: move |_| hovered.set(true),
             onmouseleave: move |_| hovered.set(false),
             div { class: "milestone__doodle", "aria-hidden": "true",
-                svg { view_box: "4 4 60 56", dangerous_inner_html: super::list::AWAKE_BIRD }
+                super::bird::Bird { pose: super::bird::Pose::Awake }
                 span { class: "milestone__badge", Icon { name: m.badge, class: "icon--xs" } }
             }
             span { class: "milestone__line", "{m.line}" }
