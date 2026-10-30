@@ -1023,6 +1023,7 @@ async fn bridge_loop(s: AppState) {
             }
             "ctx-img" => crate::ctxmenu::set_image(&msg.v),
             "attach-drag" => crate::dragout::start(&msg.v),
+            "list-band" => multi::on_band(s, &msg.v),
             // A row pressed and moved: drag it (or the selection it's in).
             "mail-drag" => {
                 if let Some(item) = s.visible_items().into_iter().find(|i| AppState::key(i) == msg.v) {

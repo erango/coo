@@ -390,6 +390,75 @@ pub const JS: &str = r#"
     document.addEventListener('click', (e) => { if (swallowClick) { e.stopPropagation(); e.preventDefault(); swallowClick = false; } }, true);
   })();
 
+  // ---- Message list: a selection rectangle dragged from the background ----
+  // (not from a row: that drags the mail). Rust maps the rectangle's span in
+  // the virtualized rows' coordinates (measured from the first spacer, below
+  // any sending rows) to rows; near the top or bottom edge the list scrolls.
+  (function () {
+    let band = null, swallowClick = false;
+    const EDGE = 28;
+    const origin = (l) => {
+      const sp = l.querySelector(':scope > div[aria-hidden="true"]');
+      return sp ? sp.getBoundingClientRect().top - l.getBoundingClientRect().top + l.scrollTop : 0;
+    };
+    const update = () => {
+      const b = band, l = b.l, r = l.getBoundingClientRect();
+      const x = Math.max(0, Math.min(l.clientWidth, b.cx - r.left));
+      const y = Math.max(0, Math.min(l.scrollHeight, b.cy - r.top + l.scrollTop));
+      const top = Math.min(b.y0, y), left = Math.min(b.x0, x);
+      Object.assign(b.el.style, { top: top + 'px', left: left + 'px', width: Math.abs(x - b.x0) + 'px', height: Math.abs(y - b.y0) + 'px' });
+      const o = origin(l);
+      const v = [Math.round(b.y0 - o), Math.round(y - o), b.add ? 1 : 0, b.sent ? 0 : 1].join('|');
+      if (v.slice(0, v.lastIndexOf('|')) !== b.last) {
+        b.last = v.slice(0, v.lastIndexOf('|'));
+        b.sent = true;
+        send('list-band', v);
+      }
+    };
+    const tick = () => {
+      if (!band || !band.moved) return;
+      const l = band.l, r = l.getBoundingClientRect();
+      const d = band.cy < r.top + EDGE ? band.cy - (r.top + EDGE) : band.cy > r.bottom - EDGE ? band.cy - (r.bottom - EDGE) : 0;
+      if (d) { l.scrollTop += Math.max(-24, Math.min(24, d / 2)); update(); }
+      requestAnimationFrame(tick);
+    };
+    document.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || e.ctrlKey) return;
+      const l = e.target.closest && e.target.closest('.pane--list .list[role=listbox]');
+      if (!l || e.target.closest('.row, button, a, input, .list-banner')) return;
+      const r = l.getBoundingClientRect();
+      if (e.clientX >= r.left + l.clientWidth) return; // the scrollbar
+      band = { l, x0: e.clientX - r.left, y0: e.clientY - r.top + l.scrollTop, cx: e.clientX, cy: e.clientY,
+        add: e.metaKey || e.shiftKey, moved: false, sent: false, last: '' };
+      e.preventDefault();
+    });
+    document.addEventListener('pointermove', (e) => {
+      if (!band) return;
+      band.cx = e.clientX; band.cy = e.clientY;
+      if (!band.moved) {
+        const r = band.l.getBoundingClientRect();
+        if (Math.hypot(e.clientX - r.left - band.x0, e.clientY - r.top + band.l.scrollTop - band.y0) < 4) return;
+        band.moved = true;
+        band.el = document.createElement('div');
+        band.el.className = 'list-band';
+        band.l.appendChild(band.el);
+        band.l.dataset.banding = '';
+        requestAnimationFrame(tick);
+      }
+      update();
+    });
+    const end = () => {
+      if (!band) return;
+      const b = band; band = null;
+      if (b.el) b.el.remove();
+      delete b.l.dataset.banding;
+      if (b.moved) { swallowClick = true; setTimeout(() => { swallowClick = false; }, 0); }
+    };
+    document.addEventListener('pointerup', end);
+    document.addEventListener('pointercancel', end);
+    document.addEventListener('click', (e) => { if (swallowClick) { e.stopPropagation(); e.preventDefault(); swallowClick = false; } }, true);
+  })();
+
   // ---- Context menu: WebKit's own menu only where it's useful ----
   // Keep it for editable fields (paste, spelling), selected text (Copy,
   // Look Up), images (Copy Image) and links (Copy Link); suppress it

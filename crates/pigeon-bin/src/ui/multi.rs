@@ -1,5 +1,7 @@
 //! Multi-selection in the mail list: ⌘-click adds or removes a row,
-//! ⇧-click selects a range from the last clicked row. With two or more rows
+//! ⇧-click selects a range from the last clicked row, and dragging from the
+//! list's background draws a selection rectangle (⌘ or ⇧ adds to what's
+//! selected). With two or more rows
 //! selected the reading pane shows what's selected and bulk actions.
 
 use dioxus::prelude::*;
@@ -85,6 +87,73 @@ pub fn select_all(s: AppState) {
     }
 }
 
+/// The rows a selection rectangle from `y0` to `y1` touches (in the
+/// virtualized layout's coordinates), in list order.
+pub fn band_hits(layout: &super::vlist::Layout, keys: &[String], y0: f64, y1: f64) -> Vec<String> {
+    let (lo, hi) = (y0.min(y1), y0.max(y1));
+    layout
+        .slots
+        .iter()
+        .filter_map(|(slot, top)| match *slot {
+            super::vlist::Slot::Item(i) if *top < hi && top + layout.metrics.row_h > lo => keys.get(i).cloned(),
+            _ => None,
+        })
+        .collect()
+}
+
+thread_local! {
+    /// What was selected when the rectangle started (kept when it adds).
+    static BAND_BASE: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The bridge's "list-band" message, `y0|y1|add|first`: select the rows
+/// the selection rectangle touches.
+pub fn on_band(s: AppState, v: &str) {
+    let mut parts = v.split('|');
+    let mut num = || parts.next().and_then(|p| p.parse::<f64>().ok());
+    let (Some(y0), Some(y1), Some(add), Some(first)) = (num(), num(), num(), num()) else { return };
+    if first == 1.0 {
+        let base = if add == 1.0 {
+            let multi = s.multi.peek().clone();
+            if multi.is_empty() { s.selected.peek().clone().into_iter().collect() } else { multi }
+        } else {
+            Vec::new()
+        };
+        BAND_BASE.with(|b| *b.borrow_mut() = base);
+    }
+    let list = s.visible_items();
+    let keys: Vec<String> = list.iter().map(AppState::key).collect();
+    let now = chrono::Local::now();
+    let metrics = s.list_style.peek().metrics();
+    let layout = super::vlist::layout(list.iter().map(|i| crate::format::group(i.header().received_at, now)), metrics);
+    let hits = band_hits(&layout, &keys, y0, y1);
+    let base = BAND_BASE.with(|b| b.borrow().clone());
+    let sel: Vec<String> = keys.iter().filter(|k| hits.contains(k) || base.contains(k)).cloned().collect();
+    let (mut m, mut a, mut all) = (s.multi, s.anchor, s.select_all);
+    all.set(false);
+    a.set(hits.first().cloned());
+    match sel.as_slice() {
+        [] => {
+            m.set(Vec::new());
+            close_reader(s);
+        }
+        [one] => {
+            m.set(Vec::new());
+            if s.selected.peek().as_deref() != Some(one.as_str())
+                && let Some(i) = list.iter().find(|i| AppState::key(i) == *one)
+            {
+                select(s, i);
+            }
+        }
+        _ => {
+            if *s.multi.peek() != sel {
+                m.set(sel);
+            }
+            close_reader(s);
+        }
+    }
+}
+
 /// Apply a click on a list row.
 pub fn click(s: AppState, item: &ListItem, how: How) {
     let mut all = s.select_all;
@@ -115,8 +184,12 @@ pub fn click(s: AppState, item: &ListItem, how: How) {
 
 fn close_reader(s: AppState) {
     let (mut sel, mut reader) = (s.selected, s.reader);
-    sel.set(None);
-    reader.set(None);
+    if sel.peek().is_some() {
+        sel.set(None);
+    }
+    if reader.peek().is_some() {
+        reader.set(None);
+    }
 }
 
 /// Drop the multi-selection.
@@ -249,7 +322,7 @@ pub fn MultiPane() -> Element {
                 }
                 button { class: "link-btn multi-pane__clear", r#type: "button", onclick: move |_| clear(s),
                     "Clear selection" kbd { class: "kbd", "Esc" } }
-                div { class: "multi-pane__hint", "⌘-click adds or removes a message · ⇧-click selects a range" }
+                div { class: "multi-pane__hint", "⌘-click adds or removes a message · ⇧-click selects a range · drag from empty space to select an area" }
             }
         }
     }
@@ -258,6 +331,19 @@ pub fn MultiPane() -> Element {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_selection_rectangle_takes_the_rows_it_touches() {
+        let m = super::super::vlist::CLASSIC;
+        // "Today" header (0..30), rows a (30..106), b (106..182), then
+        // "Older" (182..212) and c (212..288).
+        let layout = super::super::vlist::layout(["Today", "Today", "Older"], m);
+        let k: Vec<String> = ["a", "b", "c"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(band_hits(&layout, &k, 0.0, 20.0), Vec::<String>::new());
+        assert_eq!(band_hits(&layout, &k, 100.0, 120.0), ["a", "b"]);
+        assert_eq!(band_hits(&layout, &k, 300.0, 150.0), ["b", "c"]);
+        assert_eq!(band_hits(&layout, &k, 185.0, 210.0), Vec::<String>::new());
+    }
 
     fn keys() -> Vec<String> {
         ["a", "b", "c", "d", "e"].iter().map(|s| s.to_string()).collect()

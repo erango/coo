@@ -1299,3 +1299,14 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .hover-actions__add { display: flex; flex-wrap: wrap; gap: 6px; }
 .hover-actions__chip { gap: 6px; }
 .hover-actions__chip:disabled { opacity: 0.45; }
+
+/* The selection rectangle dragged from the list's background (bridge.rs). */
+.pane--list .list[role="listbox"] { position: relative; }
+/* While it's drawn, rows under the pointer don't show their hover buttons. */
+.list[data-banding] .row .row__actions { display: none !important; }
+.list[data-banding] .row .row__meta { display: flex !important; }
+.list-band {
+  position: absolute; z-index: 3; pointer-events: none; border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+}
