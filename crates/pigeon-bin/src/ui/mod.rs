@@ -527,18 +527,10 @@ pub fn App() -> Element {
         }
     });
 
-    // Dock badge: unread across every account's inbox.
+    // Dock badge: unread across the inboxes of accounts that aren't muted.
     use_effect(move || {
-        let unread: u32 = s
-            .accounts
-            .read()
-            .iter()
-            .flat_map(|a| a.folders.iter())
-            .filter(|f| f.folder.role == Some(pigeon_core::model::FolderRole::Inbox))
-            .map(|f| f.unread)
-            .sum();
-        crate::dock::set_badge(if crate::prefs::get().dock_badge { unread } else { 0 });
-        crate::menubar::set_unread(unread);
+        let _ = s.accounts.read();
+        refresh_badge(s);
     });
 
     // Tell the engine what to list whenever the view changes. Moving to
@@ -1353,6 +1345,27 @@ fn on_key(s: AppState, key: &str) {
     if let Some(what) = shortcuts::action(*shortcuts::STYLE.peek(), key, calendar) {
         run(s, what);
     }
+}
+
+/// Unread in the inboxes of `accounts`, all of them or only those whose
+/// notifications aren't muted.
+fn inbox_unread(s: &AppState, skip_muted: bool) -> u32 {
+    let muted = if skip_muted { crate::prefs::get().notify_accounts_muted } else { Vec::new() };
+    s.accounts
+        .peek()
+        .iter()
+        .filter(|a| !muted.contains(&a.account.id))
+        .flat_map(|a| a.folders.iter())
+        .filter(|f| f.folder.role == Some(pigeon_core::model::FolderRole::Inbox))
+        .map(|f| f.unread)
+        .sum()
+}
+
+/// Set the Dock badge (muted accounts left out) and the menu bar count.
+pub fn refresh_badge(s: AppState) {
+    let badge = if crate::prefs::get().dock_badge { inbox_unread(&s, true) } else { 0 };
+    crate::dock::set_badge(badge);
+    crate::menubar::set_unread(inbox_unread(&s, false));
 }
 
 /// Whether the message list is the pane last clicked (bridge "pane"): ⌘F

@@ -128,7 +128,7 @@ enum Cmd {
     },
     /// Every address you can send from (all accounts + aliases).
     Senders,
-    /// Change messages: read | unread | flag | unflag | archive | trash | move | spam | not_spam | phishing.
+    /// Change messages: read | unread | flag | unflag | archive | trash | delete_forever | move | spam | not_spam | phishing.
     Act {
         action: String,
         account: String,

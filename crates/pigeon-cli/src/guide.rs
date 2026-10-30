@@ -27,7 +27,7 @@ const COMMANDS: &[(&str, &str, &str)] = &[
     (
         "act",
         "coo --json --yes act archive <account> <message_id>",
-        "read|unread|flag|unflag|archive|trash|spam|not_spam|phishing|move --to <folder>",
+        "read|unread|flag|unflag|archive|trash|delete_forever|spam|not_spam|phishing|move --to <folder>",
     ),
     ("undo", "coo --json --yes undo <account> <undo_handle>", "revert an act"),
     ("rsvp", "coo --json --yes rsvp <account> <calendar_id> <event_id> accept", "accept|tentative|decline"),

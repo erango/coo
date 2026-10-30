@@ -276,6 +276,7 @@ fn run(s: AppState, m: &AccountMenu, entry: Entry) {
                     p.notify_accounts_muted.push(id);
                 }
             });
+            super::refresh_badge(s);
         }
         Entry::CopyAddress => {
             let email =

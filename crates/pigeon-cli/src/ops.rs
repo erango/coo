@@ -133,7 +133,7 @@ pub fn parse_action(app: &Pigeon, account: &Account, action: &str, to: Option<&s
         )?),
         other => {
             return Err(Error::Other(format!(
-                "unknown action {other:?} (read, unread, flag, unflag, archive, trash, move, spam, not_spam, phishing)"
+                "unknown action {other:?} (read, unread, flag, unflag, archive, trash, delete_forever, move, spam, not_spam, phishing)"
             )));
         }
     })
@@ -364,8 +364,22 @@ pub async fn act(
         return Err(Error::Other("no message ids".into()));
     }
     let a = app.find_account(account)?;
-    let action = parse_action(app, &a, action, to)?;
-    let from = from.map(|f| folder_id(app, &a, f)).transpose()?;
+    // Deleting for good is Delete as seen from Trash; it goes out after a
+    // short grace period (undo works until then).
+    let forever = matches!(action, "delete_forever" | "purge");
+    if forever && a.provider == ProviderKind::Google && !app.gmail_purge_ready(&a.id).await? {
+        return Err(Error::Other(format!(
+            "{} hasn't given Coo full Gmail access, which deleting for good needs. Ask the user to empty Trash \
+             (or delete a message in Trash) once in Coo and allow it in the browser.",
+            a.email
+        )));
+    }
+    let (action, from) = if forever {
+        let trash = app.store().role_folder(&a.id, FolderRole::Trash)?;
+        (MailAction::Trash, Some(trash.ok_or_else(|| Error::Other(format!("{} has no Trash", a.email)))?))
+    } else {
+        (parse_action(app, &a, action, to)?, from.map(|f| folder_id(app, &a, f)).transpose()?)
+    };
     let handle = app.act(&a, ids, from.as_deref(), &action)?;
     let r = app.flush(&a).await?;
     Ok(ActOut {
