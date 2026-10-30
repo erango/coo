@@ -4313,6 +4313,7 @@ dependencies = [
  "futures",
  "getrandom 0.4.3",
  "idna",
+ "kuchikiki",
  "libc",
  "mail-builder",
  "mail-parser",

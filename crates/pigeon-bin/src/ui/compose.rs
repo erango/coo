@@ -856,7 +856,10 @@ fn QuotedOriginal(html: String) -> Element {
                 let html = slot.draft.peek().as_ref().map(|d| d.html.clone()).unwrap_or_default();
                 let adapted = !super::mailframe::is_complex(&html);
                 let remote = crate::prefs::get().remote_images_always;
-                doc.set(Some((adapted, super::mailframe::srcdoc(&html, &s.palette.read(), s.dark(), adapted, remote))));
+                doc.set(Some((
+                    adapted,
+                    super::mailframe::srcdoc(&html, &s.palette.read(), s.dark(), adapted, remote, ""),
+                )));
             }
         }
     };

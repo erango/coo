@@ -17,6 +17,7 @@ pigeon-caldav = { path = "crates/pigeon-caldav" }
 pigeon-zoom = { path = "crates/pigeon-zoom" }
 
 ammonia = "4.2"
+kuchikiki = "0.8.8-speedreader"
 async-imap = { version = "0.12", default-features = false, features = ["runtime-tokio"] }
 base64 = "0.23"
 chrono-tz = "0.10"
