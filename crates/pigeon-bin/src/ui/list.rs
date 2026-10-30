@@ -223,6 +223,20 @@ pub fn MailList() -> Element {
     let _ = motion_tick.read();
     let keys: Vec<String> = items.iter().map(AppState::key).collect();
     let view = format!("{mailbox:?}|{}|{}", *threaded.read(), s.search.read().is_some());
+    // An empty folder shows "Fetching" only for the first sync after you
+    // open it; later background syncs leave its empty state alone (new mail
+    // replaces it when it comes).
+    let mut fetched_view = use_signal(String::new);
+    let syncing_now = s.sync.read().syncing;
+    let fetching_first = syncing_now && *fetched_view.read() != view;
+    {
+        let view = view.clone();
+        use_effect(use_reactive!(|syncing_now, view| {
+            if !syncing_now && *fetched_view.peek() != view {
+                fetched_view.set(view);
+            }
+        }));
+    }
     {
         let mut m = motion.borrow_mut();
         if m.keys != keys || m.view != view {
@@ -388,7 +402,7 @@ pub fn MailList() -> Element {
                     Empty { syncing: true }
                 }
             } else if items.is_empty() && out_display.is_empty() && expired.is_empty() {
-                Empty { syncing: s.sync.read().syncing }
+                Empty { syncing: fetching_first }
             } else {
                 div { class: "list", role: "listbox", "data-auth": (!expired.is_empty()).then_some("expired"),
                     "data-style": style.as_pref(),
