@@ -1,11 +1,13 @@
-//! Settings sections beyond Appearance/Accounts: General (closing the
-//! window), Composing (undo send), Signatures, Calendar, Notifications,
-//! Keyboard shortcuts, Privacy.
+//! Settings pages beyond Appearance and Accounts & agents: General,
+//! Reading, Writing (composing and signatures), Calendar (with video
+//! calls), Notifications, Privacy and Keyboard shortcuts. Each is a title
+//! over `Group`s of `Row`s (settings.rs).
 
 use dioxus::prelude::*;
 use pigeon_engine::service::Cmd;
 
 use super::Icon;
+use super::settings::{Group, Row};
 use crate::prefs;
 use crate::send_cmd;
 use crate::state::AppState;
@@ -25,156 +27,28 @@ fn day_name(w: chrono::Weekday) -> &'static str {
     }
 }
 
-#[component]
-pub fn CalendarSettings() -> Element {
-    let s = use_context::<AppState>();
-    let mut choice = use_signal(|| prefs::get().week_start);
-    let auto_label = format!("Automatic ({})", day_name(crate::week::system().first));
-    let options: [(Option<u8>, String); 4] =
-        [(None, auto_label), (Some(0), "Sunday".into()), (Some(1), "Monday".into()), (Some(6), "Saturday".into())];
-    let current = *choice.read();
-    rsx! {
-        div { class: "settings__title", style: "margin-top:12px", "Calendar" }
-        div { class: "settings-group",
-            div { class: "settings-field",
-                span { class: "settings-field__label", "Week starts on" }
-                div { class: "segmented", role: "radiogroup", "aria-label": "First day of the week",
-                    for (value, label) in options {
-                        button { role: "radio", key: "{label}", "aria-checked": "{current == value}", "aria-selected": "{current == value}",
-                            onclick: move |_| {
-                                prefs::update(|p| p.week_start = value);
-                                choice.set(value);
-                                let mut fw = s.first_weekday;
-                                fw.set(crate::week::first_day());
-                                let day = *s.cal_day.peek();
-                                super::calendar::go_to(s, day);
-                            },
-                            "{label}"
-                        }
-                    }
-                }
-                span { class: "settings-field__hint", "Week view, the month grids and navigation use this." }
-            }
-            DefaultCalendar {}
-            DefaultVideoCall {}
-        }
-    }
-}
-
-/// "New events go to": the default calendar for new events (prefs
-/// `default_calendar`), among the calendars that take them, or Automatic
-/// (`event_editor::auto_calendar`). Also from the calendar sidebar's
-/// right-click menus.
-#[component]
-fn DefaultCalendar() -> Element {
-    let s = use_context::<AppState>();
-    // Calendars are only listed once the calendar has been shown: ask for
-    // them (today's week) when Settings opens first.
-    use_hook(move || {
-        if s.calendar.peek().calendars.is_empty() {
-            let d = chrono::Local::now().date_naive();
-            let (from, to) = super::calendar::view_range(crate::state::CalView::Week, d, *s.first_weekday.peek());
-            send_cmd(Cmd::ShowCalendar { from, to });
-        }
-    });
-    let accounts = s.accounts.read().clone();
-    let order: Vec<String> = accounts.iter().map(|a| a.account.id.clone()).collect();
-    let calendars = super::event_editor::in_sidebar_order(&s.calendar.read().calendars, &order);
-    let chosen = super::event_editor::chosen_calendar(&calendars, &s.default_calendar.read());
-    let value = chosen.as_ref().map(|(a, c)| format!("{a}|{c}")).unwrap_or_default();
-    let auto = super::event_editor::auto_calendar(&calendars).and_then(|(a, c)| {
-        let cal = calendars.iter().find(|(x, k)| *x == a && k.id == c)?.1.name.clone();
-        let email = accounts.iter().find(|n| n.account.id == a).map(|n| n.account.email.clone()).unwrap_or_default();
-        Some(format!("{cal} ({})", s.account_label(&a, &email)))
-    });
-    let auto_label = auto.map_or_else(|| "Automatic".to_string(), |a| format!("Automatic: {a}"));
-    rsx! {
-        div { class: "settings-field",
-            span { class: "settings-field__label", title: "The calendar new events are created in", "New events go to" }
-            select { class: "select default-from", "aria-label": "Default calendar for new events",
-                onchange: move |e| {
-                    let v = e.value();
-                    s.set_default_calendar(v.split_once('|'));
-                },
-                option { value: "", selected: value.is_empty(), "{auto_label}" }
-                for a in accounts.iter() {
-                    if calendars.iter().any(|(id, c)| id == &a.account.id && c.can_edit) {
-                        optgroup { key: "{a.account.id}", label: "{s.account_label(&a.account.id, &a.account.email)}",
-                            for (_, c) in calendars.iter().filter(|(id, c)| id == &a.account.id && c.can_edit) {
-                                {
-                                    let v = format!("{}|{}", a.account.id, c.id);
-                                    rsx! { option { key: "{v}", value: "{v}", selected: v == value, "{c.name}" } }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            span { class: "settings-field__hint",
-                "Automatic is the primary calendar of the account you added first. Read-only calendars (holidays, subscriptions) aren't listed. The event editor can still pick another per event."
-            }
-        }
-    }
-}
-
-/// The video call new events start with (prefs `default_video_call`).
-const VIDEO_CHOICES: [(&str, &str); 3] = [("", "None"), ("meet", "Google Meet"), ("zoom", "Zoom")];
-
-#[component]
-fn DefaultVideoCall() -> Element {
-    let mut p = use_signal(prefs::get);
-    let cur = p.read().clone();
-    rsx! {
-        div { class: "settings-field settings-field--top",
-            span { class: "settings-field__label", "Video call" }
-            div { class: "settings-sub",
-                div { class: "segmented", role: "radiogroup", "aria-label": "Video call for new events",
-                    for (value, label) in VIDEO_CHOICES {
-                        button { role: "radio", key: "{label}",
-                            "aria-checked": "{cur.default_video_call == value}", "aria-selected": "{cur.default_video_call == value}",
-                            onclick: move |_| { prefs::update(|x| x.default_video_call = value.to_string()); p.set(prefs::get()); },
-                            "{label}"
-                        }
-                    }
-                }
-                if !cur.default_video_call.is_empty() {
-                    label { class: "settings-sub__option",
-                        input { class: "switch", r#type: "checkbox", checked: cur.default_video_only_without_location,
-                            onchange: move |_| {
-                                let on = !p.peek().default_video_only_without_location;
-                                prefs::update(|x| x.default_video_only_without_location = on);
-                                p.set(prefs::get());
-                            }
-                        }
-                        "Only when the event has no location"
-                    }
-                }
-                span { class: "settings-field__hint",
-                    "New events start with it, and you can change it per event. The link is made when you save, so a location added before saving counts. Google Meet needs a Google calendar; elsewhere Coo uses Zoom if it's connected."
-                }
-            }
-        }
-    }
-}
-
 /// What closing the main window does (prefs `close_to_menu_bar`).
-const CLOSE_CHOICES: [(bool, &str); 2] = [(true, "Keeps Coo in the menu bar"), (false, "Quits Coo")];
+const CLOSE_CHOICES: [(bool, &str); 2] = [(true, "Keep running in the menu bar"), (false, "Quit Coo")];
 
+/// Settings › General: the window, updates and version, help.
 #[component]
 pub fn General() -> Element {
+    let s = use_context::<AppState>();
     let mut keep = use_signal(|| prefs::get().close_to_menu_bar);
     let current = *keep.read();
-    let mut after = use_signal(|| prefs::get().after_remove);
-    let after_now = after.read().clone();
-    let mut att = use_signal(|| prefs::get().attachments_position);
-    let att_now = att.read().clone();
-    let mut read_after = use_signal(|| prefs::get().read_delay_secs);
-    let read_now = *read_after.read();
+    let ready = s.update_ready.read().clone();
+    let available = crate::updater::available();
+    let (version, build) = crate::updater::version();
+    let mut auto = use_signal(crate::updater::automatic);
     rsx! {
-        div { class: "settings__title", style: "margin-top:12px", "General" }
-        div { class: "settings-group",
-            div { class: "settings-field",
-                span { class: "settings-field__label", "Closing the window" }
+        div { class: "settings__title", "General" }
+        Group { title: "Window",
+            Row { label: "Closing the window",
+                hint: if current {
+                    "Mail keeps syncing and notifications keep coming. Open Coo from its menu bar icon; ⌘Q quits."
+                } else {
+                    "No new-mail notifications or reminders until you open Coo again."
+                },
                 div { class: "segmented", role: "radiogroup", "aria-label": "Closing the window",
                     for (value, label) in CLOSE_CHOICES {
                         button { role: "radio", key: "{label}", "aria-checked": "{current == value}", "aria-selected": "{current == value}",
@@ -186,68 +60,97 @@ pub fn General() -> Element {
                         }
                     }
                 }
-                span { class: "settings-field__hint",
-                    if current {
-                        "Mail keeps syncing and notifications keep coming. Open Coo again from its menu bar icon; ⌘Q quits."
-                    } else {
-                        "Closing the window quits Coo: no new-mail notifications or reminders until you open it again."
+            }
+        }
+        Group { title: "Updates",
+            if available {
+                Row { label: "Install updates automatically", hint: "Coo downloads new versions in the background and restarts into them when you're not using it.",
+                    input { class: "switch", r#type: "checkbox", checked: *auto.read(), "aria-label": "Install updates automatically",
+                        onchange: move |_| {
+                            let on = !*auto.read();
+                            crate::updater::set_automatic(on);
+                            auto.set(on);
+                        }
                     }
                 }
             }
-            div { class: "settings-field",
-                span { class: "settings-field__label", "Mark as read" }
-                div { class: "segmented", role: "radiogroup", "aria-label": "When an opened message is marked read",
-                    button { role: "radio", "aria-checked": "{read_now == 0}", "aria-selected": "{read_now == 0}",
-                        onclick: move |_| {
-                            prefs::update(|p| p.read_delay_secs = 0);
-                            read_after.set(0);
-                            super::send_read_delay();
-                        },
-                        "When opened"
-                    }
-                    button { role: "radio", "aria-checked": "{read_now > 0}", "aria-selected": "{read_now > 0}",
-                        onclick: move |_| if read_now == 0 {
-                            prefs::update(|p| p.read_delay_secs = 3);
-                            read_after.set(3);
-                            super::send_read_delay();
-                        },
-                        "After a few seconds"
-                    }
+            Row { label: "Coo {version} ({build})",
+                hint: match (&ready, available) {
+                    (Some(v), _) => format!("Version {v} is ready."),
+                    (None, true) => String::new(),
+                    (None, false) => "Updates are off in development builds.".to_string(),
+                },
+                if let Some(v) = ready {
+                    button { class: "btn btn--primary btn--sm", r#type: "button",
+                        onclick: move |_| super::restart_to_update(), "Restart to update to {v}" }
+                } else {
+                    button { class: "btn btn--secondary btn--sm", r#type: "button", disabled: !available,
+                        onclick: move |_| super::check_for_updates(s), "Check for updates" }
                 }
-                if read_now > 0 {
-                    label { class: "read-delay",
-                        input { class: "input input--sm read-delay__input", r#type: "number", min: "1", max: "600", step: "1",
-                            "aria-label": "Seconds before marking as read",
-                            value: "{read_now}",
-                            onchange: move |e| {
-                                let secs = e.value().trim().parse::<u32>().unwrap_or(read_now).clamp(1, 600);
-                                prefs::update(move |p| p.read_delay_secs = secs);
-                                read_after.set(secs);
+            }
+        }
+        Group { title: "Help",
+            Row { label: "Report a bug", hint: "Goes straight to the developer. Also in the Help menu.",
+                button { class: "btn btn--secondary btn--sm", r#type: "button", onclick: move |_| super::report_bug(s), "Report a bug…" }
+            }
+            Row { label: "About Coo", hint: "Credits and the website.",
+                button { class: "btn btn--secondary btn--sm", r#type: "button", onclick: move |_| crate::about::show(), "Open" }
+            }
+        }
+    }
+}
+
+/// Settings › Reading: when an opened message counts as read, what follows
+/// archive or delete, where attachments sit.
+#[component]
+pub fn Reading() -> Element {
+    let mut after = use_signal(|| prefs::get().after_remove);
+    let after_now = after.read().clone();
+    let mut att = use_signal(|| prefs::get().attachments_position);
+    let att_now = att.read().clone();
+    let mut read_after = use_signal(|| prefs::get().read_delay_secs);
+    let read_now = *read_after.read();
+    rsx! {
+        div { class: "settings__title", "Reading" }
+        Group { title: "Opening messages",
+            Row { label: "Mark as read", hint: "Moving on to another message before then leaves it unread.",
+                div { class: "srow__inline",
+                    div { class: "segmented", role: "radiogroup", "aria-label": "When an opened message is marked read",
+                        button { role: "radio", "aria-checked": "{read_now == 0}", "aria-selected": "{read_now == 0}",
+                            onclick: move |_| {
+                                prefs::update(|p| p.read_delay_secs = 0);
+                                read_after.set(0);
                                 super::send_read_delay();
                             },
+                            "When opened"
                         }
-                        span { "seconds after it opens" }
-                    }
-                }
-                span { class: "settings-field__hint", "Moving on to another message before then leaves it unread." }
-            }
-            div { class: "settings-field",
-                span { class: "settings-field__label", "After archive or delete" }
-                div { class: "segmented", role: "radiogroup", "aria-label": "After archiving or deleting a message",
-                    for (value, label) in [("next", "Open the next message"), ("close", "Close the message")] {
-                        button { role: "radio", key: "{value}", "aria-checked": "{after_now == value}", "aria-selected": "{after_now == value}",
-                            onclick: move |_| {
-                                prefs::update(move |p| p.after_remove = value.to_string());
-                                after.set(value.to_string());
+                        button { role: "radio", "aria-checked": "{read_now > 0}", "aria-selected": "{read_now > 0}",
+                            onclick: move |_| if read_now == 0 {
+                                prefs::update(|p| p.read_delay_secs = 3);
+                                read_after.set(3);
+                                super::send_read_delay();
                             },
-                            "{label}"
+                            "After a few seconds"
+                        }
+                    }
+                    if read_now > 0 {
+                        label { class: "read-delay",
+                            input { class: "input input--sm read-delay__input", r#type: "number", min: "1", max: "600", step: "1",
+                                "aria-label": "Seconds before marking as read",
+                                value: "{read_now}",
+                                onchange: move |e| {
+                                    let secs = e.value().trim().parse::<u32>().unwrap_or(read_now).clamp(1, 600);
+                                    prefs::update(move |p| p.read_delay_secs = secs);
+                                    read_after.set(secs);
+                                    super::send_read_delay();
+                                },
+                            }
+                            span { "seconds" }
                         }
                     }
                 }
-                span { class: "settings-field__hint", "Also applies when you move a message to another folder." }
             }
-            div { class: "settings-field",
-                span { class: "settings-field__label", "Attachments" }
+            Row { label: "Attachments", hint: "Above: right under the sender, before the text.",
                 div { class: "segmented", role: "radiogroup", "aria-label": "Where attachments show in a message",
                     for (value, label) in [("top", "Above the message"), ("bottom", "Below the message")] {
                         button { role: "radio", key: "{value}", "aria-checked": "{att_now == value}", "aria-selected": "{att_now == value}",
@@ -259,7 +162,21 @@ pub fn General() -> Element {
                         }
                     }
                 }
-                span { class: "settings-field__hint", "Above: right under the sender, before the text." }
+            }
+        }
+        Group { title: "After you act",
+            Row { label: "After archive or delete", hint: "Also when you move a message to another folder.",
+                div { class: "segmented", role: "radiogroup", "aria-label": "After archiving or deleting a message",
+                    for (value, label) in [("next", "Open the next message"), ("close", "Close the message")] {
+                        button { role: "radio", key: "{value}", "aria-checked": "{after_now == value}", "aria-selected": "{after_now == value}",
+                            onclick: move |_| {
+                                prefs::update(move |p| p.after_remove = value.to_string());
+                                after.set(value.to_string());
+                            },
+                            "{label}"
+                        }
+                    }
+                }
             }
         }
     }
@@ -272,8 +189,9 @@ const DRAFT_SAVING: [(&str, &str); 2] = [("ask", "Ask when closing"), ("auto", "
 /// Where replies open (prefs `reply_mode`).
 const REPLY_MODES: [(&str, &str); 2] = [("inline", "Inline in the conversation"), ("window", "In a separate window")];
 
+/// Settings › Writing: the composer, drafts and sending, signatures.
 #[component]
-pub fn Composing() -> Element {
+pub fn Writing() -> Element {
     let mut undo = use_signal(|| prefs::get().undo_send_seconds);
     let mut saving = use_signal(|| prefs::get().draft_saving);
     let current_saving = saving.read().clone();
@@ -284,10 +202,9 @@ pub fn Composing() -> Element {
     let current_mode = mode.read().clone();
 
     rsx! {
-        div { class: "settings__title", style: "margin-top:12px", "Composing" }
-        div { class: "settings-group",
-            div { class: "settings-field",
-                span { class: "settings-field__label", "New messages" }
+        div { class: "settings__title", "Writing" }
+        Group { title: "Composer",
+            Row { label: "New messages",
                 div { class: "segmented", role: "radiogroup", "aria-label": "Open new messages",
                     for (value, label) in COMPOSE_MODES {
                         button { role: "radio", "aria-checked": "{current_mode == value}", "aria-selected": "{current_mode == value}",
@@ -300,9 +217,7 @@ pub fn Composing() -> Element {
                     }
                 }
             }
-            super::settings::DefaultFromField {}
-            div { class: "settings-field",
-                span { class: "settings-field__label", "Replies" }
+            Row { label: "Replies",
                 div { class: "segmented", role: "radiogroup", "aria-label": "Open replies",
                     for (value, label) in REPLY_MODES {
                         button { role: "radio", "aria-checked": "{current_rmode == value}", "aria-selected": "{current_rmode == value}",
@@ -315,8 +230,15 @@ pub fn Composing() -> Element {
                     }
                 }
             }
-            div { class: "settings-field",
-                span { class: "settings-field__label", "Drafts" }
+            super::settings::DefaultFromField {}
+        }
+        Group { title: "Drafts and sending",
+            Row { label: "Drafts",
+                hint: if current_saving == "auto" {
+                    "Drafts save as you write; the message shows when it last saved."
+                } else {
+                    "Closing a message you changed asks whether to keep it in Drafts."
+                },
                 div { class: "segmented", role: "radiogroup", "aria-label": "Saving drafts",
                     for (value, label) in DRAFT_SAVING {
                         button { role: "radio", "aria-checked": "{current_saving == value}", "aria-selected": "{current_saving == value}",
@@ -328,16 +250,8 @@ pub fn Composing() -> Element {
                         }
                     }
                 }
-                span { class: "settings-field__hint",
-                    if current_saving == "auto" {
-                        "Drafts save to your Drafts folder as you write; the message shows when it last saved."
-                    } else {
-                        "Closing a message you changed asks whether to keep it in Drafts."
-                    }
-                }
             }
-            div { class: "settings-field",
-                span { class: "settings-field__label", "Undo send" }
+            Row { label: "Undo send", hint: "Messages wait this long before going out, so you can take them back.",
                 div { class: "segmented", role: "radiogroup", "aria-label": "Undo send window",
                     for (secs, label) in UNDO_CHOICES {
                         button { role: "radio", "aria-checked": "{current == secs}", "aria-selected": "{current == secs}",
@@ -349,20 +263,20 @@ pub fn Composing() -> Element {
                         }
                     }
                 }
-                span { class: "settings-field__hint", "Messages wait this long before going out, so you can take them back." }
             }
         }
+        Signatures {}
     }
 }
 
-/// Above this many addresses the Signatures page gets a filter box.
+/// Above this many addresses the signature list gets a filter box.
 const SIG_FILTER_FROM: usize = 7;
 
-/// Settings › Signatures: one default signature, then a compact row per
-/// sending address choosing Default / Own / None. Only the row being edited
-/// opens an editor, so twenty addresses stay a short list.
+/// Settings › Writing › Signatures: one default signature, then a compact
+/// row per sending address choosing Default / Own / None. Only the row
+/// being edited opens an editor, so twenty addresses stay a short list.
 #[component]
-pub fn Signatures() -> Element {
+fn Signatures() -> Element {
     let s = use_context::<AppState>();
     use_hook(move || {
         if s.senders.read().is_empty() {
@@ -380,31 +294,25 @@ pub fn Signatures() -> Element {
         senders.iter().filter(|x| q.is_empty() || x.address.email.to_lowercase().contains(&q)).cloned().collect();
 
     rsx! {
-        div { class: "settings__title", style: "margin-top:12px", "Signatures" }
-        div { class: "settings-group",
-            div { class: "sig-default",
-                div { class: "sig-default__head",
-                    span { class: "settings-field__label", "Default signature" }
-                    span { class: "settings-field__hint", "Used by every address set to Default below." }
-                }
+        Group { title: "Signatures",
+            Row { label: "Default signature", hint: "Used by every address set to Default below.", stack: true,
                 SignatureField { email: prefs::DEFAULT_SIGNATURE.to_string(), placeholder: "Your signature. Select text to format, or paste one from a web page." }
             }
-        }
-        div { class: "sig-list__head",
-            span { class: "settings-field__label", "Addresses" }
-            if senders.len() >= SIG_FILTER_FROM {
-                label { class: "sig-list__filter",
-                    Icon { name: "search", class: "icon--sm" }
-                    input { r#type: "search", placeholder: "Filter addresses", value: "{filter}",
-                        oninput: move |e| filter.set(e.value()) }
+            Row { label: "Addresses", hint: "Each address uses the default, its own, or none.", stack: true,
+                if senders.len() >= SIG_FILTER_FROM {
+                    label { class: "sig-list__filter",
+                        Icon { name: "search", class: "icon--sm" }
+                        input { r#type: "search", placeholder: "Filter addresses", value: "{filter}",
+                            oninput: move |e| filter.set(e.value()) }
+                    }
                 }
-            }
-        }
-        div { class: "settings-group sig-list",
-            if senders.is_empty() { span { class: "settings-field__hint", "Loading your addresses…" } }
-            if !senders.is_empty() && shown.is_empty() { span { class: "settings-field__hint", "No address matches." } }
-            for sender in shown {
-                SignatureRow { key: "{sender.address.email}", email: sender.address.email.clone(), hue: s.hue(&sender.account_id), editing }
+                div { class: "sig-list",
+                    if senders.is_empty() { span { class: "srow__hint", "Loading your addresses…" } }
+                    if !senders.is_empty() && shown.is_empty() { span { class: "srow__hint", "No address matches." } }
+                    for sender in shown {
+                        SignatureRow { key: "{sender.address.email}", email: sender.address.email.clone(), hue: s.hue(&sender.account_id), editing }
+                    }
+                }
             }
         }
     }
@@ -495,8 +403,175 @@ fn SignatureField(email: String, placeholder: String) -> Element {
     }
 }
 
+/// Settings › Calendar: the week, new events, video calls.
+#[component]
+pub fn CalendarSettings() -> Element {
+    let s = use_context::<AppState>();
+    let mut choice = use_signal(|| prefs::get().week_start);
+    let auto_label = format!("Automatic ({})", day_name(crate::week::system().first));
+    let options: [(Option<u8>, String); 4] =
+        [(None, auto_label), (Some(0), "Sunday".into()), (Some(1), "Monday".into()), (Some(6), "Saturday".into())];
+    let current = *choice.read();
+    rsx! {
+        div { class: "settings__title", "Calendar" }
+        Group { title: "Week",
+            Row { label: "Week starts on", hint: "Week view, month grids and navigation use this.",
+                div { class: "segmented", role: "radiogroup", "aria-label": "First day of the week",
+                    for (value, label) in options {
+                        button { role: "radio", key: "{label}", "aria-checked": "{current == value}", "aria-selected": "{current == value}",
+                            onclick: move |_| {
+                                prefs::update(|p| p.week_start = value);
+                                choice.set(value);
+                                let mut fw = s.first_weekday;
+                                fw.set(crate::week::first_day());
+                                let day = *s.cal_day.peek();
+                                super::calendar::go_to(s, day);
+                            },
+                            "{label}"
+                        }
+                    }
+                }
+            }
+        }
+        Group { title: "New events",
+            DefaultCalendar {}
+            DefaultVideoCall {}
+        }
+        Group { title: "Video calls",
+            ZoomRow {}
+            Row { label: "Google Meet", hint: "Works with your Google calendars; nothing to connect.",
+                span { class: "srow__value", "Ready" }
+            }
+        }
+    }
+}
+
+/// "New events go to": the default calendar for new events (prefs
+/// `default_calendar`), among the calendars that take them, or Automatic
+/// (`event_editor::auto_calendar`). Also from the calendar sidebar's
+/// right-click menus.
+#[component]
+fn DefaultCalendar() -> Element {
+    let s = use_context::<AppState>();
+    // Calendars are only listed once the calendar has been shown: ask for
+    // them (today's week) when Settings opens first.
+    use_hook(move || {
+        if s.calendar.peek().calendars.is_empty() {
+            let d = chrono::Local::now().date_naive();
+            let (from, to) = super::calendar::view_range(crate::state::CalView::Week, d, *s.first_weekday.peek());
+            send_cmd(Cmd::ShowCalendar { from, to });
+        }
+    });
+    let accounts = s.accounts.read().clone();
+    let order: Vec<String> = accounts.iter().map(|a| a.account.id.clone()).collect();
+    let calendars = super::event_editor::in_sidebar_order(&s.calendar.read().calendars, &order);
+    let chosen = super::event_editor::chosen_calendar(&calendars, &s.default_calendar.read());
+    let value = chosen.as_ref().map(|(a, c)| format!("{a}|{c}")).unwrap_or_default();
+    let auto = super::event_editor::auto_calendar(&calendars).and_then(|(a, c)| {
+        let cal = calendars.iter().find(|(x, k)| *x == a && k.id == c)?.1.name.clone();
+        let email = accounts.iter().find(|n| n.account.id == a).map(|n| n.account.email.clone()).unwrap_or_default();
+        Some(format!("{cal} ({})", s.account_label(&a, &email)))
+    });
+    let auto_label = auto.map_or_else(|| "Automatic".to_string(), |a| format!("Automatic: {a}"));
+    rsx! {
+        Row { label: "Calendar", hint: "Where new events go; the event editor can pick another.",
+            select { class: "select default-from", "aria-label": "Default calendar for new events",
+                onchange: move |e| {
+                    let v = e.value();
+                    s.set_default_calendar(v.split_once('|'));
+                },
+                option { value: "", selected: value.is_empty(), "{auto_label}" }
+                for a in accounts.iter() {
+                    if calendars.iter().any(|(id, c)| id == &a.account.id && c.can_edit) {
+                        optgroup { key: "{a.account.id}", label: "{s.account_label(&a.account.id, &a.account.email)}",
+                            for (_, c) in calendars.iter().filter(|(id, c)| id == &a.account.id && c.can_edit) {
+                                {
+                                    let v = format!("{}|{}", a.account.id, c.id);
+                                    rsx! { option { key: "{v}", value: "{v}", selected: v == value, "{c.name}" } }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The video call new events start with (prefs `default_video_call`).
+const VIDEO_CHOICES: [(&str, &str); 3] = [("", "None"), ("meet", "Google Meet"), ("zoom", "Zoom")];
+
+#[component]
+fn DefaultVideoCall() -> Element {
+    let mut p = use_signal(prefs::get);
+    let cur = p.read().clone();
+    rsx! {
+        Row { label: "Video call", hint: "New events start with it; you can change it per event.",
+            div { class: "segmented", role: "radiogroup", "aria-label": "Video call for new events",
+                for (value, label) in VIDEO_CHOICES {
+                    button { role: "radio", key: "{label}",
+                        "aria-checked": "{cur.default_video_call == value}", "aria-selected": "{cur.default_video_call == value}",
+                        onclick: move |_| { prefs::update(|x| x.default_video_call = value.to_string()); p.set(prefs::get()); },
+                        "{label}"
+                    }
+                }
+            }
+        }
+        if !cur.default_video_call.is_empty() {
+            Row { label: "Only when there's no location", hint: "An event with a room or address gets no call added.",
+                input { class: "switch", r#type: "checkbox", checked: cur.default_video_only_without_location,
+                    "aria-label": "Only when the event has no location",
+                    onchange: move |_| {
+                        let on = !p.peek().default_video_only_without_location;
+                        prefs::update(|x| x.default_video_only_without_location = on);
+                        p.set(prefs::get());
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Settings › Calendar › Video calls: the connected Zoom account.
+#[component]
+fn ZoomRow() -> Element {
+    let s = use_context::<AppState>();
+    let zoom = s.zoom.read().clone();
+    let mut connecting = use_signal(|| false);
+    // A reply (connected or a failure toast) ends the wait.
+    use_effect(move || {
+        let _ = s.zoom.read();
+        connecting.set(false);
+    });
+    let available = pigeon_core::auth::zoom_client_id().is_some();
+    match zoom {
+        Some(z) => rsx! {
+            Row { label: "Zoom", hint: "Connected as {z.display_name} ({z.email}). Coo makes and moves the meetings it adds.",
+                button { class: "btn btn--secondary btn--sm", r#type: "button",
+                    onclick: move |_| send_cmd(Cmd::ZoomDisconnect), "Disconnect" }
+            }
+        },
+        None => rsx! {
+            Row { label: "Zoom",
+                hint: if !available {
+                    "Zoom isn't set up in this build."
+                } else if *connecting.read() {
+                    "Finish signing in to Zoom in your browser…"
+                } else {
+                    "While Coo's Zoom app is in development, only its owner's Zoom organization can connect."
+                },
+                button { class: "btn btn--secondary btn--sm", r#type: "button",
+                    disabled: *connecting.read() || !available,
+                    onclick: move |_| { connecting.set(true); send_cmd(Cmd::ZoomConnect); },
+                    Icon { name: "video", class: "icon--sm" } "Connect Zoom" }
+            }
+        },
+    }
+}
+
 const REMINDER_CHOICES: [u32; 5] = [0, 5, 10, 15, 30];
 
+/// Settings › Notifications: new mail, events, sounds.
 #[component]
 pub fn Notifications() -> Element {
     let s = use_context::<AppState>();
@@ -507,21 +582,19 @@ pub fn Notifications() -> Element {
         prefs::update(f);
         p.set(prefs::get());
     };
+    let quiet = cur.sound_theme == crate::sound::NONE;
     rsx! {
-        div { class: "settings__title", style: "margin-top:12px", "Notifications" }
-        div { class: "settings-group",
-            label { class: "settings-field",
-                span { class: "settings-field__label", "New mail" }
-                input { class: "switch", r#type: "checkbox", checked: cur.notify_new_mail,
+        div { class: "settings__title", "Notifications" }
+        Group { title: "New mail",
+            Row { label: "Notify me", hint: "Alerts for new inbox mail.",
+                input { class: "switch", r#type: "checkbox", checked: cur.notify_new_mail, "aria-label": "Notify me about new mail",
                     onchange: move |_| set(|p| p.notify_new_mail = !p.notify_new_mail) }
-                span { class: "settings-field__hint", "Alerts for new inbox mail." }
             }
-            div { class: "settings-field",
-                span { class: "settings-field__label", "Show" }
+            Row { label: "Show",
                 div { class: "segmented", role: "radiogroup", "aria-label": "New mail alert",
                     for (v, label) in [
                         ("banner", if cur.mail_sound { "Banner and sound" } else { "Banner" }),
-                        ("background", "Banner when Coo is in the background"),
+                        ("background", "Only when Coo is in the background"),
                     ] {
                         button { role: "radio", key: "{v}", disabled: !cur.notify_new_mail,
                             "aria-checked": "{cur.mail_alert == v}", "aria-selected": "{cur.mail_alert == v}",
@@ -532,120 +605,40 @@ pub fn Notifications() -> Element {
                 }
             }
             if crate::notify::permission() == crate::notify::Permission::Denied {
-                div { class: "banner banner--warning", style: "margin:4px 0 8px",
-                    Icon { name: "alert", class: "icon--sm" }
-                    span { "macOS is blocking Coo's notifications, so banners can't appear." }
+                Row { label: "Blocked by macOS", hint: "macOS is blocking Coo's notifications, so banners can't appear.",
                     button { class: "btn btn--secondary btn--sm", r#type: "button",
                         onclick: move |_| { let _ = open::that_detached(crate::notify::SETTINGS_URL); },
                         "Open Notification Settings" }
                 }
             }
-            label { class: "settings-field",
-                span { class: "settings-field__label", "Dock badge" }
-                input { class: "switch", r#type: "checkbox", checked: cur.dock_badge,
+            Row { label: "Dock badge", hint: "The unread inbox count on Coo's icon. Muted accounts don't count.",
+                input { class: "switch", r#type: "checkbox", checked: cur.dock_badge, "aria-label": "Dock badge",
                     onchange: move |_| {
                         set(|p| p.dock_badge = !p.dock_badge);
                         super::refresh_badge(s);
                     } }
-                span { class: "settings-field__hint", "Show the unread inbox count on Coo's Dock icon." }
             }
-            label { class: "settings-field",
-                span { class: "settings-field__label", "Events" }
-                input { class: "switch", r#type: "checkbox", checked: cur.notify_events,
-                    onchange: move |_| set(|p| p.notify_events = !p.notify_events) }
-                span { class: "settings-field__hint", "A reminder before meetings start, with Join." }
-            }
-            label { class: "settings-field",
-                span { class: "settings-field__label", "Through Focus" }
-                input { class: "switch", r#type: "checkbox", checked: cur.reminders_time_sensitive, disabled: !cur.notify_events,
-                    onchange: move |_| set(|p| p.reminders_time_sensitive = !p.reminders_time_sensitive) }
-                span { class: "settings-field__hint", "Meeting reminders are Time Sensitive, so Do Not Disturb and Focus still show them. New mail never is. macOS lets you turn this off per Focus too." }
-            }
-            div { class: "settings-field settings-field--top",
-                span { class: "settings-field__label", "Sounds" }
-                div { style: "display:flex;flex-direction:column;gap:8px",
-                    div { class: "segmented", role: "radiogroup", "aria-label": "Sound theme",
-                        {
-                            let choices = std::iter::once((crate::sound::NONE, "None")).chain(crate::sound::choices());
-                            rsx! {
-                                for (id, label) in choices {
-                                    button { role: "radio", key: "{id}",
-                                        "aria-checked": "{cur.sound_theme == id}", "aria-selected": "{cur.sound_theme == id}",
-                                        title: "Click to hear the new-mail sound",
-                                        onclick: move |_| {
-                                            prefs::update(move |x| x.sound_theme = id.to_string());
-                                            crate::sound::play(id, crate::sound::Kind::Mail);
-                                            p.set(prefs::get());
-                                        },
-                                        "{label}"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    // Each sound on its own: e.g. quiet mail, audible meetings.
-                    div { class: "sound-kinds",
-                        label { class: "sound-kind",
-                            input { class: "switch", r#type: "checkbox", checked: cur.mail_sound, disabled: cur.sound_theme == crate::sound::NONE,
-                                "aria-label": "New mail sound",
-                                onchange: move |_| set(|p| p.mail_sound = !p.mail_sound) }
-                            Icon { name: "mail", class: "icon--sm" }
-                            span { "New mail" }
-                        }
-                        button { class: "btn btn--ghost btn--sm", disabled: cur.sound_theme == crate::sound::NONE, title: "Play the new-mail sound",
-                            onclick: move |_| { let p = prefs::get(); crate::sound::play(&p.sound_theme, crate::sound::Kind::Mail); },
-                            "Play" }
-                        label { class: "sound-kind",
-                            input { class: "switch", r#type: "checkbox", checked: cur.meeting_sound, disabled: cur.sound_theme == crate::sound::NONE,
-                                "aria-label": "Meeting reminder sound",
-                                onchange: move |_| set(|p| p.meeting_sound = !p.meeting_sound) }
-                            Icon { name: "cal", class: "icon--sm" }
-                            span { "Meeting reminders" }
-                        }
-                        button { class: "btn btn--ghost btn--sm", disabled: cur.sound_theme == crate::sound::NONE, title: "Play the meeting-reminder sound",
-                            onclick: move |_| { let p = prefs::get(); crate::sound::play(&p.sound_theme, crate::sound::Kind::Meeting); },
-                            "Play" }
-                    }
-                    span { class: "settings-field__hint", "Each theme pairs a new-mail sound with a matching meeting reminder; turn either off on its own. Plays once per batch, at macOS's alert volume, and stays quiet in Focus and Do Not Disturb like the banner." }
-                    div {
-                        button { class: "btn btn--secondary btn--sm", r#type: "button",
-                            title: "Post a real notification with the new-mail sound, the way new mail arrives",
-                            onclick: move |_| crate::notify::post(&crate::notify::Note {
-                                title: "Coo".into(),
-                                body: "This is how new mail sounds.".into(),
-                                target: crate::notify::Target::Inbox,
-                                join_url: None,
-                                sound: (prefs::get().sound_theme != crate::sound::NONE).then_some(crate::sound::Kind::Mail),
-                                banner: true,
-                            }),
-                            "Send a test notification"
-                        }
-                    }
-                }
-            }
-            div { class: "settings-field",
-                span { class: "settings-field__label", "Remind me" }
-                div { class: "segmented", role: "radiogroup", "aria-label": "Event reminder",
-                    for m in REMINDER_CHOICES {
-                        button { role: "radio", key: "{m}", disabled: !cur.notify_events,
-                            "aria-checked": "{cur.event_reminder_minutes == m}", "aria-selected": "{cur.event_reminder_minutes == m}",
-                            onclick: move |_| { prefs::update(move |x| x.event_reminder_minutes = m); p.set(prefs::get()); },
-                            if m == 0 { "At start" } else { "{m} min" }
-                        }
-                    }
-                }
-            }
-            div { class: "settings-field settings-field--top",
-                span { class: "settings-field__label", "Accounts" }
-                div { style: "display:flex;flex-direction:column;gap:8px",
+            Row { label: "Accounts", hint: "Click a bell to mute an account. Muted accounts still sync; they just stay quiet.", stack: true,
+                div { class: "bell-list",
                     for a in accounts {
                         {
                             let id = a.account.id.clone();
                             let on = !cur.notify_accounts_muted.contains(&id);
+                            let name = s.account_label(&a.account.id, &a.account.email);
+                            let tip = if on { "Notifying · click to mute" } else { "Muted · click to notify" };
+                            let addr = (name != a.account.email).then(|| a.account.email.clone());
+                            let bell = if on { "bell" } else { "bell-off" };
                             rsx! {
-                                label { key: "{id}", "data-hue": "{a.hue}", style: "display:flex;align-items:center;gap:10px",
-                                    input { class: "check check--hue", r#type: "checkbox", checked: on,
-                                        onchange: move |_| {
+                                div { class: "bell-list__row", key: "{id}", "data-hue": "{a.hue}", "data-muted": (!on).then_some("true"),
+                                    span { class: "dot" }
+                                    span { class: "bell-list__text",
+                                        span { class: "bell-list__name", dir: "auto", "{name}" }
+                                        if let Some(addr) = addr { span { class: "bell-list__addr", "{addr}" } }
+                                    }
+                                    if !on { span { class: "bell-list__state", "Muted" } }
+                                    button { class: "bell-list__bell", r#type: "button", "aria-pressed": "{on}",
+                                        "aria-label": "{name}: {tip}", title: "{tip}",
+                                        onclick: move |_| {
                                             let id = id.clone();
                                             prefs::update(move |x| {
                                                 if let Some(i) = x.notify_accounts_muted.iter().position(|m| *m == id) {
@@ -656,13 +649,88 @@ pub fn Notifications() -> Element {
                                             });
                                             p.set(prefs::get());
                                             super::refresh_badge(s);
-                                        }
+                                        },
+                                        Icon { name: bell, class: "icon--sm" }
                                     }
-                                    span { dir: "auto", "{s.account_label(&a.account.id, &a.account.email)}" }
                                 }
                             }
                         }
                     }
+                }
+            }
+        }
+        Group { title: "Events",
+            Row { label: "Remind me", hint: "A reminder before meetings start, with Join.",
+                div { class: "srow__inline",
+                    div { class: "segmented", role: "radiogroup", "aria-label": "Event reminder",
+                        for m in REMINDER_CHOICES {
+                            button { role: "radio", key: "{m}", disabled: !cur.notify_events,
+                                "aria-checked": "{cur.event_reminder_minutes == m}", "aria-selected": "{cur.event_reminder_minutes == m}",
+                                onclick: move |_| { prefs::update(move |x| x.event_reminder_minutes = m); p.set(prefs::get()); },
+                                if m == 0 { "At start" } else { "{m} min" }
+                            }
+                        }
+                    }
+                    input { class: "switch", r#type: "checkbox", checked: cur.notify_events, "aria-label": "Event reminders",
+                        onchange: move |_| set(|p| p.notify_events = !p.notify_events) }
+                }
+            }
+            Row { label: "Break through Focus", hint: "Reminders show even in Do Not Disturb and Focus. New mail never does.",
+                input { class: "switch", r#type: "checkbox", checked: cur.reminders_time_sensitive, disabled: !cur.notify_events,
+                    "aria-label": "Break through Focus",
+                    onchange: move |_| set(|p| p.reminders_time_sensitive = !p.reminders_time_sensitive) }
+            }
+        }
+        Group { title: "Sounds",
+            Row { label: "Sound", hint: "Each set has a new-mail sound and a reminder sound. Click one to hear it.", stack: true,
+                div { class: "chips", role: "radiogroup", "aria-label": "Sound theme",
+                    {
+                        let choices = crate::sound::choices().into_iter().chain(std::iter::once((crate::sound::NONE, "None")));
+                        rsx! {
+                            for (id, label) in choices {
+                                button { class: "chip", role: "radio", key: "{id}", r#type: "button",
+                                    "aria-checked": "{cur.sound_theme == id}",
+                                    onclick: move |_| {
+                                        prefs::update(move |x| x.sound_theme = id.to_string());
+                                        crate::sound::play(id, crate::sound::Kind::Mail);
+                                        p.set(prefs::get());
+                                    },
+                                    if id == crate::sound::MACOS { "macOS" } else { "{label}" }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Row { label: "New mail",
+                div { class: "srow__inline",
+                    button { class: "btn btn--ghost btn--sm", r#type: "button", disabled: quiet, title: "Play the new-mail sound",
+                        onclick: move |_| { let p = prefs::get(); crate::sound::play(&p.sound_theme, crate::sound::Kind::Mail); },
+                        Icon { name: "play", class: "icon--xs" } "Play" }
+                    input { class: "switch", r#type: "checkbox", checked: cur.mail_sound, disabled: quiet, "aria-label": "New mail sound",
+                        onchange: move |_| set(|p| p.mail_sound = !p.mail_sound) }
+                }
+            }
+            Row { label: "Event reminders",
+                div { class: "srow__inline",
+                    button { class: "btn btn--ghost btn--sm", r#type: "button", disabled: quiet, title: "Play the reminder sound",
+                        onclick: move |_| { let p = prefs::get(); crate::sound::play(&p.sound_theme, crate::sound::Kind::Meeting); },
+                        Icon { name: "play", class: "icon--xs" } "Play" }
+                    input { class: "switch", r#type: "checkbox", checked: cur.meeting_sound, disabled: quiet, "aria-label": "Reminder sound",
+                        onchange: move |_| set(|p| p.meeting_sound = !p.meeting_sound) }
+                }
+            }
+            Row { label: "Try it", hint: "Posts a real notification, the way new mail arrives.",
+                button { class: "btn btn--secondary btn--sm", r#type: "button",
+                    onclick: move |_| crate::notify::post(&crate::notify::Note {
+                        title: "Coo".into(),
+                        body: "This is how new mail sounds.".into(),
+                        target: crate::notify::Target::Inbox,
+                        join_url: None,
+                        sound: (prefs::get().sound_theme != crate::sound::NONE).then_some(crate::sound::Kind::Mail),
+                        banner: true,
+                    }),
+                    "Send a test"
                 }
             }
         }
@@ -675,23 +743,20 @@ pub fn Shortcuts() -> Element {
     let style = *STYLE.read();
     let rows = crate::shortcuts::rows(style);
     rsx! {
-        div { class: "settings__title", style: "margin-top:12px", "Keyboard shortcuts" }
-        section { class: "settings-group",
-            div { class: "settings-field",
-                span { class: "settings-field__label", "Shortcut style" }
+        div { class: "settings__title", "Keyboard shortcuts" }
+        Group { title: "Style",
+            Row { label: "Shortcut style",
+                hint: if style == Style::Gmail {
+                    "Single keys, as in Gmail: R reply, A reply all, F forward, E archive."
+                } else {
+                    "⌘ and ⌃ keys, as in Outlook for Mac: ⌘R reply, ⇧⌘R reply all, ⌘J forward, ⌃E archive."
+                },
                 div { class: "segmented", role: "radiogroup", "aria-label": "Keyboard shortcut style",
                     for (value, label) in [(Style::Gmail, "Gmail"), (Style::Outlook, "Outlook")] {
                         button { role: "radio", key: "{label}", "aria-checked": "{style == value}", "aria-selected": "{style == value}",
                             onclick: move |_| crate::shortcuts::set_style(value),
                             "{label}"
                         }
-                    }
-                }
-                span { class: "settings-field__hint",
-                    if style == Style::Gmail {
-                        "Single keys, as in Gmail: R reply, A reply all, F forward, E archive."
-                    } else {
-                        "⌘ and ⌃ keys, as in Outlook for Mac: ⌘R reply, ⇧⌘R reply all, ⌘J forward, ⌃E archive."
                     }
                 }
             }
@@ -778,41 +843,32 @@ fn ShortcutLine(what: &'static str, keys: String, action: crate::shortcuts::Do, 
     }
 }
 
+/// Settings › Privacy: remote images, trusted senders, crash reports.
 #[component]
 pub fn Privacy() -> Element {
+    let s = use_context::<AppState>();
     let mut p = use_signal(prefs::get);
     let cur = p.read().clone();
     let always = cur.remote_images_always;
     rsx! {
-        div { class: "settings__title", style: "margin-top:12px", "Privacy" }
-        div { class: "settings-group",
-            div { class: "settings-field",
-                span { class: "settings-field__label", "Remote images" }
+        div { class: "settings__title", "Privacy" }
+        Group { title: "Remote images",
+            Row { label: "Remote images", hint: "They let senders see when you open a message.",
                 div { class: "segmented", role: "radiogroup", "aria-label": "Remote images",
                     button { role: "radio", "aria-checked": "{!always}", "aria-selected": "{!always}",
                         onclick: move |_| { prefs::update(|x| x.remote_images_always = false); p.set(prefs::get()); }, "Ask" }
                     button { role: "radio", "aria-checked": "{always}", "aria-selected": "{always}",
                         onclick: move |_| { prefs::update(|x| x.remote_images_always = true); p.set(prefs::get()); }, "Always load" }
                 }
-                span { class: "settings-field__hint", "Remote images let senders see when you open a message." }
-            }
-            label { class: "settings-field",
-                span { class: "settings-field__label", "Sender photos" }
-                input { class: "switch", r#type: "checkbox", checked: cur.photos_gravatar,
-                    onchange: move |_| { prefs::update(|x| x.photos_gravatar = !x.photos_gravatar); p.set(prefs::get()); } }
-                span { class: "settings-field__hint",
-                    "Show photos from Gravatar, and companies' own logos (BIMI, the logo a brand publishes for its mail). Coo sends Gravatar a one-way hash of each sender's address (never the address itself) and looks up company domains in public DNS; off by default." }
             }
             if !always {
-                div { class: "settings-field settings-field--top",
-                    span { class: "settings-field__label", "Trusted senders" }
-                    div { style: "display:flex;flex-direction:column;gap:6px",
-                        if cur.remote_images_senders.is_empty() {
-                            span { class: "settings-field__hint", style: "margin:0", "None yet. Use “Always from…” on a message's image banner." }
-                        }
+                Row { label: "Trusted senders",
+                    hint: if cur.remote_images_senders.is_empty() { "None yet. Use “Always from…” on a message's image banner." } else { "Their images always load." },
+                    stack: !cur.remote_images_senders.is_empty(),
+                    div { class: "trusted-list",
                         for who in cur.remote_images_senders.clone() {
-                            div { key: "{who}", style: "display:flex;align-items:center;gap:8px",
-                                span { style: "flex:1", "{who}" }
+                            div { class: "trusted-list__row", key: "{who}",
+                                span { class: "spacer", "{who}" }
                                 button { class: "icon-btn icon-btn--sm", "aria-label": "Remove {who}",
                                     onclick: move |_| {
                                         let w = who.clone();
@@ -826,61 +882,15 @@ pub fn Privacy() -> Element {
                     }
                 }
             }
-            label { class: "settings-field",
-                span { class: "settings-field__label", "Crash reports" }
-                input { class: "switch", r#type: "checkbox", checked: cur.crash_reports,
-                    onchange: move |_| { prefs::update(|x| x.crash_reports = !x.crash_reports); p.set(prefs::get()); } }
-                span { class: "settings-field__hint", "Send anonymous crash reports (addresses and message text are removed). Applies next launch." }
-            }
         }
-    }
-}
-
-/// Version, update check and automatic installs (Sparkle; release builds only).
-#[component]
-pub fn AboutUpdates() -> Element {
-    let s = use_context::<AppState>();
-    let ready = s.update_ready.read().clone();
-    let available = crate::updater::available();
-    let (version, build) = crate::updater::version();
-    let mut auto = use_signal(crate::updater::automatic);
-    rsx! {
-        div { class: "settings__title", style: "margin-top:12px", "About & updates" }
-        div { class: "settings-group",
-            div { class: "settings-field",
-                span { class: "settings-field__label", "Version" }
-                span { "Coo {version} ({build})" }
-                if let Some(v) = ready {
-                    button { class: "btn btn--primary btn--sm", r#type: "button",
-                        onclick: move |_| super::restart_to_update(), "Restart to update to {v}" }
-                } else {
-                    button { class: "btn btn--secondary btn--sm", r#type: "button", disabled: !available,
-                        onclick: move |_| super::check_for_updates(s), "Check for updates" }
-                }
+        Group { title: "Sharing",
+            Row { label: "Crash reports", hint: "Anonymous: addresses and message text are removed. Applies next launch.",
+                input { class: "switch", r#type: "checkbox", checked: cur.crash_reports, "aria-label": "Crash reports",
+                    onchange: move |_| { prefs::update(|x| x.crash_reports = !x.crash_reports); p.set(prefs::get()); } }
             }
-            if available {
-                label { class: "settings-field",
-                    span { class: "settings-field__label", "Automatic" }
-                    input { class: "switch", r#type: "checkbox", checked: *auto.read(),
-                        onchange: move |_| {
-                            let on = !*auto.read();
-                            crate::updater::set_automatic(on);
-                            auto.set(on);
-                        }
-                    }
-                    span { class: "settings-field__hint", "Install updates automatically: Coo downloads new versions in the background. Restart when it says an update is ready, or let it update itself while it's in the menu bar." }
-                }
-            } else {
-                div { class: "settings-field",
-                    span { class: "settings-field__label" }
-                    span { class: "settings-field__hint", "Updates are off in development builds." }
-                }
-            }
-            div { class: "settings-field",
-                span { class: "settings-field__label", "Something wrong?" }
+            Row { label: "Sender photos", hint: "Gravatar, company logos and contact photos are in Appearance.",
                 button { class: "btn btn--secondary btn--sm", r#type: "button",
-                    onclick: move |_| super::report_bug(s), "Report a bug…" }
-                span { class: "settings-field__hint", "Goes straight to the developer. Also in the Help menu." }
+                    onclick: move |_| super::settings::show_page(s, "Appearance"), "Open" }
             }
         }
     }

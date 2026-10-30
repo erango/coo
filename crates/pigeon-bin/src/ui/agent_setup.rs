@@ -35,7 +35,7 @@ fn tilde(p: &Path) -> String {
     }
 }
 
-fn agent_icon(a: Agent) -> &'static str {
+pub(crate) fn agent_icon(a: Agent) -> &'static str {
     match a {
         Agent::CodeTerminal => "terminal",
         Agent::CodeDesktop => "code-window",
@@ -160,7 +160,7 @@ fn Item(n: u8, step: Step, title: String, children: Element) -> Element {
     }
 }
 
-fn chip_class(status: Status, wants_write: bool) -> &'static str {
+pub(crate) fn chip_class(status: Status, wants_write: bool) -> &'static str {
     if status.needs_update(wants_write) {
         "agent-chip agent-chip--warn"
     } else if status.is_connected() {
@@ -169,6 +169,10 @@ fn chip_class(status: Status, wants_write: bool) -> &'static str {
         "agent-chip"
     }
 }
+
+/// The agent the dialog opens on (Settings › Accounts & agents sets it; the
+/// dialog clears it once open).
+pub static PICK: GlobalSignal<Option<Agent>> = Signal::global(|| None);
 
 #[component]
 pub fn AgentSetup() -> Element {
@@ -192,8 +196,9 @@ pub fn AgentSetup() -> Element {
         Some("desktop") => Agent::CodeDesktop,
         Some("claude") => Agent::ClaudeDesktop,
         Some("other") => Agent::Other,
-        _ => agent_setup::default_agent(&initial),
+        _ => (*PICK.peek()).unwrap_or_else(|| agent_setup::default_agent(&initial)),
     });
+    use_effect(|| *PICK.write() = None);
     // Access per config entry (Claude Code's terminal and desktop app share
     // one), starting from what's configured.
     let mut access = use_signal(|| {
