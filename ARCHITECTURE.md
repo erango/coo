@@ -43,7 +43,7 @@ other generic IMAP/CalDAV account.
 - Microsoft: multi-tenant Entra app registration, `common` authority.
   Scopes: `offline_access User.Read Mail.ReadWrite Mail.Send Calendars.ReadWrite
   MailboxSettings.Read People.Read`. Some tenants require admin consent.
-- Google: "Desktop app" OAuth client. Scopes: `gmail.modify`, `gmail.send`,
+- Google: "Desktop app" OAuth client. Scopes: `https://mail.google.com/` (full access: emptying Trash needs it), `gmail.send`,
   `calendar`, `contacts.readonly`, `userinfo.email`.
   **Risk:** Gmail scopes are *restricted* — a public app needs Google
   verification + a CASA security assessment. **Decision:** ship as an

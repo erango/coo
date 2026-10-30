@@ -270,8 +270,8 @@ pub enum Cmd {
     DiscardDraft {
         draft_id: String,
     },
-    /// Delete everything in these accounts' Trash for good (Gmail can't:
-    /// it empties its Trash itself after 30 days).
+    /// Delete everything in these accounts' Trash for good (a Gmail account
+    /// may first be asked for full Gmail access).
     EmptyTrash {
         account_ids: Vec<String>,
     },
@@ -1041,6 +1041,9 @@ impl Service {
                     return Ok(());
                 }
                 let from = self.act_folder(&account_id).await;
+                if !self.may_act(&account, from.as_deref(), &action).await? {
+                    return Ok(());
+                }
                 let handle = self.app.act(&account, &ids, from.as_deref(), &action)?;
                 let undoable = !matches!(action, MailAction::MarkRead | MailAction::MarkUnread);
                 if undoable {
@@ -1065,6 +1068,9 @@ impl Service {
                 for (account_id, ids) in by_account.into_iter().filter(|(_, ids)| !ids.is_empty()) {
                     let account = self.app.account(&account_id)?;
                     let from = self.act_folder(&account_id).await;
+                    if !self.may_act(&account, from.as_deref(), &action).await? {
+                        continue;
+                    }
                     handles.push((account_id, self.app.act(&account, &ids, from.as_deref(), &action)?));
                     touched.push(account);
                 }
@@ -1288,16 +1294,12 @@ impl Service {
             Cmd::EmptyTrash { account_ids } => {
                 let mut handles = Vec::new();
                 let mut touched = Vec::new();
-                let (mut count, mut gmail) = (0, false);
+                let mut count = 0;
                 for account_id in account_ids {
                     let account = self.app.account(&account_id)?;
-                    if account.provider == pigeon_core::model::ProviderKind::Google {
-                        gmail = true;
-                        continue;
-                    }
                     let Some(trash) = self.app.store().role_folder(&account.id, FolderRole::Trash)? else { continue };
                     let ids = self.app.store().folder_message_ids(&account.id, &trash)?;
-                    if ids.is_empty() {
+                    if ids.is_empty() || !self.purge_allowed(&account).await {
                         continue;
                     }
                     count += ids.len();
@@ -1305,8 +1307,7 @@ impl Service {
                     touched.push(account);
                 }
                 if handles.is_empty() {
-                    let note = if gmail { crate::actions::GMAIL_PURGE } else { "Trash is already empty" };
-                    self.toast(note, false, None);
+                    self.toast("Trash is already empty", false, None);
                 } else {
                     let undo = if handles.len() == 1 {
                         handles.pop()
@@ -1585,6 +1586,40 @@ impl Service {
             }
         }
         Ok(())
+    }
+
+    /// Whether `action` may go ahead: deleting for good from a Gmail Trash
+    /// first needs full Gmail access (see `purge_allowed`).
+    async fn may_act(&self, account: &Account, from: Option<&str>, action: &MailAction) -> Result<bool> {
+        if *action != MailAction::Trash {
+            return Ok(true);
+        }
+        let trash = self.app.store().role_folder(&account.id, FolderRole::Trash)?;
+        Ok(!crate::actions::purges(from, trash.as_deref()) || self.purge_allowed(account).await)
+    }
+
+    /// Whether this account may delete for good. Gmail accounts added
+    /// before Coo asked for full Gmail access are asked for it now, in the
+    /// browser (once).
+    async fn purge_allowed(&self, account: &Account) -> bool {
+        if account.provider != ProviderKind::Google {
+            return true;
+        }
+        let asked = async {
+            if self.app.gmail_purge_ready(&account.id).await? {
+                return Ok(());
+            }
+            self.toast("Deleting Gmail for good needs full access to Gmail. Continue in your browser.", false, None);
+            self.app.allow_gmail_purge(&account.id, |url| tracing::debug!(url, "Gmail consent URL")).await
+        };
+        match asked.await {
+            Ok(()) => true,
+            Err(e) => {
+                tracing::warn!(error = %e, "full Gmail access not granted");
+                self.toast(e.to_string(), true, None);
+                false
+            }
+        }
     }
 
     /// Browser consent for Drive on an existing Google account.

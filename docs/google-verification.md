@@ -3,7 +3,9 @@
 Everything to paste into Google Cloud Console → **Google Auth Platform**
 (project `pigeon-512506`, "Coo Mail") when submitting Coo for verification,
 plus the demo video script. Coo requests one **restricted** scope
-(`gmail.modify`) and one **sensitive** scope (`calendar`).
+(`https://mail.google.com/`, full Gmail access) and one **sensitive** scope
+(`calendar`). Restricted scopes also need a yearly third-party security
+assessment (CASA) before verification passes.
 
 Status before submitting:
 
@@ -27,25 +29,25 @@ Add exactly these; nothing else is requested by the app
 |---|---|
 | `openid`, `.../auth/userinfo.email`, `.../auth/userinfo.profile` | non-sensitive |
 | `https://www.googleapis.com/auth/calendar` | sensitive |
-| `https://www.googleapis.com/auth/gmail.modify` | restricted |
+| `https://mail.google.com/` | restricted |
 
 ## 2. Justifications (paste per scope)
 
-**gmail.modify**
+**mail.google.com**
 
 > Coo is a desktop email client for macOS. The user adds their Gmail account
-> to read, search and manage their own mail in the app. gmail.modify is the
-> narrowest scope that covers what an email client does: list and read
+> to read, search and manage their own mail in the app. It covers what an
+> email client does: list and read
 > messages and threads (messages.list/get, history.list for incremental sync),
 > show labels (labels.list), apply the user's actions (mark read/unread, star,
 > archive, move to a label, move to Trash and restore, via
 > messages.batchModify / trash / untrash), download attachments the user
 > opens, keep drafts in sync (drafts create/update/send/delete), send mail and
 > replies (messages.send), and list the user's verified send-as aliases
-> (settings.sendAs.list) so they can pick a From address. Coo never
-> permanently deletes mail, so the full mail.google.com scope is not
-> requested; gmail.readonly is not enough because sending, archiving and
-> labelling are core features.
+> (settings.sendAs.list) so they can pick a From address. The user can also
+> empty their Trash or delete a message in Trash for good (after a
+> confirmation, with a few seconds to undo), via messages.batchDelete, which
+> gmail.modify does not allow; this is why full Gmail access is requested.
 
 **calendar**
 
@@ -97,12 +99,13 @@ requested scope being used in the app. Record the screen with QuickTime
    so `client_id=...apps.googleusercontent.com` is readable, then show the
    consent screen listing "Coo" and the Gmail and Calendar permissions.
    Click Allow. Back in Coo, the account appears.
-3. **gmail.modify, reading (30 s):** the inbox fills; open a thread; search for
+3. **Gmail, reading (30 s):** the inbox fills; open a thread; search for
    a word; open an attachment.
-4. **gmail.modify, managing (30 s):** mark a message unread and read; star it;
+4. **Gmail, managing (40 s):** mark a message unread and read; star it;
    archive it (it leaves the inbox); move one to a label (V); move one to
-   Trash and undo.
-5. **gmail.modify, sending (30 s):** reply to a message and send; show it in
+   Trash and undo. Open Trash, click Empty, confirm: the messages are deleted
+   for good (messages.batchDelete, the reason for full Gmail access).
+5. **Gmail, sending (30 s):** reply to a message and send; show it in
    Sent. Start a new message, pick a send-as alias in From, close it and show
    it in Drafts.
 6. **calendar (40 s):** switch to Calendar (⌘2); create an event; drag it to

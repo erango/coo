@@ -1,5 +1,6 @@
-//! Mail mutations: label changes via `messages.batchModify` (≤1000 ids per
-//! call), trash/untrash per message.
+//! Mail mutations: label changes via `messages.batchModify` and deleting
+//! for good via `messages.batchDelete` (≤1000 ids per call, the latter
+//! needs the full `mail.google.com` scope), trash/untrash per message.
 
 use futures::future::try_join_all;
 use pigeon_core::http::{client, send};
@@ -46,6 +47,12 @@ impl MailActions for Google {
             for ids in op.ids().chunks(MODIFY_MAX) {
                 let body = json!({ "ids": ids, "addLabelIds": add, "removeLabelIds": remove });
                 self.post(&format!("{GMAIL}/messages/batchModify"), &body).await?;
+            }
+            return Ok(());
+        }
+        if let MailOp::Purge { ids } = op {
+            for ids in ids.chunks(MODIFY_MAX) {
+                self.post(&format!("{GMAIL}/messages/batchDelete"), &json!({ "ids": ids })).await?;
             }
             return Ok(());
         }

@@ -31,11 +31,16 @@ const MS_SCOPES: &[&str] = &[
     "Calendars.ReadWrite",
 ];
 
+/// Gmail's full-access scope (deleting for good needs it).
+pub const GMAIL_FULL_SCOPE: &str = "https://mail.google.com/";
+
 const GOOGLE_SCOPES: &[&str] = &[
     "openid",
     "email",
     "profile",
-    "https://www.googleapis.com/auth/gmail.modify",
+    // Full Gmail access: `gmail.modify` can trash but not delete for good
+    // (Empty Trash, Delete in Trash).
+    GMAIL_FULL_SCOPE,
     "https://www.googleapis.com/auth/calendar",
     // Only the files the user picks in the Google Drive picker.
     crate::drive::DRIVE_FILE_SCOPE,
@@ -632,7 +637,7 @@ mod tests {
         assert_eq!(q["include_granted_scopes"], "true");
         assert_eq!(q["prompt"], "consent");
         assert_eq!(q["access_type"], "offline");
-        assert!(q["scope"].contains("gmail.modify") && q["scope"].contains("drive.file"));
+        assert!(q["scope"].split(' ').any(|s| s == GMAIL_FULL_SCOPE) && q["scope"].contains("drive.file"));
         assert_eq!(more.client_secret.as_deref(), Some("secret"));
     }
 

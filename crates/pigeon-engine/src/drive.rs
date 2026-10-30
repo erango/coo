@@ -1,9 +1,10 @@
 //! Google Drive attachments: giving a Google account Drive access
-//! (incremental consent for `drive.file`), the browser picker, and fetching
-//! picked files at send time. Any account can send them; the Drive access
+//! (incremental consent for `drive.file`; full Gmail access for deleting
+//! for good goes the same way), the browser picker, and fetching picked
+//! files at send time. Any account can send them; the Drive access
 //! belongs to the Google account the files were picked with.
 
-use pigeon_core::auth::{self, OAuthApp};
+use pigeon_core::auth::{self, GMAIL_FULL_SCOPE, OAuthApp};
 use pigeon_core::drive::{DRIVE_FILE_SCOPE, DriveFile, app_id, has_scope};
 use pigeon_core::model::{Account, ProviderKind};
 use pigeon_core::{Error, Result};
@@ -36,42 +37,71 @@ impl Pigeon {
     /// Whether the account's sign-in may open picked Drive files. Accounts
     /// that signed in before Coo recorded scopes are asked about once.
     pub async fn drive_ready(&self, account_id: &str) -> Result<bool> {
+        self.google_scope_ready(account_id, DRIVE_FILE_SCOPE).await
+    }
+
+    /// Whether the account's sign-in may delete Gmail for good (accounts
+    /// added before Coo asked for full Gmail access can't).
+    pub async fn gmail_purge_ready(&self, account_id: &str) -> Result<bool> {
+        self.google_scope_ready(account_id, GMAIL_FULL_SCOPE).await
+    }
+
+    async fn google_scope_ready(&self, account_id: &str, scope: &str) -> Result<bool> {
         let account = self.google_account(account_id)?;
         if let Some(scopes) = self.store().account_scopes(&account.id)? {
-            return Ok(has_scope(&scopes, DRIVE_FILE_SCOPE));
+            return Ok(has_scope(&scopes, scope));
         }
         let token = self.token_source(&account)?.access_token().await?;
         let scopes = granted_scopes(&token).await?;
         self.store().set_account_scopes(&account.id, &scopes)?;
-        Ok(has_scope(&scopes, DRIVE_FILE_SCOPE))
+        Ok(has_scope(&scopes, scope))
     }
 
     /// Ask Google (in the browser) to add Drive access to an existing
-    /// Google account, keeping everything it already allows. The sign-in
-    /// must be the same account; its new refresh token replaces the old.
+    /// Google account, keeping everything it already allows.
     pub async fn connect_drive(&self, account_id: &str, on_url: impl FnOnce(&str)) -> Result<()> {
+        let denied = "Google Drive access wasn't allowed. Try again and tick the Google Drive box.";
+        self.add_google_scope(account_id, DRIVE_FILE_SCOPE, "open its Drive files", denied, on_url).await
+    }
+
+    /// Ask Google (in the browser) for full Gmail access on an existing
+    /// Google account, so it can delete mail for good.
+    pub async fn allow_gmail_purge(&self, account_id: &str, on_url: impl FnOnce(&str)) -> Result<()> {
+        let denied = "Coo wasn't allowed to delete Gmail for good. Try again and allow full access to Gmail.";
+        self.add_google_scope(account_id, GMAIL_FULL_SCOPE, "delete its mail for good", denied, on_url).await
+    }
+
+    /// Sign in again with Coo's current Google scopes (keeping what the
+    /// account already allows). It must be the same account; its new
+    /// refresh token replaces the old.
+    async fn add_google_scope(
+        &self,
+        account_id: &str,
+        scope: &str,
+        what: &str,
+        denied: &str,
+        on_url: impl FnOnce(&str),
+    ) -> Result<()> {
         let account = self.google_account(account_id)?;
         let app = OAuthApp::from_env(ProviderKind::Google)?.google_add_scopes(&account.email);
         let token = auth::authorize(&app, on_url).await?;
         let (email, _) = pigeon_google::whoami(&token.access_token).await?;
         if !email.eq_ignore_ascii_case(&account.email) {
             return Err(Error::Auth(format!(
-                "That was a different Google account. Choose {} to let Coo open its Drive files.",
+                "That was a different Google account. Choose {} to let Coo {what}.",
                 account.email
             )));
         }
         let scopes = token.scope.clone().unwrap_or_default();
-        if !has_scope(&scopes, DRIVE_FILE_SCOPE) {
-            return Err(Error::Auth(
-                "Google Drive access wasn't allowed. Try again and tick the Google Drive box.".into(),
-            ));
+        if !has_scope(&scopes, scope) {
+            return Err(Error::Auth(denied.into()));
         }
         let refresh =
             token.refresh_token.as_deref().ok_or_else(|| Error::Auth("Google returned no refresh token".into()))?;
         self.tokens.set(&account.id, refresh)?;
         self.store().set_account_scopes(&account.id, &scopes)?;
         // Fresh token source + backend, so nothing keeps using an access
-        // token minted before Drive was allowed.
+        // token minted before the new access was allowed.
         self.backends.lock().unwrap_or_else(|p| p.into_inner()).remove(&account.id);
         self.sources.lock().unwrap_or_else(|p| p.into_inner()).remove(&account.id);
         Ok(())

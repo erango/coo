@@ -1207,19 +1207,8 @@ pub fn trash_view(s: &AppState) -> Option<Vec<String>> {
     }
 }
 
-/// Whether any of these accounts can empty its Trash (Gmail can't).
-pub fn can_empty_trash(s: &AppState, account_ids: &[String]) -> bool {
-    s.accounts
-        .read()
-        .iter()
-        .any(|a| account_ids.contains(&a.account.id) && a.account.provider != pigeon_core::model::ProviderKind::Google)
-}
-
 /// Ask, then delete everything in these accounts' Trash for good.
-pub fn empty_trash(s: AppState, account_ids: Vec<String>) {
-    if !can_empty_trash(&s, &account_ids) {
-        return s.local_toast(pigeon_engine::GMAIL_PURGE, false);
-    }
+pub fn empty_trash(account_ids: Vec<String>) {
     // Not tied to the right-click menu that may have asked (it closes).
     dioxus::core::spawn_forever(async move {
         let empty = "Empty Trash".to_string();
@@ -1239,30 +1228,20 @@ pub fn empty_trash(s: AppState, account_ids: Vec<String>) {
     });
 }
 
-/// What Delete does here: `None` moves to Trash; in Trash, `Some(true)`
-/// deletes for good and `Some(false)` can't (Gmail, see `GMAIL_PURGE`).
-pub fn delete_in_trash(s: &AppState, account_ids: &[&str]) -> Option<bool> {
+/// Whether Delete here deletes for good (viewing these accounts' Trash)
+/// rather than moving to Trash.
+pub fn delete_in_trash(s: &AppState, account_ids: &[&str]) -> bool {
     let accounts = s.accounts.read();
     let mailbox = s.mailbox.read();
-    let mut out = None;
-    for id in account_ids {
-        let a = accounts.iter().find(|a| a.account.id == *id)?;
-        if !viewing(&mailbox, a, FolderRole::Trash) {
-            return None;
-        }
-        let gmail = a.account.provider == pigeon_core::model::ProviderKind::Google;
-        out = Some(out.unwrap_or(true) && !gmail);
-    }
-    out
+    !account_ids.is_empty()
+        && account_ids.iter().all(|id| {
+            accounts.iter().find(|a| a.account.id == *id).is_some_and(|a| viewing(&mailbox, a, FolderRole::Trash))
+        })
 }
 
 pub fn act(s: AppState, item: &ListItem, action: MailAction) {
     let header = item.header();
-    let in_trash = if action == MailAction::Trash { delete_in_trash(&s, &[item.account_id()]) } else { None };
-    if in_trash == Some(false) {
-        s.local_toast(pigeon_engine::GMAIL_PURGE, false);
-        return;
-    }
+    let in_trash = action == MailAction::Trash && delete_in_trash(&s, &[item.account_id()]);
     if action.leaves() && s.selected.read().as_deref() == Some(AppState::key(item).as_str()) {
         let list = s.visible_items();
         let pos = list.iter().position(|i| AppState::key(i) == AppState::key(item));
@@ -1283,7 +1262,7 @@ pub fn act(s: AppState, item: &ListItem, action: MailAction) {
     let subject = if header.subject.is_empty() { "(no subject)".to_string() } else { header.subject.clone() };
     let label = match &action {
         MailAction::Archive => format!("Archived “{subject}”"),
-        MailAction::Trash if in_trash.is_some() => format!("Deleted “{subject}” for good"),
+        MailAction::Trash if in_trash => format!("Deleted “{subject}” for good"),
         MailAction::Trash => format!("Deleted “{subject}”"),
         MailAction::Flag => format!("Flagged “{subject}”"),
         MailAction::Unflag => format!("Unflagged “{subject}”"),

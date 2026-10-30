@@ -358,8 +358,8 @@ pub fn MailList() -> Element {
             if searching.is_none() {
                 {
                     let search_key = if s.reader.read().is_some() { hint(Do::Search) } else { "⌘F".to_string() };
-                    // In Trash: Empty Trash beside the search (not for Gmail-only).
-                    let trash = super::trash_view(&s).filter(|ids| super::can_empty_trash(&s, ids));
+                    // In Trash: Empty Trash beside the search.
+                    let trash = super::trash_view(&s);
                     rsx! {
                 div { class: "list-search-row",
                 button { class: "list-search", r#type: "button", "aria-label": "Search {heading}",
@@ -372,7 +372,7 @@ pub fn MailList() -> Element {
                 if let Some(ids) = trash {
                     button { class: "btn btn--secondary btn--sm list-empty-trash", r#type: "button",
                         title: "Delete everything in Trash for good",
-                        onclick: move |_| super::empty_trash(s, ids.clone()),
+                        onclick: move |_| super::empty_trash(ids.clone()),
                         Icon { name: "trash", class: "icon--sm" }
                         "Empty"
                     }

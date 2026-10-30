@@ -56,13 +56,9 @@ pub fn spam_actions(provider: ProviderKind, has_spam_folder: bool, in_spam: bool
     v
 }
 
-/// Coo's Gmail access can trash but not delete (that takes Gmail's
-/// full-access permission); Gmail empties Trash itself after 30 days.
-pub const GMAIL_PURGE: &str = "Gmail deletes messages in Trash for good after 30 days";
-
 /// Whether Delete while viewing `from_folder` deletes for good.
-pub fn purges(provider: ProviderKind, from_folder: Option<&str>, trash: Option<&str>) -> bool {
-    provider != ProviderKind::Google && from_folder.is_some() && from_folder == trash
+pub fn purges(from_folder: Option<&str>, trash: Option<&str>) -> bool {
+    from_folder.is_some() && from_folder == trash
 }
 
 /// Translate `action` for this provider. `from_folder` is the folder being
@@ -86,10 +82,7 @@ pub fn resolve(
         Ok(MailOp::Report { ids, report, folder_id: need(to)? })
     };
     // Delete in Trash means delete for good.
-    if *action == MailAction::Trash && from_folder.is_some_and(|f| role(FolderRole::Trash).as_deref() == Some(f)) {
-        if provider == ProviderKind::Google {
-            return Err(Error::Other(GMAIL_PURGE.into()));
-        }
+    if *action == MailAction::Trash && purges(from_folder, role(FolderRole::Trash).as_deref()) {
         return Ok(MailOp::Purge { ids });
     }
     Ok(match (action, provider) {
@@ -194,17 +187,15 @@ mod tests {
 
     #[test]
     fn delete_in_trash_is_for_good() {
-        for p in [ProviderKind::Microsoft, ProviderKind::ICloud] {
+        for p in [ProviderKind::Microsoft, ProviderKind::ICloud, ProviderKind::Google] {
             assert_eq!(
                 resolve(p, &MailAction::Trash, ids(), Some("TRASH"), roles).unwrap(),
                 MailOp::Purge { ids: ids() }
             );
-            assert!(purges(p, Some("TRASH"), Some("TRASH")));
-            assert!(!purges(p, Some("INBOX"), Some("TRASH")));
-            assert!(!purges(p, None, None));
         }
-        assert!(resolve(ProviderKind::Google, &MailAction::Trash, ids(), Some("TRASH"), roles).is_err());
-        assert!(!purges(ProviderKind::Google, Some("TRASH"), Some("TRASH")));
+        assert!(purges(Some("TRASH"), Some("TRASH")));
+        assert!(!purges(Some("INBOX"), Some("TRASH")));
+        assert!(!purges(None, None));
         // Elsewhere it's still a move to Trash.
         assert_eq!(
             resolve(ProviderKind::ICloud, &MailAction::Trash, ids(), Some("INBOX"), roles).unwrap(),

@@ -310,7 +310,7 @@ fn run(s: AppState, m: &AccountMenu, entry: Entry) {
         Entry::NewLabel => super::sidebar::start_new_label(s, &id),
         Entry::EmptyTrash => {
             let Target::Trash(ids) = &m.target else { return };
-            super::empty_trash(s, ids.clone());
+            super::empty_trash(ids.clone());
         }
         Entry::DeleteLabel => {
             let Target::Label(label) = &m.target else { return };
