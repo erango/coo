@@ -113,7 +113,7 @@ pub static FAMILIES: &[Family] = &[
         dark: ModeSpec {
             bg: [Hex("#0f1a17"), Hex("#0b1411"), Hex("#16241f"), Hex("#1e2f29")],
             text: [Hex("#e4f4ed"), Hex("#a9c4b9"), Hex("#7f9a8f")],
-            accent: Hex("#5fe3b5"),
+            accent: Hex("#4fdfd0"),
             success: Hex("#86e08f"),
             warning: Hex("#f2c46d"),
             error: Hex("#ff7f8e"),
