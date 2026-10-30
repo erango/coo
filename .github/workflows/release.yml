@@ -95,6 +95,25 @@ jobs:
           export COO_BUILD_NUMBER="$(git rev-list --count HEAD)"
           ./scripts/bundle.sh --universal
 
+      # Crash reports come from a stripped binary: upload each arch's dSYM
+      # (split-debuginfo, Cargo.toml) so Sentry can name the code. Matched by
+      # debug id, so no release name is needed. Skipped without a token.
+      - name: Upload debug symbols to Sentry
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: tv-tracker
+          SENTRY_PROJECT: pigeon
+        run: |
+          if [ -z "$SENTRY_AUTH_TOKEN" ]; then
+            echo "::warning::SENTRY_AUTH_TOKEN is not set; crash reports from this build won't be symbolicated"
+            exit 0
+          fi
+          dsyms=$(find target -maxdepth 4 -type d -name '*.dSYM' -path '*-apple-darwin/release/*')
+          [ -n "$dsyms" ] || { echo "::error::no dSYM found"; exit 1; }
+          echo "$dsyms"
+          brew install getsentry/tools/sentry-cli >/dev/null
+          sentry-cli debug-files upload --wait $dsyms
+
       # Notarize + staple the app itself so it passes Gatekeeper offline and
       # when Homebrew copies it out of the dmg.
       - name: Notarize app
