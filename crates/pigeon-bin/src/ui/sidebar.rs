@@ -5,7 +5,7 @@ use pigeon_engine::service::{AccountNav, Cmd, Mailbox};
 use super::Icon;
 use crate::format;
 use crate::send_cmd;
-use crate::state::{AppState, Mode};
+use crate::state::{AppState, Mode, Theme};
 
 const UNIFIED: [(FolderRole, &str, &str); 4] = [
     (FolderRole::Inbox, "Inbox", "inbox"),
@@ -680,6 +680,7 @@ fn SyncFooter() -> Element {
                     }
                 }
                 span { class: "spacer" }
+                ThemeButton {}
                 button { class: "icon-btn sidebar__sync", r#type: "button", "aria-label": "Sync now", title: "{sync_tip}",
                     "data-state": "{state}", disabled: state == "syncing",
                     onclick: move |_| super::sync_now(s),
@@ -692,6 +693,50 @@ fn SyncFooter() -> Element {
                         Icon { name: "gear", class: "icon--sm" }
                     }
                 }
+            }
+        }
+    }
+}
+
+/// The appearance switch: shows the mode in use (sun, moon, or a half-lit
+/// disc for "match the system", lit on the side macOS is on) and steps
+/// System → Dark → Light. Each mode arrives with its own motion: the sun
+/// rises over a horizon, the moon rises with a twinkle, the disc turns.
+#[component]
+fn ThemeButton() -> Element {
+    let s = use_context::<AppState>();
+    let mut theme = s.theme;
+    let current = *theme.read();
+    let os_dark = *s.os_dark.read();
+    // Only a switch animates, not the first render.
+    let mut changes = use_signal(|| 0u32);
+    let (name, next, label) = match current {
+        Theme::System => ("system", Theme::Dark, "Appearance: matches macOS (click for dark)"),
+        Theme::Dark => ("dark", Theme::Light, "Appearance: dark (click for light)"),
+        Theme::Light => ("light", Theme::System, "Appearance: light (click to match macOS)"),
+    };
+    let svg = match current {
+        Theme::Light => {
+            r#"<path class="tm-horizon" d="M3 19.5h18"/><g class="tm-sun"><circle cx="12" cy="12" r="3.6"/><g class="tm-rays"><path d="M12 4.5v1.6M12 17.9v1.1M4.5 12h1.6M17.9 12h1.6M6.7 6.7l1.1 1.1M16.2 16.2l.8.8M6.7 17.3l1.1-1.1M16.2 7.8l1.1-1.1"/></g></g>"#
+        }
+        Theme::Dark => {
+            r#"<path class="tm-horizon" d="M3 19.5h18"/><path class="tm-moon" d="M17.5 14.2A6.3 6.3 0 1 1 10.3 6a5 5 0 0 0 7.2 8.2z"/><circle class="tm-star tm-star--a" cx="17.6" cy="6.4" r=".9" fill="currentColor" stroke="none"/><circle class="tm-star tm-star--b" cx="20.2" cy="10" r=".7" fill="currentColor" stroke="none"/>"#
+        }
+        Theme::System => {
+            r#"<g class="tm-disc"><circle cx="12" cy="12" r="7.5"/><path d="M12 4.5a7.5 7.5 0 0 1 0 15z" fill="currentColor" stroke="none"/></g>"#
+        }
+    };
+    rsx! {
+        button { class: "icon-btn sidebar__theme", r#type: "button", "aria-label": "{label}", title: "{label}",
+            "data-mode": name, "data-os": if os_dark { "dark" } else { "light" },
+            "data-switched": (*changes.read() > 0).then_some("true"),
+            onclick: move |_| {
+                changes += 1;
+                theme.set(next);
+            },
+            svg { key: "{name}", class: "icon icon--sm theme-mark", view_box: "0 0 24 24", fill: "none", stroke: "currentColor",
+                stroke_width: "1.6", stroke_linecap: "round", stroke_linejoin: "round", "aria-hidden": "true",
+                dangerous_inner_html: svg,
             }
         }
     }
