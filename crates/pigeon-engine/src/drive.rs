@@ -46,7 +46,7 @@ impl Pigeon {
         self.google_scope_ready(account_id, GMAIL_FULL_SCOPE).await
     }
 
-    async fn google_scope_ready(&self, account_id: &str, scope: &str) -> Result<bool> {
+    pub(crate) async fn google_scope_ready(&self, account_id: &str, scope: &str) -> Result<bool> {
         let account = self.google_account(account_id)?;
         if let Some(scopes) = self.store().account_scopes(&account.id)? {
             return Ok(has_scope(&scopes, scope));
@@ -74,7 +74,7 @@ impl Pigeon {
     /// Sign in again with Coo's current Google scopes (keeping what the
     /// account already allows). It must be the same account; its new
     /// refresh token replaces the old.
-    async fn add_google_scope(
+    pub(crate) async fn add_google_scope(
         &self,
         account_id: &str,
         scope: &str,

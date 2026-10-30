@@ -12,6 +12,35 @@ fn account_scopes_are_recorded_and_go_with_the_account() {
     assert_eq!(s.account_scopes(&g.id).unwrap(), None);
 }
 
+#[test]
+fn contact_photos_are_found_by_address_in_account_order_and_go_with_the_account() {
+    let (mut s, ms, g) = setup();
+    let accounts = vec![g.id.clone(), ms.id.clone()];
+    assert_eq!(s.contact_photo("dana@x.io", &accounts).unwrap(), None);
+    assert_eq!(s.contact_photos_synced_at(&g.id).unwrap(), None);
+    s.replace_contact_photos(&ms.id, &[("dana@x.io".into(), "https://p/ms".into())], 5).unwrap();
+    s.replace_contact_photos(
+        &g.id,
+        &[("dana@x.io".into(), "https://p/g".into()), ("b@x.io".into(), "https://p/b".into())],
+        7,
+    )
+    .unwrap();
+    assert_eq!(s.contact_photo(" Dana@X.io", &accounts).unwrap(), Some((g.id.clone(), "https://p/g".into())));
+    assert_eq!(s.contact_photos_synced_at(&g.id).unwrap(), Some(7));
+    // A refresh replaces the account's list.
+    s.replace_contact_photos(&g.id, &[("b@x.io".into(), "https://p/b2".into())], 9).unwrap();
+    assert_eq!(s.contact_photo("dana@x.io", &accounts).unwrap(), Some((ms.id.clone(), "https://p/ms".into())));
+    // No address is stored, only its hash.
+    let plain: i64 = s
+        .conn
+        .query_row("SELECT count(*) FROM contact_photos WHERE address_hash LIKE '%@%'", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(plain, 0);
+    s.delete_account(&g.id).unwrap();
+    assert_eq!(s.contact_photo("b@x.io", &accounts).unwrap(), None);
+    assert_eq!(s.contact_photos_synced_at(&g.id).unwrap(), None);
+}
+
 fn account(provider: ProviderKind, email: &str) -> Account {
     Account { id: Account::make_id(provider, email), provider, email: email.into(), display_name: email.into() }
 }

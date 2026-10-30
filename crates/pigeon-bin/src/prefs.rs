@@ -105,6 +105,8 @@ pub struct Prefs {
     pub reply_mode: String,
     /// Show sender photos from Gravatar (sends a hash of each address).
     pub photos_gravatar: bool,
+    /// Show sender photos from Google accounts' contacts (where allowed).
+    pub photos_google: bool,
     /// Message list look: "cards", "bands" or "classic" (`state::ListStyle`).
     pub list_style: String,
     /// A sender avatar column in the message list.
@@ -164,6 +166,7 @@ impl Default for Prefs {
             thread_newest_first: true,
             reply_mode: "inline".into(),
             photos_gravatar: false,
+            photos_google: true,
             list_style: "cards".into(),
             list_avatars: true,
             folders_open: Vec::new(),

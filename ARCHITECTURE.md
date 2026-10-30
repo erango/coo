@@ -44,7 +44,8 @@ other generic IMAP/CalDAV account.
   Scopes: `offline_access User.Read Mail.ReadWrite Mail.Send Calendars.ReadWrite
   MailboxSettings.Read People.Read`. Some tenants require admin consent.
 - Google: "Desktop app" OAuth client. Scopes: `https://mail.google.com/` (full access: emptying Trash needs it), `gmail.send`,
-  `calendar`, `contacts.readonly`, `userinfo.email`.
+  `calendar`, `drive.file`, `contacts.other.readonly` + `contacts.readonly` +
+  `directory.readonly` (sender photos from the People API), `userinfo.email`.
   **Risk:** Gmail scopes are *restricted* — a public app needs Google
   verification + a CASA security assessment. **Decision:** ship as an
   unverified **test app** (≤100 allow-listed test users, "unverified app"

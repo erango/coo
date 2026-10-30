@@ -11,6 +11,7 @@ use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use crate::model::*;
 use crate::{Error, Result, now_ms, text};
 
+mod contact_photos;
 mod contacts;
 mod outbox;
 mod search;
@@ -32,6 +33,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("011_account_scopes.sql"),
     include_str!("012_send_addresses.sql"),
     include_str!("013_main_address.sql"),
+    include_str!("014_contact_photos.sql"),
 ];
 
 /// Which folder a list query reads.

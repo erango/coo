@@ -9,6 +9,7 @@ mod actions;
 pub mod agent_setup;
 pub mod broker;
 mod calendar;
+pub mod contact_photos;
 pub mod detect;
 pub mod drive;
 pub mod notify;

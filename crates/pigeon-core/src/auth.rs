@@ -44,7 +44,18 @@ const GOOGLE_SCOPES: &[&str] = &[
     "https://www.googleapis.com/auth/calendar",
     // Only the files the user picks in the Google Drive picker.
     crate::drive::DRIVE_FILE_SCOPE,
+    // Sender photos: people you've mailed with, your contacts, and your
+    // Workspace directory (People API; addresses and photos only).
+    GOOGLE_OTHER_CONTACTS_SCOPE,
+    GOOGLE_CONTACTS_SCOPE,
+    GOOGLE_DIRECTORY_SCOPE,
 ];
+
+/// People the account mailed with ("Other contacts"); its grant is what
+/// turns Google contact photos on.
+pub const GOOGLE_OTHER_CONTACTS_SCOPE: &str = "https://www.googleapis.com/auth/contacts.other.readonly";
+pub const GOOGLE_CONTACTS_SCOPE: &str = "https://www.googleapis.com/auth/contacts.readonly";
+pub const GOOGLE_DIRECTORY_SCOPE: &str = "https://www.googleapis.com/auth/directory.readonly";
 
 /// Zoom's OAuth app: PKCE public client (no secret). Zoom only accepts a
 /// loopback redirect for PKCE apps, at this exact registered address.
@@ -627,6 +638,9 @@ mod tests {
         let url = app.authorize_url("http://127.0.0.1:5000", "st", "ch").unwrap();
         let q: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
         assert!(q["scope"].split(' ').any(|s| s == crate::drive::DRIVE_FILE_SCOPE), "{}", q["scope"]);
+        for s in [GOOGLE_OTHER_CONTACTS_SCOPE, GOOGLE_CONTACTS_SCOPE, GOOGLE_DIRECTORY_SCOPE] {
+            assert!(q["scope"].split(' ').any(|g| g == s), "{s} missing");
+        }
         assert!(!q.contains_key("login_hint") && !q.contains_key("include_granted_scopes"));
         assert_eq!(q["prompt"], "consent select_account");
 
