@@ -15,6 +15,10 @@ Status before submitting:
       Google API Services User Data Policy / Limited Use statement)
 - [x] Terms `https://erango.github.io/coo/terms.html`
 - [x] Authorized domain `erango.github.io`, verified in Search Console
+- [x] Home page domain owned: Search Console property `https://erango.github.io/`
+      (verification tag on the user site, repo `erango/erango.github.io`,
+      whose page redirects to `/coo/`). The `/coo/` tag alone wasn't enough:
+      branding failed with "home page ... is not registered to you".
 - [x] Publishing status: In production
 - [ ] Demo video uploaded to YouTube (unlisted), link pasted below
 - [ ] Scope justifications pasted (Data Access page)
