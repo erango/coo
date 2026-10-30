@@ -350,26 +350,9 @@ pub fn MailList() -> Element {
                     button { role: "tab", "aria-selected": "{*threaded.read()}", onclick: move |_| threaded.set(true), "Threads" }
                     button { role: "tab", "aria-selected": "{!*threaded.read()}", onclick: move |_| threaded.set(false), "Messages" }
                 }
-                button { class: "icon-btn", r#type: "button", "aria-label": "New message", title: "New message (⌘N)",
-                    onclick: move |_| super::new_message(s),
-                    Icon { name: "edit" }
-                }
-            }
-            if searching.is_none() {
-                {
-                    let search_key = if s.reader.read().is_some() { hint(Do::Search) } else { "⌘F".to_string() };
-                    // In Trash: Empty Trash beside the search.
-                    let trash = super::trash_view(&s);
-                    rsx! {
-                div { class: "list-search-row",
-                button { class: "list-search", r#type: "button", "aria-label": "Search {heading}",
-                    onclick: move |_| super::search::open_here(s),
-                    Icon { name: "search", class: "icon--sm" }
-                    span { class: "list-search__placeholder", dir: "auto", "Search {heading}" }
-                    // ⌘F finds in an open conversation instead.
-                    if !search_key.is_empty() { kbd { class: "kbd", "{search_key}" } }
-                }
-                if let Some(ids) = trash {
+                // Search is a quiet button here (and ⌘F); the field opens in
+                // its place. In Trash, Empty sits beside it.
+                if let Some(ids) = super::trash_view(&s).filter(|_| searching.is_none()) {
                     button { class: "btn btn--secondary btn--sm list-empty-trash", r#type: "button",
                         title: "Delete everything in Trash for good",
                         onclick: move |_| super::empty_trash(ids.clone()),
@@ -377,8 +360,22 @@ pub fn MailList() -> Element {
                         "Empty"
                     }
                 }
-                }
+                if searching.is_none() {
+                    {
+                        // ⌘F finds in an open conversation; the button always searches the folder.
+                        let key = if s.reader.read().is_some() { hint(Do::Search) } else { "⌘F".to_string() };
+                        let tip = if key.is_empty() { format!("Search {heading}") } else { format!("Search {heading} ({key})") };
+                        rsx! {
+                            button { class: "icon-btn", r#type: "button", "aria-label": "Search {heading}", title: "{tip}",
+                                onclick: move |_| super::search::open_here(s),
+                                Icon { name: "search" }
+                            }
+                        }
                     }
+                }
+                button { class: "icon-btn", r#type: "button", "aria-label": "New message", title: "New message (⌘N)",
+                    onclick: move |_| super::new_message(s),
+                    Icon { name: "edit" }
                 }
             }
             if searching.is_some() {

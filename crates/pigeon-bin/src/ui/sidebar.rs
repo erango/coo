@@ -734,7 +734,7 @@ fn ThemeButton() -> Element {
                 changes += 1;
                 theme.set(next);
             },
-            svg { key: "{name}", class: "icon icon--sm theme-mark", view_box: "0 0 24 24", fill: "none", stroke: "currentColor",
+            svg { key: "{name}", class: "icon icon--sm theme-mark", view_box: "2.5 2.5 19 19", fill: "none", stroke: "currentColor",
                 stroke_width: "1.6", stroke_linecap: "round", stroke_linejoin: "round", "aria-hidden": "true",
                 dangerous_inner_html: svg,
             }
