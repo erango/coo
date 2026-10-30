@@ -124,7 +124,7 @@ pub fn on_band(s: AppState, v: &str) {
     let list = s.visible_items();
     let keys: Vec<String> = list.iter().map(AppState::key).collect();
     let now = chrono::Local::now();
-    let metrics = s.list_style.peek().metrics();
+    let metrics = s.list_style.peek().metrics(*s.list_lines.peek());
     let layout = super::vlist::layout(list.iter().map(|i| crate::format::group(i.header().received_at, now)), metrics);
     let hits = band_hits(&layout, &keys, y0, y1);
     let base = BAND_BASE.with(|b| b.borrow().clone());
@@ -337,7 +337,7 @@ mod tests {
 
     #[test]
     fn a_selection_rectangle_takes_the_rows_it_touches() {
-        let m = super::super::vlist::CLASSIC;
+        let m = super::super::vlist::Metrics { row_h: 68.0, group_h: 26.0 };
         // "Today" header (0..26), rows a (26..94), b (94..162), then
         // "Older" (162..188) and c (188..256).
         let layout = super::super::vlist::layout(["Today", "Today", "Older"], m);

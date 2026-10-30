@@ -27,7 +27,7 @@ pub const PAGES: &[(&str, &str, &str)] = &[
     (
         "Appearance",
         "sun",
-        "theme themes dark light mode color colour palette text size font zoom list cards bands classic style avatars hover actions buttons row toolbar sender photos google microsoft outlook contacts gravatar logos",
+        "theme themes dark light mode color colour palette text size font zoom list cards bands classic style lines density compact preview avatars hover actions buttons row toolbar sender photos google microsoft outlook contacts gravatar logos",
     ),
     (
         "Accounts & agents",
@@ -276,9 +276,10 @@ fn Appearance() -> Element {
         }
     };
     let pct = (*scale.read() * 100.0).round();
-    let (mut list_style, mut list_avatars) = (s.list_style, s.list_avatars);
+    let (mut list_style, mut list_avatars, mut list_lines) = (s.list_style, s.list_avatars, s.list_lines);
     let style_now = *list_style.read();
     let avatars_on = *list_avatars.read();
+    let lines_now = *list_lines.read();
 
     rsx! {
         div { class: "settings__title", "Appearance" }
@@ -324,10 +325,22 @@ fn Appearance() -> Element {
                                 list_style.set(st);
                                 prefs::update(move |p| p.list_style = st.as_pref().to_string());
                             },
-                            ListStylePreview { style: st, avatars: avatars_on }
+                            ListStylePreview { style: st, avatars: avatars_on, lines: lines_now }
                             div { class: "theme-card__name", "{st.label()}" }
                             div { class: "theme-card__variants", "{st.blurb()}" }
                         }
+                    }
+                }
+            }
+            Row { label: "Lines per message", hint: "Two puts the preview after the subject, so more messages fit.",
+                div { class: "segmented", role: "radiogroup", "aria-label": "Lines per message",
+                    for (n, label) in [(3u8, "3 lines"), (2u8, "2 lines")] {
+                        button { role: "radio", key: "{n}", "aria-selected": "{lines_now == n}", "aria-checked": "{lines_now == n}",
+                            onclick: move |_| {
+                                list_lines.set(n);
+                                prefs::update(move |p| p.list_lines = n);
+                            },
+                            "{label}" }
                     }
                 }
             }
@@ -546,11 +559,11 @@ fn HoverActions() -> Element {
     }
 }
 
-/// A miniature message list in `style`: three placeholder rows (with
+/// A miniature message list in `style`: placeholder rows of `lines` (with
 /// avatar dots when `avatars`), drawn with the real list colors.
 #[component]
-fn ListStylePreview(style: crate::state::ListStyle, avatars: bool) -> Element {
-    let rows = if style == crate::state::ListStyle::Bands { 4 } else { 3 };
+fn ListStylePreview(style: crate::state::ListStyle, avatars: bool, lines: u8) -> Element {
+    let rows = if lines == 2 { 4 } else { 3 };
     rsx! {
         div { class: "lsp", "data-style": style.as_pref(), "data-avatars": avatars.then_some("true"), "aria-hidden": "true",
             span { class: "lsp__group" }
@@ -561,7 +574,7 @@ fn ListStylePreview(style: crate::state::ListStyle, avatars: bool) -> Element {
                         span { class: "lsp__lines",
                             span { class: "lsp__who" }
                             span { class: "lsp__text" }
-                            if style != crate::state::ListStyle::Bands { span { class: "lsp__text lsp__text--short" } }
+                            if lines != 2 { span { class: "lsp__text lsp__text--short" } }
                         }
                     }
                 }

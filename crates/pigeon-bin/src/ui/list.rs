@@ -206,7 +206,8 @@ pub fn MailList() -> Element {
     };
     // Outgoing (sending/failed) rows sit above the virtualized rows.
     let style = *s.list_style.read();
-    let metrics = style.metrics();
+    let lines = *s.list_lines.read();
+    let metrics = style.metrics(lines);
     let avatars = *s.list_avatars.read();
     let out_h = out_display
         .iter()
@@ -406,6 +407,7 @@ pub fn MailList() -> Element {
             } else {
                 div { class: "list", role: "listbox", "data-auth": (!expired.is_empty()).then_some("expired"),
                     "data-style": style.as_pref(),
+                    "data-lines": "{lines}",
                     "data-avatars": avatars.then_some("true"),
                     onscroll: on_scroll,
                     for (n, (o, motion)) in out_display.iter().enumerate() {

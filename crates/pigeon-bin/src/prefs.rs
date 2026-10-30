@@ -120,6 +120,9 @@ pub struct Prefs {
     pub list_style: String,
     /// A sender avatar column in the message list.
     pub list_avatars: bool,
+    /// Message list rows: 3 lines (sender, subject, preview) or 2 (the
+    /// preview after the subject).
+    pub list_lines: u8,
     /// Accounts whose Folders/Labels group is open in the sidebar (closed
     /// by default: Gmail labels pile up).
     pub folders_open: Vec<String>,
@@ -186,6 +189,7 @@ impl Default for Prefs {
             photos_microsoft: true,
             list_style: "cards".into(),
             list_avatars: true,
+            list_lines: 3,
             folders_open: Vec::new(),
             pinned_folders: Vec::new(),
             accounts_open: Vec::new(),

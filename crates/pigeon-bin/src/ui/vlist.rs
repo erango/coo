@@ -1,9 +1,9 @@
 //! Windowing math for the virtualized message list. Rows and date group
 //! headers have fixed heights per list style (`Metrics`; classic is the
-//! 68 px edge-to-edge rows and 26 px group strips, app.css),
+//! 78 px edge-to-edge rows and 26 px group strips, app.css),
 //! so every offset is exact without measuring the DOM.
 
-pub const ROW_H: f64 = 68.0;
+pub const ROW_H: f64 = 78.0;
 pub const GROUP_H: f64 = 26.0;
 
 /// Slot heights of one list style (app.css sizes the rows to match).

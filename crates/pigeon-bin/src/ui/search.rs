@@ -594,6 +594,7 @@ pub fn SearchPane() -> Element {
         }
         div { class: "list", role: "listbox",
             "data-style": s.list_style.read().as_pref(),
+            "data-lines": "{s.list_lines.read()}",
             "data-avatars": s.list_avatars.read().then_some("true"),
             for (n, row) in st.items.iter().enumerate() {
                 super::list::Row {

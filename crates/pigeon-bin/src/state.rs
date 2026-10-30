@@ -83,9 +83,9 @@ impl ListStyle {
     /// One line under the preview in Settings.
     pub fn blurb(self) -> &'static str {
         match self {
-            ListStyle::Classic => "Rows separated by space",
+            ListStyle::Classic => "Rows separated by hairlines",
             ListStyle::Cards => "Each message in its own box",
-            ListStyle::Bands => "One panel per day, denser rows",
+            ListStyle::Bands => "One panel per day",
         }
     }
 
@@ -97,13 +97,17 @@ impl ListStyle {
         }
     }
 
-    /// Slot heights; app.css (`.list[data-style]`) sizes rows to match.
-    pub fn metrics(self) -> crate::ui::vlist::Metrics {
+    /// Slot heights for rows of `lines` (3 or 2); app.css
+    /// (`.list[data-style][data-lines]`, `--row-h`) sizes rows to match.
+    /// Cards add their 6 px gap to the row.
+    pub fn metrics(self, lines: u8) -> crate::ui::vlist::Metrics {
         use crate::ui::vlist::{CLASSIC, Metrics};
+        let two = lines == 2;
         match self {
+            ListStyle::Classic if two => Metrics { row_h: 60.0, ..CLASSIC },
             ListStyle::Classic => CLASSIC,
-            ListStyle::Cards => Metrics { row_h: 78.0, group_h: 32.0 },
-            ListStyle::Bands => Metrics { row_h: 60.0, group_h: 34.0 },
+            ListStyle::Cards => Metrics { row_h: if two { 64.0 } else { 84.0 }, group_h: 32.0 },
+            ListStyle::Bands => Metrics { row_h: if two { 60.0 } else { 78.0 }, group_h: 34.0 },
         }
     }
 }
@@ -285,6 +289,8 @@ pub struct AppState {
     pub theme: Signal<Theme>,
     pub list_style: Signal<ListStyle>,
     pub list_avatars: Signal<bool>,
+    /// 3 or 2 lines per message row (Settings › Appearance).
+    pub list_lines: Signal<u8>,
     /// Sidebar: accounts with the Folders group open; pinned folders
     /// (`account|folder_id`). Mirrors prefs.
     pub folders_open: Signal<Vec<String>>,
@@ -406,6 +412,7 @@ impl AppState {
             theme: Signal::new(Theme::from_pref(&crate::prefs::get().theme_mode)),
             list_style: Signal::new(ListStyle::from_pref(&crate::prefs::get().list_style)),
             list_avatars: Signal::new(crate::prefs::get().list_avatars),
+            list_lines: Signal::new(if crate::prefs::get().list_lines == 2 { 2 } else { 3 }),
             folders_open: Signal::new(crate::prefs::get().folders_open),
             pinned_folders: Signal::new(crate::prefs::get().pinned_folders),
             hidden_calendars: Signal::new(crate::prefs::get().hidden_calendars),
