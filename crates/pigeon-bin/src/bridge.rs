@@ -413,6 +413,83 @@ pub const JS: &str = r#"
     document.addEventListener('click', (e) => { if (swallowClick) { e.stopPropagation(); e.preventDefault(); swallowClick = false; } }, true);
   })();
 
+  // ---- Tooltips: Coo's own, not the system's ----
+  // Every `title` moves to `data-tip` as it appears (so WebKit never shows
+  // its plain tooltip); hovering shows ours after a short wait, the name
+  // first and a trailing "(⌘R)" as a keycap. Once one is showing, the next
+  // shows at once. Below the element, or above when there's no room.
+  (function () {
+    const ATTR = 'data-tip';
+    const take = (el) => {
+      const t = el.getAttribute('title');
+      if (t == null) return;
+      el.removeAttribute('title');
+      if (!t) return;
+      el.setAttribute(ATTR, t);
+      if (!el.hasAttribute('aria-label') && !(el.textContent || '').trim()) el.setAttribute('aria-label', t);
+    };
+    const sweep = (root) => {
+      if (root.nodeType !== 1) return;
+      if (root.hasAttribute('title')) take(root);
+      root.querySelectorAll('[title]').forEach(take);
+    };
+    sweep(document.documentElement);
+    new MutationObserver((ms) => {
+      for (const m of ms) {
+        if (m.type === 'attributes') take(m.target);
+        else m.addedNodes.forEach(sweep);
+      }
+    }).observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['title'] });
+
+    const KEY = /^(.*\S)\s+\(([⌘⇧⌥⌃↵⌫⌦↑↓←→#!\/,.\[\]+−\-A-Z0-9 ]{1,10}|Esc)\)$/;
+    let tip = null, timer = 0, current = null, warmUntil = 0;
+    const el = () => {
+      if (tip) return tip;
+      tip = document.createElement('div');
+      tip.className = 'coo-tip';
+      tip.setAttribute('role', 'tooltip');
+      document.body.appendChild(tip);
+      return tip;
+    };
+    const hide = () => {
+      clearTimeout(timer);
+      if (current && tip && tip.dataset.shown) warmUntil = performance.now() + 350;
+      current = null;
+      if (tip) delete tip.dataset.shown;
+    };
+    const show = (target) => {
+      const text = target.getAttribute(ATTR);
+      if (!text || !target.isConnected) return;
+      const t = el();
+      const m = text.match(KEY);
+      t.textContent = m ? m[1] : text;
+      if (m) { const k = document.createElement('kbd'); k.textContent = m[2]; t.appendChild(k); }
+      t.style.left = '0px'; t.style.top = '0px';
+      t.dataset.place = 'below';
+      const r = target.getBoundingClientRect(), w = t.offsetWidth, h = t.offsetHeight;
+      const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
+      let top = r.bottom + 8;
+      if (top + h > vh - 6) { top = r.top - h - 8; t.dataset.place = 'above'; }
+      const center = r.left + r.width / 2;
+      const left = Math.max(6, Math.min(vw - w - 6, center - w / 2));
+      t.style.left = left + 'px'; t.style.top = top + 'px';
+      t.style.setProperty('--caret-x', Math.max(10, Math.min(w - 10, center - left)) + 'px');
+      t.dataset.shown = '';
+    };
+    document.addEventListener('mouseover', (e) => {
+      const target = e.target.closest && e.target.closest('[' + ATTR + ']');
+      if (target === current) return;
+      if (!target) { hide(); return; }
+      clearTimeout(timer);
+      if (tip) delete tip.dataset.shown;
+      current = target;
+      const warm = performance.now() < warmUntil || (tip && tip.dataset.shown !== undefined);
+      timer = setTimeout(() => { if (current === target) show(target); }, warm ? 0 : 450);
+    }, true);
+    document.addEventListener('mouseout', (e) => { if (!e.relatedTarget) hide(); }, true);
+    ['mousedown', 'keydown', 'wheel', 'blur'].forEach((ev) => addEventListener(ev, hide, true));
+  })();
+
   // ---- Message list: a selection rectangle dragged from the background ----
   // (not from a row: that drags the mail). Rust maps the rectangle's span in
   // the virtualized rows' coordinates (measured from the first spacer, below
