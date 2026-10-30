@@ -30,6 +30,7 @@ pub mod row_menu;
 pub mod search;
 pub mod sender_card;
 mod settings;
+mod settings_bird;
 mod settings_sections;
 mod sidebar;
 mod spam;
