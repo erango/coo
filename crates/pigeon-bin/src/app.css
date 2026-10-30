@@ -925,20 +925,29 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
    match ListStyle::metrics: the list is virtualized on them. */
 /* Card surfaces by mode (mirrors tokens.css's selectors; palettes only
    change the bg tokens these mix). Dark: cards sit lighter than the ground
-   and unread ones lighter still; light: white cards on bg-1. */
+   and unread ones lighter still; light: unread cards are white on bg-1 and
+   read ones a tinted step down, so unread is what stands out either way.
+   --card-read is the read rows' ground, --row-unread/--row-read the
+   classic list's. */
 :root, :root[data-theme="dark"] {
   /* A shade below the reader, so the panes read apart and cards lift. */
   --list-ground: color-mix(in oklab, var(--bg-0) 84%, #000);
   --card: color-mix(in srgb, var(--bg-1) 40%, var(--bg-2));
   /* Unread: a step lighter, with a breath of the accent. */
   --card-unread: color-mix(in srgb, var(--accent) 6%, color-mix(in srgb, var(--bg-2) 55%, var(--bg-3)));
+  --card-read: var(--card);
+  --row-unread: color-mix(in srgb, var(--accent) 6%, transparent);
+  --row-read: transparent;
   --card-edge: 0 0 0 1px color-mix(in srgb, var(--text-1) 5%, transparent);
   --card-lift: 0 0 0 1px color-mix(in srgb, var(--text-1) 9%, transparent), 0 2px 8px rgba(0, 0, 0, 0.35);
 }
 :root[data-theme="light"] {
   --list-ground: var(--bg-1);
   --card: var(--bg-0);
-  --card-unread: color-mix(in srgb, var(--accent) 6%, var(--bg-0));
+  --card-unread: var(--bg-0);
+  --card-read: color-mix(in srgb, var(--accent) 6%, var(--bg-0));
+  --row-unread: transparent;
+  --row-read: color-mix(in srgb, var(--accent) 6%, transparent);
   --card-edge: 0 0 0 1px rgba(15, 17, 20, 0.05), 0 1px 2px rgba(15, 17, 20, 0.04);
   --card-lift: 0 0 0 1px rgba(15, 17, 20, 0.08), 0 2px 8px rgba(15, 17, 20, 0.08);
 }
@@ -946,7 +955,10 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
   :root:not([data-theme="dark"]):not([data-theme="light"]) {
     --list-ground: var(--bg-1);
     --card: var(--bg-0);
-    --card-unread: color-mix(in srgb, var(--accent) 6%, var(--bg-0));
+    --card-unread: var(--bg-0);
+    --card-read: color-mix(in srgb, var(--accent) 6%, var(--bg-0));
+    --row-unread: transparent;
+    --row-read: color-mix(in srgb, var(--accent) 6%, transparent);
     --card-edge: 0 0 0 1px rgba(15, 17, 20, 0.05), 0 1px 2px rgba(15, 17, 20, 0.04);
     --card-lift: 0 0 0 1px rgba(15, 17, 20, 0.08), 0 2px 8px rgba(15, 17, 20, 0.08);
   }
@@ -961,7 +973,7 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .list[data-style="cards"] .list-group { height: 32px; padding-left: 22px; }
 .list[data-style="cards"] .row {
   height: 72px; margin: 0 10px 6px; padding: 9px 12px 0 24px; border-radius: 12px;
-  background: var(--card); box-shadow: var(--card-edge);
+  background: var(--card-read); box-shadow: var(--card-edge);
   transition: box-shadow var(--dur-fast) var(--ease-standard), background-color var(--dur-fast) var(--ease-standard);
 }
 .list[data-style="cards"] .row[data-unread] { background: var(--card-unread); }
@@ -977,7 +989,7 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .list[data-style="bands"] .row {
   height: 60px; margin: 0 10px; padding: 9px 14px 0 26px; border-radius: 0;
   display: grid; grid-template-columns: fit-content(62%) minmax(0, 1fr); grid-template-rows: 20px 18px; row-gap: 2px;
-  background: var(--card); box-shadow: inset 1px 0 0 var(--line), inset -1px 0 0 var(--line);
+  background: var(--card-read); box-shadow: inset 1px 0 0 var(--line), inset -1px 0 0 var(--line);
 }
 .list[data-style="bands"] .row__line { grid-column: 1 / -1; }
 .list[data-style="bands"] .row__snippet { padding-left: 4px; gap: 4px; }
@@ -989,8 +1001,8 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .list[data-style="bands"] .row[data-edge="last"] { border-radius: 0 0 12px 12px; box-shadow: inset 1px 0 0 var(--line), inset -1px 0 0 var(--line), inset 0 -1px 0 var(--line); }
 .list[data-style="bands"] .row[data-edge="only"] { border-radius: 12px; box-shadow: inset 0 0 0 1px var(--line); }
 .list[data-style="bands"] .row:is([data-edge="last"], [data-edge="only"])::after { display: none; }
-/* Unread rows sit on a faintly tinted ground in every style, so read and
-   unread tell apart at a glance (hover and selection still win). */
+/* Read and unread rows sit on different grounds in every style, so they
+   tell apart at a glance (hover and selection still win). */
 .list[data-style="bands"] .row[data-unread] { background: var(--card-unread); }
 .list[data-style="bands"] .row:hover { background: var(--card-hover); }
 .list[data-style="bands"] .row[aria-selected="true"] { background: var(--card-selected); }
@@ -1262,9 +1274,10 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .recipient[draggable="true"] { cursor: grab; }
 .recipients[data-chip-over] { border-radius: 8px; box-shadow: inset 0 0 0 1.5px var(--accent); background: var(--accent-soft); }
 
-.list[data-style="classic"] .row[data-unread] { background: color-mix(in srgb, var(--accent) 6%, transparent); }
-.list[data-style="classic"] .row[data-unread]:hover { background: var(--bg-2); }
-.list[data-style="classic"] .row[data-unread][aria-selected="true"] { background: var(--selection); }
+.list[data-style="classic"] .row { background: var(--row-read); }
+.list[data-style="classic"] .row[data-unread] { background: var(--row-unread); }
+.list[data-style="classic"] .row:hover { background: var(--bg-2); }
+.list[data-style="classic"] .row[aria-selected="true"] { background: var(--selection); }
 
 /* The row under a still pointer while the list animates (bridge.rs). */
 .list:not([data-style]) .row[data-hover], .list[data-style="classic"] .row[data-hover] { background: var(--bg-2); }
