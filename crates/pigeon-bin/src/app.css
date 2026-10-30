@@ -1395,3 +1395,9 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
   to { max-height: 32px; margin-bottom: 4px; opacity: 1; transform: none; }
 }
 @media (prefers-reduced-motion: reduce) { .sidebar__status { animation: none; } }
+/* Settings › Keyboard shortcuts: the user's own keys. */
+.shortcut[data-custom] { gap: 6px; }
+.shortcut__rec { font-size: var(--fs-caption); color: var(--accent); }
+.kbd--button { border: 0; background: transparent; cursor: pointer; font: var(--fw-medium) 12.5px/1 -apple-system, BlinkMacSystemFont, var(--font-mono); color: var(--text-2); }
+.kbd--button:hover { box-shadow: inset 0 0 0 1px var(--accent); }
+.shortcut__note { margin: -2px 0 6px; font-size: var(--fs-caption); color: var(--warning); }

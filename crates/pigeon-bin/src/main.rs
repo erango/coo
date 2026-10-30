@@ -22,6 +22,7 @@ mod shortcuts;
 mod sound;
 mod spell;
 mod state;
+mod syskeys;
 mod themes;
 mod ui;
 mod updater;

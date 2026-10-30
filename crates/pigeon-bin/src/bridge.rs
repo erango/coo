@@ -53,6 +53,8 @@ pub const JS: &str = r#"
       else if (e.code === 'Slash') key = '/';
     }
     if (e.shiftKey && key.length > 1 && e.metaKey) key = 'shift+' + key;
+    // ⇧⌘3 types a symbol: name the digit key, as macOS does.
+    if (e.metaKey && /^Digit[0-9]$/.test(e.code)) key = e.code.slice(5);
     if (e.shiftKey && e.metaKey && key.length === 1) key = 'shift+' + key.toLowerCase();
     // ⌥ changes e.key (⌥F is ƒ): name the physical key.
     if (e.metaKey && e.altKey && !e.ctrlKey && /^Key[A-Z]$/.test(e.code)) key = 'alt+' + e.code.slice(3).toLowerCase();
@@ -83,7 +85,18 @@ pub const JS: &str = r#"
     send(trusted ? 'key' : 'key-synth', key);
     return true;
   }
+  // Settings › Keyboard shortcuts records the next key pressed (Esc cancels).
+  let recording = false;
+  window.__cooRecordKey = (on) => { recording = !!on; };
   document.addEventListener('keydown', (e) => {
+    if (recording) {
+      if (['Shift', 'Meta', 'Control', 'Alt', 'CapsLock', 'Fn'].includes(e.key)) return;
+      e.preventDefault(); e.stopPropagation();
+      recording = false;
+      const k = keyName(e);
+      send('shortcut-rec', k === 'Escape' ? '' : (e.altKey && !e.metaKey) ? 'alt+' + k : k);
+      return;
+    }
     // RTL/LTR paragraph override, Outlook style: Ctrl + Right Shift = RTL, Ctrl + Left Shift = LTR.
     if (e.key === 'Shift') lastShift = e.location;
     const ed = e.target.closest && e.target.closest('[data-editor]');
@@ -732,19 +745,30 @@ pub fn set_palette(palette: &str) {
 /// render that follows sets the same value; put the caret back if it moved.
 /// Like [`focus`], waits a few frames for an input that isn't there yet.
 pub fn set_input(id: &str, value: &str, caret: usize) {
+    focus_webview();
     let (id, value) = (serde_json::to_string(id).unwrap_or_default(), serde_json::to_string(value).unwrap_or_default());
+    // Keeps at it for a few frames: a re-render can swap the field, and a
+    // click's own focus can land after ours.
     document::eval(&format!(
-        "(() => {{ const v = {value}; let n = 0; const go = () => {{ const e = document.getElementById({id}); \
+        "(() => {{ const v = {value}; let n = 0, set = false; const go = () => {{ const e = document.getElementById({id}); \
          if (!e) {{ if (n++ < 40) setTimeout(go, 25); return; }} \
-         e.value = v; e.focus(); e.setSelectionRange({caret}, {caret}); \
-         const again = () => {{ if (e.value === v && e.selectionStart !== {caret}) e.setSelectionRange({caret}, {caret}); }}; \
-         requestAnimationFrame(again); setTimeout(again, 50); }}; setTimeout(go, 0); }})()"
+         if (!set) {{ e.value = v; set = true; }} \
+         if (document.activeElement !== e) {{ window.focus(); e.focus(); e.setSelectionRange({caret}, {caret}); }} \
+         if (n++ < 12) setTimeout(go, 25); }}; setTimeout(go, 0); }})()"
     ));
+}
+
+/// Make the web view the window's key view, so a field focused in the page
+/// takes typing even when something native had the keyboard (a menu, a
+/// panel, the menu bar popover).
+fn focus_webview() {
+    let _ = dioxus::desktop::window().webview.focus();
 }
 
 /// Focus an element by id. Called while a component first renders, so the
 /// element may not be in the page yet: try again for a few frames.
 pub fn focus(id: &str) {
+    focus_webview();
     document::eval(&format!(
         "(() => {{ let n = 0; const go = () => {{ const e = document.getElementById({id:?}); \
          if (e) e.focus(); else if (n++ < 40) setTimeout(go, 25); }}; setTimeout(go, 0); }})()"

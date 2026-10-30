@@ -1028,6 +1028,7 @@ async fn bridge_loop(s: AppState) {
             "ctx-img" => crate::ctxmenu::set_image(&msg.v),
             "attach-drag" => crate::dragout::start(&msg.v),
             "list-band" => multi::on_band(s, &msg.v),
+            "shortcut-rec" => settings_sections::on_shortcut_recorded(&msg.v),
             // A row pressed and moved: drag it (or the selection it's in).
             "mail-drag" => {
                 if let Some(item) = s.visible_items().into_iter().find(|i| AppState::key(i) == msg.v) {
@@ -1488,6 +1489,17 @@ pub fn run(s: AppState, what: Do) {
         Do::Label => move_picker::open(s, true),
         // "Not spam" in the spam folder.
         Do::Spam => spam::toggle(s),
+        Do::Phishing => spam::report_phishing(s),
+        // The selection, else the open message.
+        Do::SaveEml => {
+            let many = multi::items(&s);
+            save_eml(if many.is_empty() { selected_item(&s).into_iter().collect() } else { many });
+        }
+        Do::OpenWindow => {
+            if let Some(item) = selected_item(&s) {
+                reader_window::open(s, item);
+            }
+        }
         Do::SelectAll => multi::select_all(s),
         Do::Next => step(s, 1),
         Do::Prev => step(s, -1),
@@ -1514,6 +1526,7 @@ pub fn run(s: AppState, what: Do) {
                 Do::Reply => reply(&item, ReplyKind::Reply),
                 Do::ReplyAll => reply(&item, ReplyKind::ReplyAll),
                 Do::Forward => reply(&item, ReplyKind::Forward),
+                Do::Reuse => reply(&item, ReplyKind::Reuse),
                 _ => {}
             }
         }

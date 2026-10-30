@@ -707,11 +707,8 @@ pub fn Shortcuts() -> Element {
             for g in crate::shortcuts::GROUPS {
                 section { class: "settings-group shortcut-group", key: "{g}",
                     h3 { class: "shortcut-group__title", "{g}" }
-                    for (_, keys, what) in rows.iter().filter(|x| x.0 == g) {
-                        div { class: "shortcut", key: "{what}",
-                            span { class: "shortcut__what", "{what}" }
-                            kbd { class: "kbd", "{keys}" }
-                        }
+                    for row in rows.iter().filter(|x| x.group == g) {
+                        ShortcutLine { key: "{row.what}", what: row.what, keys: row.keys.clone(), action: row.action, custom: row.custom }
                     }
                 }
             }
@@ -730,6 +727,60 @@ pub fn Shortcuts() -> Element {
                     }
                 }
             }
+        }
+    }
+}
+
+/// The action whose key is being recorded in Settings, and a note about
+/// the last key tried for one (why it can't be used).
+static RECORDING: GlobalSignal<Option<crate::shortcuts::Do>> = Signal::global(|| None);
+static SHORTCUT_NOTE: GlobalSignal<Option<(crate::shortcuts::Do, String)>> = Signal::global(|| None);
+
+fn record(what: Option<crate::shortcuts::Do>) {
+    *RECORDING.write() = what;
+    *SHORTCUT_NOTE.write() = None;
+    document::eval(&format!("window.__cooRecordKey && window.__cooRecordKey({})", what.is_some()));
+}
+
+/// The bridge's recorded key ("" when Esc cancelled).
+pub fn on_shortcut_recorded(key: &str) {
+    let Some(what) = RECORDING.write().take() else { return };
+    if key.is_empty() {
+        return;
+    }
+    let style = *crate::shortcuts::STYLE.peek();
+    match crate::shortcuts::conflict(style, what, key) {
+        Some(why) => *SHORTCUT_NOTE.write() = Some((what, why)),
+        None => crate::shortcuts::set_custom(style, what, Some(key.to_string())),
+    }
+}
+
+/// One shortcut in the list. An action with no built-in key can take the
+/// user's: Add, or click the key to change it, × to remove it.
+#[component]
+fn ShortcutLine(what: &'static str, keys: String, action: crate::shortcuts::Do, custom: bool) -> Element {
+    let recording = *RECORDING.read() == Some(action);
+    let note = SHORTCUT_NOTE.read().as_ref().filter(|(a, _)| *a == action).map(|(_, why)| why.clone());
+    rsx! {
+        div { class: "shortcut", "data-custom": custom.then_some("true"),
+            span { class: "shortcut__what", "{what}" }
+            if !custom {
+                kbd { class: "kbd", "{keys}" }
+            } else if recording {
+                span { class: "shortcut__rec", "Press the keys… (Esc cancels)" }
+                button { class: "btn btn--ghost btn--sm", r#type: "button", onclick: move |_| record(None), "Cancel" }
+            } else if keys.is_empty() {
+                button { class: "btn btn--ghost btn--sm", r#type: "button", onclick: move |_| record(Some(action)), "Add shortcut" }
+            } else {
+                button { class: "kbd kbd--button", r#type: "button", title: "Change", onclick: move |_| record(Some(action)), "{keys}" }
+                button { class: "icon-btn icon-btn--sm", r#type: "button", "aria-label": "Remove shortcut", title: "Remove",
+                    onclick: move |_| crate::shortcuts::set_custom(*crate::shortcuts::STYLE.peek(), action, None),
+                    super::Icon { name: "x", class: "icon--xs" }
+                }
+            }
+        }
+        if let Some(why) = note {
+            div { class: "shortcut__note", role: "status", "{why}" }
         }
     }
 }

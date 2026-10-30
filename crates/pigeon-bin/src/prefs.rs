@@ -65,6 +65,9 @@ pub struct Prefs {
     pub attachments_position: String,
     /// Keyboard shortcut set: "gmail" (single keys) or "outlook" (⌘ keys).
     pub shortcut_style: String,
+    /// The user's own keys for actions with none, as `style:Action` → key
+    /// (shortcuts.rs).
+    pub custom_shortcuts: std::collections::BTreeMap<String, String>,
     /// Drafts: "ask" (when closing a changed message) or "auto" (saved to
     /// Drafts as you write).
     pub draft_saving: String,
@@ -158,6 +161,7 @@ impl Default for Prefs {
             after_remove: "next".into(),
             attachments_position: "top".into(),
             shortcut_style: "gmail".into(),
+            custom_shortcuts: Default::default(),
             draft_saving: "ask".into(),
             read_delay_secs: 0,
             row_actions: crate::ui::row_actions::DEFAULT.iter().map(|s| s.to_string()).collect(),
