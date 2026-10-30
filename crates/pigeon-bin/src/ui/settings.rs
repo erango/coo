@@ -23,7 +23,7 @@ pub const PAGES: &[(&str, &str, &str)] = &[
     (
         "Appearance",
         "sun",
-        "theme dark light mode color colour text size font zoom list cards bands avatars density hover actions buttons row toolbar",
+        "theme dark light mode color colour text size font zoom list cards bands avatars density hover actions buttons row toolbar photos google contacts",
     ),
     (
         "Accounts",
@@ -258,8 +258,9 @@ fn Appearance() -> Element {
                         prefs::update(move |p| p.list_avatars = on);
                     }
                 }
-                span { class: "settings-field__hint", "Initials, or the sender's photo when Privacy › Sender photos is on." }
+                span { class: "settings-field__hint", "Initials, or the sender's photo: from your Google contacts, or Gravatar when Privacy › Sender photos is on." }
             }
+            GoogleContactPhotos {}
             HoverActions {}
             div { class: "settings-field",
                 span { class: "settings-field__label", "Text size" }
@@ -277,6 +278,58 @@ fn Appearance() -> Element {
 
 /// Settings › Appearance › Hover actions: the buttons a row shows under the
 /// pointer, up to five, in order, from anything in its right-click menu.
+/// Sender photos from Google contacts: on/off, and an Allow button for each
+/// Google account whose sign-in doesn't let Coo see its contacts yet.
+#[component]
+fn GoogleContactPhotos() -> Element {
+    let s = use_context::<AppState>();
+    let mut on = use_signal(|| prefs::get().photos_google);
+    let google: Vec<String> = s
+        .accounts
+        .read()
+        .iter()
+        .filter(|a| a.account.provider == ProviderKind::Google)
+        .map(|a| a.account.id.clone())
+        .collect();
+    if google.is_empty() {
+        return rsx! {};
+    }
+    let allowed = s.google_contacts.read().clone();
+    let missing: Vec<String> = google.into_iter().filter(|id| !allowed.contains(id)).collect();
+    let email = |id: &str| id.split_once(':').map_or(id, |(_, e)| e).to_string();
+    let first_missing = missing.first().cloned();
+    rsx! {
+        label { class: "settings-field",
+            span { class: "settings-field__label", "Photos from Google contacts" }
+            input { class: "switch", r#type: "checkbox", checked: *on.read(),
+                onchange: move |_| {
+                    let now = !*on.peek();
+                    on.set(now);
+                    prefs::update(move |p| p.photos_google = now);
+                    let mut photos = s.photos;
+                    photos.write().retain(|_, uri| uri.is_some());
+                    // Turning it on asks for the first account that needs it.
+                    if now && let Some(id) = first_missing.clone() {
+                        send_cmd(Cmd::AllowGoogleContacts { account_id: id });
+                    }
+                }
+            }
+            span { class: "settings-field__hint", "Show the photo a sender has in your Google contacts." }
+        }
+        if *on.read() {
+            for id in missing {
+                div { class: "settings-field", key: "{id}",
+                    span { class: "settings-field__label", "{email(&id)}" }
+                    button { class: "btn btn--secondary btn--sm", r#type: "button",
+                        onclick: { let id = id.clone(); move |_| send_cmd(Cmd::AllowGoogleContacts { account_id: id.clone() }) },
+                        "Allow contacts…" }
+                    span { class: "settings-field__hint", "Needs your OK in the browser, once." }
+                }
+            }
+        }
+    }
+}
+
 #[component]
 fn HoverActions() -> Element {
     use super::row_actions::{ALL, CHOSEN, DEFAULT, MAX, find, set};

@@ -1,9 +1,9 @@
-//! Sender photos: a small on-disk cache keyed by a hash of the address, and
-//! the Gravatar lookup (opt-in: it sends a hash of the address to Gravatar).
-//! When Gravatar has none, a company sender gets its brand's logo (BIMI: the
-//! logo a domain publishes in DNS for mail, what Gmail shows for verified
-//! brands). Provider sources (Google People, Microsoft Graph user photos)
-//! need extra OAuth scopes and plug into the same cache when enabled.
+//! Sender photos: a small on-disk cache keyed by a hash of the address. The
+//! engine looks in order at the sender's photo in a Google account's
+//! contacts (People API, `contact_photo`), Gravatar (opt-in: it sends a hash
+//! of the address to Gravatar), and, for a company sender, its brand's logo
+//! (BIMI: the logo a domain publishes in DNS for mail, what Gmail shows for
+//! verified brands).
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
@@ -101,6 +101,26 @@ pub async fn gravatar(email: &str) -> Result<Option<Vec<u8>>> {
         200 => Ok(Some(resp.bytes().await?.to_vec())),
         404 => Ok(None),
         s => Err(Error::Other(format!("gravatar: HTTP {s}"))),
+    }
+}
+
+/// A Google contact's photo. Those URLs are normally public; one that
+/// answers 401/403 is tried again with the account's `bearer` token.
+pub async fn contact_photo(url: &str, bearer: Option<&str>) -> Result<Option<Vec<u8>>> {
+    let mut resp = client().get(url).send().await?;
+    if matches!(resp.status().as_u16(), 401 | 403)
+        && let Some(token) = bearer
+    {
+        resp = client().get(url).bearer_auth(token).send().await?;
+    }
+    match resp.status().as_u16() {
+        200 => {
+            let bytes = resp.bytes().await?;
+            // A 96 px photo is a few KB; anything big isn't one.
+            Ok((!bytes.is_empty() && bytes.len() < 512 * 1024).then(|| bytes.to_vec()))
+        }
+        404 | 410 => Ok(None),
+        s => Err(Error::Other(format!("contact photo: HTTP {s}"))),
     }
 }
 

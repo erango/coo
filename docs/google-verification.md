@@ -3,8 +3,9 @@
 Everything to paste into Google Cloud Console → **Google Auth Platform**
 (project `pigeon-512506`, "Coo Mail") when submitting Coo for verification,
 plus the demo video script. Coo requests one **restricted** scope
-(`https://mail.google.com/`, full Gmail access) and one **sensitive** scope
-(`calendar`). Restricted scopes also need a yearly third-party security
+(`https://mail.google.com/`, full Gmail access) and **sensitive** scopes
+(`calendar`; `contacts.other.readonly`, `contacts.readonly` and
+`directory.readonly` for sender photos). Restricted scopes also need a yearly third-party security
 assessment (CASA) before verification passes.
 
 Status before submitting:
@@ -33,6 +34,9 @@ Add exactly these; nothing else is requested by the app
 |---|---|
 | `openid`, `.../auth/userinfo.email`, `.../auth/userinfo.profile` | non-sensitive |
 | `https://www.googleapis.com/auth/calendar` | sensitive |
+| `https://www.googleapis.com/auth/contacts.other.readonly` | sensitive |
+| `https://www.googleapis.com/auth/contacts.readonly` | sensitive |
+| `https://www.googleapis.com/auth/directory.readonly` | sensitive |
 | `https://mail.google.com/` | restricted |
 
 ## 2. Justifications (paste per scope)
@@ -61,6 +65,27 @@ Add exactly these; nothing else is requested by the app
 > attendee response), and check attendees' availability when scheduling
 > (freeBusy). It also shows the meeting's join link so the user can join with
 > one click.
+
+**contacts.other.readonly**
+
+> Coo shows each sender's photo next to their mail, as Gmail does. It reads
+> the user's "Other contacts" (otherContacts.list, readMask
+> emailAddresses,photos: only addresses and photo URLs) to find the photo of
+> people the user has exchanged mail with. Nothing else about the contacts is
+> read, and nothing is changed. The user can turn this off in Settings.
+
+**contacts.readonly**
+
+> For the same sender photos, Coo reads the user's own contacts
+> (people.connections.list, personFields emailAddresses,photos), so a saved
+> contact's photo shows on their mail. Read only; no other fields.
+
+**directory.readonly**
+
+> For Google Workspace accounts, Coo shows coworkers' profile photos on their
+> mail by reading the organization's directory (people.listDirectoryPeople,
+> readMask emailAddresses,photos). Read only; no other fields. Personal Gmail
+> accounts have no directory and nothing is read.
 
 **Data handling (answer to "how is the data used / stored")**
 

@@ -1,5 +1,6 @@
 //! Google backend: Gmail API (labels + `history.list` incremental sync) and
-//! Calendar API v3, plus Drive (files the user picks to attach).
+//! Calendar API v3, plus Drive (files the user picks to attach) and People
+//! (contact photos for sender avatars).
 
 mod actions;
 mod body;
@@ -8,6 +9,7 @@ mod calendar_write;
 mod drafts;
 pub mod drive;
 mod gmail;
+pub mod people;
 pub mod picker;
 mod send;
 

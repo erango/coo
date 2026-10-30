@@ -248,10 +248,18 @@ pub enum Cmd {
         account_id: String,
         email: String,
     },
-    /// A sender photo from the on-disk cache or Gravatar (the UI only asks
-    /// when the user turned Gravatar photos on). Answered with `Delta::Photo`.
+    /// A sender photo from the on-disk cache, a Google account's contacts
+    /// (`google`), or Gravatar and brand logos (`gravatar`), as the user
+    /// turned them on. Answered with `Delta::Photo`.
     Photo {
         email: String,
+        google: bool,
+        gravatar: bool,
+    },
+    /// Give a Google account contacts access (browser consent), then read
+    /// its contacts' photos. Answered with `Delta::GoogleContacts`.
+    AllowGoogleContacts {
+        account_id: String,
     },
     StartReply {
         account_id: String,
@@ -472,6 +480,11 @@ pub enum Delta {
     Accounts(Vec<AccountNav>),
     /// The connected Zoom account, if any.
     Zoom(Option<pigeon_core::model::ConnectedService>),
+    /// Google accounts whose sign-in allows contact photos.
+    GoogleContacts(Vec<String>),
+    /// A Google account's contact photos were read again: senders shown
+    /// without a photo may have one now.
+    ContactPhotosChanged,
     List {
         mailbox: Mailbox,
         threaded: bool,
@@ -816,6 +829,7 @@ impl Service {
         self.send(Delta::Scheduled(scheduled));
         self.send(Delta::Accounts(accounts));
         self.send(Delta::Zoom(self.app.zoom_service().unwrap_or(None)));
+        self.send(Delta::GoogleContacts(self.app.contact_photo_accounts().unwrap_or_default()));
         self.send(Delta::List { mailbox, threaded, items });
         self.send(Delta::NextUp(next_up.into_iter().filter(|e| !e.event.all_day).take(3).collect()));
         if let Some((from, to, events, calendars)) = cal {
@@ -1150,6 +1164,25 @@ impl Service {
                 self.toast("Zoom disconnected. Meetings you already created keep working.", false, None);
                 self.send(Delta::Zoom(None));
             }
+            Cmd::AllowGoogleContacts { account_id } => {
+                self.toast("Continue in your browser to allow contacts access.", false, None);
+                let allowed = self
+                    .app
+                    .allow_google_contacts(&account_id, |url| tracing::debug!(url, "contacts consent URL"))
+                    .await;
+                match allowed {
+                    Ok(()) => {
+                        self.toast("Photos from Google contacts are on", false, None);
+                        self.send(Delta::ContactPhotosChanged);
+                    }
+                    Err(e) => {
+                        // Not `fail`: messages can name the account.
+                        tracing::warn!(error = %e, "contacts access not granted");
+                        self.toast(e.to_string(), true, None);
+                    }
+                }
+                self.send(Delta::GoogleContacts(self.app.contact_photo_accounts().unwrap_or_default()));
+            }
             Cmd::ConnectDrive { account_id } => match self.connect_drive(&account_id).await {
                 Ok(()) => self.toast("Google Drive connected", false, None),
                 Err(e) => self.toast(e.to_string(), true, None),
@@ -1226,14 +1259,33 @@ impl Service {
                 let count = self.app.store().messages_from(&account_id, &email)?;
                 self.send(Delta::SenderSeen { account_id, email, count });
             }
-            Cmd::Photo { email } => {
+            Cmd::Photo { email, google, gravatar } => {
                 let svc = self.clone();
                 tokio::spawn(async move {
                     use pigeon_core::photos::{self, Cached};
                     let dir = svc.app.data_dir.join("photos");
-                    let bytes = match photos::cached(&dir, &email, std::time::SystemTime::now()) {
+                    let cached = photos::cached(&dir, &email, std::time::SystemTime::now());
+                    // A contact photo first, even past a cached "none": the
+                    // contacts index may know them since.
+                    let contact = match &cached {
+                        Cached::Photo(_) => None,
+                        _ if google => svc.app.contact_photo(&email).await.unwrap_or_else(|e| {
+                            tracing::debug!(error = %e, "contact photo lookup failed");
+                            None
+                        }),
+                        _ => None,
+                    };
+                    if let Some(found) = &contact
+                        && let Err(e) = photos::store(&dir, &email, Some(found))
+                    {
+                        tracing::warn!(error = %e, "could not cache a sender photo");
+                    }
+                    let bytes = match cached {
                         Cached::Photo(b) => Some(b),
+                        _ if contact.is_some() => contact,
                         Cached::None => None,
+                        // Gravatar off: don't remember "none", so turning it on still looks.
+                        Cached::Miss if !gravatar => None,
                         Cached::Miss => match photos::gravatar(&email).await {
                             // No Gravatar: a company sender's brand logo.
                             Ok(None) => {
@@ -1858,7 +1910,16 @@ pub async fn run(app: Arc<Pigeon>, mut rx: mpsc::UnboundedReceiver<Cmd>, tx: mps
                 Some(cmd) => { tokio::spawn(svc.clone().handle(cmd)); }
                 None => break,
             },
-            _ = tick.tick() => { tokio::spawn(svc.clone().sync()); }
+            _ = tick.tick() => {
+                tokio::spawn(svc.clone().sync());
+                // Contact photos, about daily per account (a cheap check otherwise).
+                let s = svc.clone();
+                tokio::spawn(async move {
+                    if s.app.refresh_contact_photos_due().await {
+                        s.send(Delta::ContactPhotosChanged);
+                    }
+                });
+            }
             _ = due.tick() => { tokio::spawn(svc.clone().send_due()); }
         }
     }

@@ -21,17 +21,22 @@ pub fn Avatar(
     class: String,
 ) -> Element {
     let s = use_context::<AppState>();
-    let enabled = crate::prefs::get().photos_gravatar;
+    let prefs = crate::prefs::get();
+    let gravatar = prefs.photos_gravatar;
+    let google = prefs.photos_google && !s.google_contacts.read().is_empty();
+    let enabled = gravatar || google;
     let key = email.trim().to_lowercase();
     let hue = hue_for(if key.is_empty() { &label } else { &key });
     let photo = if enabled { s.photos.read().get(&key).cloned().flatten() } else { None };
-    // Ask once per address (the map remembers "asked", even with no photo).
+    // Ask once per address (the map remembers "asked", even with no photo;
+    // `Delta::ContactPhotosChanged` forgets the misses).
     let ask = key.clone();
-    use_effect(use_reactive!(|(ask, enabled)| {
-        if enabled && !ask.is_empty() && !s.photos.peek().contains_key(&ask) {
+    let asked = s.photos.read().contains_key(&key);
+    use_effect(use_reactive!(|(ask, enabled, asked)| {
+        if enabled && !asked && !ask.is_empty() && !s.photos.peek().contains_key(&ask) {
             let mut photos = s.photos;
             photos.write().insert(ask.clone(), None);
-            send_cmd(Cmd::Photo { email: ask });
+            send_cmd(Cmd::Photo { email: ask, google, gravatar });
         }
     }));
     match photo {
