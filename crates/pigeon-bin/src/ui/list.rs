@@ -343,9 +343,11 @@ pub fn MailList() -> Element {
     rsx! {
         section { class: "pane pane--list", "aria-label": "{heading}", "data-list-style": style.as_pref(),
             header { class: "pane-header",
-                h1 { class: "pane-header__title", dir: "auto", "{heading}" }
-                span { class: "pane-header__sub", "{sub}" }
-                span { class: "spacer" }
+                // Folder over account, a line each, so neither is cut short.
+                div { class: "pane-header__titles",
+                    h1 { class: "pane-header__title", dir: "auto", title: "{heading}", "{heading}" }
+                    span { class: "pane-header__sub", title: "{sub}", "{sub}" }
+                }
                 div { class: "segmented segmented--sm", role: "tablist", "aria-label": "Grouping",
                     button { role: "tab", "aria-selected": "{*threaded.read()}", onclick: move |_| threaded.set(true), "Threads" }
                     button { role: "tab", "aria-selected": "{!*threaded.read()}", onclick: move |_| threaded.set(false), "Messages" }

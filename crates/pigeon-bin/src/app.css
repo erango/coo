@@ -1721,3 +1721,14 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 /* …and the gutter is always there (a transparent track), so short lists
    keep the same edges as long ones. */
 .list[data-style="classic"] { overflow-y: scroll; }
+/* List header: the folder's name over its account, each on its own line
+   and taking the room left of the controls (wrapping rather than cutting
+   a long folder name short). */
+.pane--list .pane-header { height: auto; min-height: var(--toolbar-h); padding-top: 8px; padding-bottom: 8px; }
+.pane-header__titles { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.pane--list .pane-header__titles .pane-header__title {
+  white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.25;
+}
+.pane--list .pane-header__titles .pane-header__sub { max-width: none; white-space: normal; overflow-wrap: anywhere; line-height: 1.3; }
+@container (max-width: 380px) { .pane--list .pane-header__titles .pane-header__sub { display: block; } }
