@@ -15,6 +15,7 @@ pub fn Toasts() -> Element {
     let composing = s.draft.read().is_some();
     rsx! {
         div { class: "toast-stack", "data-composing": composing.then_some("true"),
+            super::milestone::MilestoneCard {}
             for t in list.into_iter().rev().take(3) {
                 ToastItem { key: "{t.id}", toast: t }
             }

@@ -258,6 +258,9 @@ pub fn act_many(s: AppState, items: &[ListItem], action: MailAction) {
         }
         _ => String::new(),
     };
+    if action == MailAction::Archive {
+        super::milestone::archived(items);
+    }
     if action.leaves() {
         clear(s);
     }

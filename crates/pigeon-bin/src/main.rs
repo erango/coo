@@ -13,6 +13,7 @@ mod keymon;
 mod meeting;
 mod menu;
 mod menubar;
+mod milestones;
 mod notify;
 mod perf;
 mod prefs;

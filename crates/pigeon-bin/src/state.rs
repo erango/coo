@@ -884,6 +884,7 @@ fn apply(s: &mut AppState, delta: Delta) {
                 s.sending.set(false);
             }
             Delta::Sent { draft_id } => {
+                crate::ui::milestone::record(|m, now| m.sent(now));
                 if let Some(o) = s.outgoing.write().iter_mut().find(|o| o.draft.id == draft_id) {
                     o.state = OutState::Sent(pigeon_core::now_ms());
                 }

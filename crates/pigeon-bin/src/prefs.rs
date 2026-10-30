@@ -125,6 +125,8 @@ pub struct Prefs {
     /// Accounts open in the sidebar (closed by default: one quiet line
     /// each, with its unread count).
     pub accounts_open: Vec<String>,
+    /// Counts behind the one-time milestone cards (milestones.rs).
+    pub milestones: crate::milestones::MilestoneState,
     /// Calendars unchecked in the calendar sidebar, as `account|calendar_id`:
     /// their events don't show in the calendar views.
     pub hidden_calendars: Vec<String>,
@@ -183,6 +185,7 @@ impl Default for Prefs {
             folders_open: Vec::new(),
             pinned_folders: Vec::new(),
             accounts_open: Vec::new(),
+            milestones: Default::default(),
             hidden_calendars: Vec::new(),
             close_to_menu_bar: true,
             relaunch_hidden: false,

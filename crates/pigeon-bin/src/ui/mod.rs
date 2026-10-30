@@ -16,6 +16,7 @@ mod list;
 mod list_motion;
 pub(crate) mod mail_drag;
 pub mod mailframe;
+pub mod milestone;
 mod move_picker;
 mod multi;
 mod onboarding;
@@ -214,6 +215,8 @@ pub fn App() -> Element {
                     action: Some(pigeon_engine::MailAction::Archive),
                     reveal: None,
                 }),
+                // milestone:<id> — that milestone's card (screenshots)
+                "milestone" => milestone::show_id(arg),
                 // saved-toast — a "Saved …" toast with Show in Finder (screenshots)
                 "saved-toast" => s.push_toast(pigeon_engine::service::Toast {
                     id: 2,
@@ -531,6 +534,29 @@ pub fn App() -> Element {
     use_effect(move || {
         let _ = s.accounts.read();
         refresh_badge(s);
+    });
+
+    // Milestones: the anniversary clock, and inbox-zero days (the unified
+    // Inbox empty, once every account has synced its Inbox at least once).
+    use_effect(move || {
+        let accounts = s.accounts.read();
+        let synced = s.sync.read().last_ok.is_some();
+        if accounts.is_empty() || !synced {
+            return;
+        }
+        let inboxes: Vec<u32> = accounts
+            .iter()
+            .filter_map(|a| a.folders.iter().find(|f| f.folder.role == Some(pigeon_core::model::FolderRole::Inbox)))
+            .map(|f| f.total)
+            .collect();
+        let zero = inboxes.len() == accounts.len() && inboxes.iter().all(|t| *t == 0);
+        let today = milestone::today();
+        milestone::record(move |m, now| {
+            m.has_accounts(today, now);
+            if zero {
+                m.inbox_zero(today, now);
+            }
+        });
     });
 
     // Tell the engine what to list whenever the view changes. Moving to
@@ -1239,6 +1265,9 @@ pub fn delete_in_trash(s: &AppState, account_ids: &[&str]) -> bool {
 }
 
 pub fn act(s: AppState, item: &ListItem, action: MailAction) {
+    if action == MailAction::Archive {
+        milestone::archived(std::slice::from_ref(item));
+    }
     let header = item.header();
     let in_trash = action == MailAction::Trash && delete_in_trash(&s, &[item.account_id()]);
     if action.leaves() && s.selected.read().as_deref() == Some(AppState::key(item).as_str()) {
