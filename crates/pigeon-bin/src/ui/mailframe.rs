@@ -181,9 +181,41 @@ const MARK_CSS: &str = "mark{background:#FFE58A;color:#111;border-radius:3px;pad
 const NATURAL_HEIGHT_CSS: &str =
     "html:root,html:root>body{height:auto!important;min-height:0!important;max-height:none!important}";
 
+/// Folded quoted history (pigeon_core::quotes): the collapsed pill, each
+/// earlier message's "who and when" line, and the levels, as stacked cards
+/// (default) or, with `body[data-quotes="rail"]`, one soft rail per level.
+/// Colors come in as `--q-fg`, `--q-muted` and `--q-accent`.
+const QUOTE_CSS: &str = "\
+.coo-quoted{margin:18px 0 4px;font:14px/1.55 -apple-system,BlinkMacSystemFont,system-ui,sans-serif}\
+.coo-quoted>summary{list-style:none;display:inline-flex;align-items:center;gap:8px;height:26px;padding:0 11px;\
+border-radius:13px;background:color-mix(in srgb,var(--q-fg) 7%,transparent);color:var(--q-muted);font-size:12px;\
+cursor:pointer;-webkit-user-select:none;user-select:none}\
+.coo-quoted>summary::-webkit-details-marker{display:none}\
+.coo-quoted>summary:hover{background:color-mix(in srgb,var(--q-fg) 11%,transparent);color:var(--q-fg)}\
+.coo-quoted__dots::before{content:'\\00B7\\00B7\\00B7';font-weight:700;letter-spacing:1px}\
+.coo-quoted__less{display:none}\
+.coo-quoted[open]>summary{background:transparent;padding:0 4px}\
+.coo-quoted[open]>summary .coo-quoted__more,.coo-quoted[open]>summary .coo-quoted__dots{display:none}\
+.coo-quoted[open]>summary .coo-quoted__less{display:inline}\
+.coo-quoted--deeper{margin:10px 0 0}\
+.coo-q{margin-top:10px;padding:12px 14px;border-radius:10px;background:color-mix(in srgb,var(--q-fg) 4%,transparent)}\
+.coo-q .coo-q{padding:10px 12px;border-radius:8px;background:color-mix(in srgb,var(--q-fg) 5%,transparent)}\
+.coo-q__who{display:flex;align-items:center;gap:8px;margin:0 0 8px;font:12px/1.3 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;color:var(--q-muted)}\
+.coo-q__who b{font-weight:600;color:var(--q-fg)}\
+.coo-q__av{width:18px;height:18px;border-radius:9px;flex:none;display:inline-flex;align-items:center;justify-content:center;\
+font-size:9px;font-weight:700;background:color-mix(in srgb,var(--q-accent) 18%,transparent);color:var(--q-accent)}\
+.coo-q__body{color:color-mix(in srgb,var(--q-fg) 82%,var(--q-muted))}\
+.coo-q__body>:first-child{margin-top:0}\
+.coo-q .coo-q .coo-q__body{color:var(--q-muted)}\
+body[data-quotes=rail] .coo-q{background:none;border-radius:0;padding:0 0 0 15px;position:relative}\
+body[data-quotes=rail] .coo-q::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:2px;\
+background:color-mix(in srgb,var(--q-accent) 30%,transparent)}\
+body[data-quotes=rail] .coo-q .coo-q::before{background:color-mix(in srgb,var(--q-accent) 15%,transparent)}";
+
 /// `palette` + `dark` pick the adapted text/muted/link colors (the frame
-/// can't see the app's custom properties).
-pub fn srcdoc(html: &str, palette: &str, dark: bool, adapted: bool, allow_remote: bool) -> String {
+/// can't see the app's custom properties). `quotes` is the quoted-history
+/// style ("cards" or "rail"; empty leaves quotes unstyled).
+pub fn srcdoc(html: &str, palette: &str, dark: bool, adapted: bool, allow_remote: bool, quotes: &str) -> String {
     let img_src = if allow_remote { "data: https: http:" } else { "data:" };
     let style = if adapted {
         let (fg, muted, link) = themes::mail_colors(palette, dark);
@@ -201,11 +233,20 @@ pub fn srcdoc(html: &str, palette: &str, dark: bool, adapted: bool, allow_remote
     // from its embedder's, which turned adapted mail into dark text on
     // black whenever the app theme and macOS appearance disagreed.
     let scheme = if adapted && dark { "dark" } else { "light" };
+    let quote_css = if quotes.is_empty() {
+        String::new()
+    } else {
+        // Paper mail keeps its own light page: quote it in light colors.
+        let (fg, muted, _) = themes::mail_colors(palette, adapted && dark);
+        let accent = themes::mail_accent(palette, adapted && dark);
+        format!(":root{{--q-fg:{fg};--q-muted:{muted};--q-accent:{accent}}}{QUOTE_CSS}")
+    };
+    let quotes_attr = if quotes.is_empty() { String::new() } else { format!(" data-quotes=\"{quotes}\"") };
     format!(
         "<!doctype html><html><head><meta charset=\"utf-8\">\
          <meta name=\"color-scheme\" content=\"{scheme}\">\
          <meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; img-src {img_src}; font-src data:\">\
-         <base target=\"_blank\"><style>{style}{MARK_CSS}{NATURAL_HEIGHT_CSS}:root{{color-scheme:{scheme}}}</style></head><body dir=\"auto\">{html}</body></html>"
+         <base target=\"_blank\"><style>{style}{MARK_CSS}{NATURAL_HEIGHT_CSS}{quote_css}:root{{color-scheme:{scheme}}}</style></head><body dir=\"auto\"{quotes_attr}>{html}</body></html>"
     )
 }
 
@@ -229,28 +270,28 @@ mod tests {
     #[test]
     fn frame_color_scheme_follows_the_app_theme() {
         // Light app on a dark Mac: the frame must not pick "dark".
-        let light = srcdoc("<p>x</p>", "pigeon", false, true, false);
+        let light = srcdoc("<p>x</p>", "pigeon", false, true, false, "");
         assert!(light.contains(":root{color-scheme:light}") && !light.contains("color-scheme:dark"));
-        assert!(srcdoc("<p>x</p>", "pigeon", true, true, false).contains(":root{color-scheme:dark}"));
+        assert!(srcdoc("<p>x</p>", "pigeon", true, true, false, "").contains(":root{color-scheme:dark}"));
         // Paper mode is always light.
-        assert!(srcdoc("<p>x</p>", "pigeon", true, false, false).contains(":root{color-scheme:light}"));
+        assert!(srcdoc("<p>x</p>", "pigeon", true, false, false, "").contains(":root{color-scheme:light}"));
     }
 
     #[test]
     fn csp_blocks_remote_until_allowed() {
-        let blocked = srcdoc("<p>x</p>", "pigeon", true, true, false);
+        let blocked = srcdoc("<p>x</p>", "pigeon", true, true, false, "");
         assert!(blocked.contains("img-src data:;"));
-        assert!(srcdoc("<p>x</p>", "pigeon", true, true, true).contains("img-src data: https: http:"));
+        assert!(srcdoc("<p>x</p>", "pigeon", true, true, true, "").contains("img-src data: https: http:"));
         assert!(blocked.contains("default-src 'none'"));
     }
 
     #[test]
     fn adapted_colors_follow_theme_and_palette() {
-        assert!(srcdoc("", "pigeon", false, true, false).contains("--mail-fg: #16171A"));
-        assert!(srcdoc("", "pigeon", true, true, false).contains("--mail-fg: #EDEEF0"));
-        assert!(!srcdoc("", "pigeon", true, false, false).contains("--mail-fg"));
+        assert!(srcdoc("", "pigeon", false, true, false, "").contains("--mail-fg: #16171A"));
+        assert!(srcdoc("", "pigeon", true, true, false, "").contains("--mail-fg: #EDEEF0"));
+        assert!(!srcdoc("", "pigeon", true, false, false, "").contains("--mail-fg"));
         let (fg, _, link) = themes::mail_colors("dracula", true);
-        let doc = srcdoc("", "dracula", true, true, false);
+        let doc = srcdoc("", "dracula", true, true, false, "");
         assert!(doc.contains(&format!("--mail-fg: {fg}")) && doc.contains(&format!("--mail-link: {link}")));
         assert!(!doc.contains("#EDEEF0"));
     }
@@ -273,6 +314,17 @@ mod tests {
         assert_eq!(highlight_html("<p>ÉCOLE</p>", &match_terms("école")).1, 1);
         assert_eq!(highlight_html("<p>x</p>", &[]), ("<p>x</p>".to_string(), 0));
         assert_eq!(split_matches("a Q4 b", &terms), [("a ", false), ("Q4", true), (" b", false)]);
+    }
+
+    #[test]
+    fn quote_styles_reach_the_frame() {
+        let none = srcdoc("<p>x</p>", "pigeon", false, true, false, "");
+        assert!(!none.contains("coo-quoted") && !none.contains("data-quotes"));
+        let rail = srcdoc("<p>x</p>", "pigeon", true, true, false, "rail");
+        assert!(rail.contains("<body dir=\"auto\" data-quotes=\"rail\">"));
+        assert!(rail.contains("--q-fg:#EDEEF0") && rail.contains("--q-accent:#3CCFAE"));
+        // Paper (original colors) is a light page: light quote colors.
+        assert!(srcdoc("<p>x</p>", "pigeon", true, false, false, "cards").contains("--q-fg:#16171A"));
     }
 
     #[test]

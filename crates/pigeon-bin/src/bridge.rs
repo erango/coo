@@ -510,9 +510,16 @@ pub const JS: &str = r#"
   }, true);
 
   // ---- Settings: hairline under the sticky header once scrolled ----
+  // The reader's toolbar casts a soft shadow once the message scrolls under it.
   document.addEventListener('scroll', (e) => {
     const el = e.target;
-    if (!el.classList || !el.classList.contains('settings')) return;
+    if (!el.classList) return;
+    if (el.classList.contains('reader')) {
+      const bar = el.parentElement && el.parentElement.querySelector(':scope > .reader-toolbar');
+      if (bar) bar.toggleAttribute('data-scrolled', el.scrollTop > 0);
+      return;
+    }
+    if (!el.classList.contains('settings')) return;
     const head = el.querySelector('.settings__crumbs');
     if (head) head.toggleAttribute('data-scrolled', el.scrollTop > 0);
   }, true);

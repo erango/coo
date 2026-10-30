@@ -104,6 +104,9 @@ pub struct Prefs {
     pub sidebar_width: u32,
     /// Conversation order in the reader: newest message on top.
     pub thread_newest_first: bool,
+    /// How quoted history looks in a message: "cards" (stacked, a shade
+    /// deeper per level) or "rail" (one thin rail per level).
+    pub quote_style: String,
     /// Where replies open: "inline" (below the conversation) or "window".
     pub reply_mode: String,
     /// Show sender photos from Gravatar (sends a hash of each address).
@@ -176,6 +179,7 @@ impl Default for Prefs {
             compose_mode: "window".into(),
             sidebar_width: 0,
             thread_newest_first: true,
+            quote_style: "cards".into(),
             reply_mode: "inline".into(),
             photos_gravatar: false,
             photos_google: true,

@@ -1732,3 +1732,90 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 }
 .pane--list .pane-header__titles .pane-header__sub { max-width: none; white-space: normal; overflow-wrap: anywhere; line-height: 1.3; }
 @container (max-width: 380px) { .pane--list .pane-header__titles .pane-header__sub { display: block; } }
+
+/* ---- Message view (reader.rs): the app's chrome around the email ---- */
+/* The toolbar casts a soft shadow once the message scrolls under it
+   (bridge.rs sets data-scrolled); none at the top. */
+.reader-toolbar { z-index: 2; background: var(--bg-0); transition: box-shadow 150ms ease-out; }
+.reader-toolbar[data-scrolled] { box-shadow: 0 1px 0 var(--line), 0 8px 16px -8px rgba(0, 0, 0, 0.55); }
+:root[data-theme="light"] .reader-toolbar[data-scrolled] { box-shadow: 0 1px 0 var(--line), 0 6px 14px -8px rgba(15, 17, 20, 0.18); }
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]):not([data-theme="light"]) .reader-toolbar[data-scrolled] { box-shadow: 0 1px 0 var(--line), 0 6px 14px -8px rgba(15, 17, 20, 0.18); }
+}
+@media (prefers-reduced-motion: reduce) { .reader-toolbar { transition: none; } }
+/* One button for the senders' own colors, pressed while they show. */
+.reader-colors[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+/* Sort: a quiet icon button (was a text toggle). */
+.thread-order.icon-btn { width: 26px; height: 26px; padding: 0; gap: 0; color: var(--text-3); }
+
+/* Each open message is a lightly outlined block: its header row is the
+   app's, the email sits under the sender's name in reading size. */
+.thread .msg { margin-top: 14px; padding: 18px 22px 20px; border-radius: 14px; box-shadow: inset 0 0 0 1px var(--line); }
+.thread .msg > :not(.msg-head) { margin-left: 44px; }
+.msg-head__btn { color: var(--text-3); flex: none; }
+.msg-head__time + .msg-head__btn { margin-left: 4px; }
+.thread .msg-collapsed { padding: 0 22px; }
+.reader { padding-bottom: 56px; }
+
+/* Original colors: the email on its own paper, clearly the sender's. */
+.mail-body[data-render="paper"] .mail-frame { border-radius: 10px; }
+
+/* The reply: the message fades into the sheet above a floating card. */
+.reply-dock { position: relative; flex: none; padding: 0 40px 18px; }
+.reply-dock::before {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 100%; height: 56px; pointer-events: none;
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--bg-0) 0%, transparent), var(--bg-0));
+}
+.reply-card {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 14px; border-radius: 14px;
+  background: var(--bg-0); box-shadow: 0 0 0 1px var(--line-strong), 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+:root[data-theme="light"] .reply-card { box-shadow: 0 0 0 1px var(--line), 0 6px 22px rgba(15, 17, 20, 0.08); }
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]):not([data-theme="light"]) .reply-card { box-shadow: 0 0 0 1px var(--line), 0 6px 22px rgba(15, 17, 20, 0.08); }
+}
+.reply-card:focus-within { box-shadow: 0 0 0 1.5px var(--focus-ring), 0 6px 22px rgba(15, 17, 20, 0.1); }
+.reply-card__field {
+  flex: 1; min-width: 0; height: 32px; display: flex; align-items: center; padding: 0 4px; border: 0; background: transparent;
+  font: inherit; font-size: var(--fs-body); color: var(--text-3); text-align: start; cursor: text;
+}
+.reply-card__field:focus-visible { outline: none; }
+.reply-card__field > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reply-card__actions { display: flex; align-items: center; gap: 6px; flex: none; }
+.reply-card__btn { gap: 6px; }
+.reply-card__key { font-size: 11px; opacity: 0.85; letter-spacing: 0.02em; }
+@media (max-width: 760px) { .reply-card__actions .btn--secondary { display: none; } }
+
+/* Plain-text messages: ">"-quoted history folds like HTML quotes do
+   (the frame's look, mailframe.rs QUOTE_CSS, in the app's tokens). */
+.plain-body { --q-fg: var(--text-1); --q-muted: var(--text-3); --q-accent: var(--accent); }
+.plain-body .coo-quoted { margin: 8px 0 4px; white-space: normal; font-size: 14px; line-height: 1.55; }
+.plain-body .coo-quoted > summary {
+  list-style: none; display: inline-flex; align-items: center; gap: 8px; height: 26px; padding: 0 11px; border-radius: 13px;
+  background: color-mix(in srgb, var(--q-fg) 7%, transparent); color: var(--q-muted); font-size: 12px; cursor: pointer;
+  -webkit-user-select: none; user-select: none;
+}
+.plain-body .coo-quoted > summary::-webkit-details-marker { display: none; }
+.plain-body .coo-quoted > summary:hover { background: color-mix(in srgb, var(--q-fg) 11%, transparent); color: var(--q-fg); }
+.plain-body .coo-quoted__dots::before { content: "\00B7\00B7\00B7"; font-weight: 700; letter-spacing: 1px; }
+.plain-body .coo-quoted__less { display: none; }
+.plain-body .coo-quoted[open] > summary { background: transparent; padding: 0 4px; }
+.plain-body .coo-quoted[open] > summary .coo-quoted__more, .plain-body .coo-quoted[open] > summary .coo-quoted__dots { display: none; }
+.plain-body .coo-quoted[open] > summary .coo-quoted__less { display: inline; }
+.plain-body .coo-quoted--deeper { margin: 10px 0 0; }
+.plain-body .coo-q { margin-top: 10px; padding: 12px 14px; border-radius: 10px; background: color-mix(in srgb, var(--q-fg) 4%, transparent); }
+.plain-body .coo-q .coo-q { padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, var(--q-fg) 5%, transparent); }
+.plain-body .coo-q__who { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 12px; line-height: 1.3; color: var(--q-muted); }
+.plain-body .coo-q__who b { font-weight: 600; color: var(--q-fg); }
+.plain-body .coo-q__av {
+  width: 18px; height: 18px; border-radius: 9px; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 9px; font-weight: 700; background: color-mix(in srgb, var(--q-accent) 18%, transparent); color: var(--q-accent);
+}
+.plain-body .coo-q__body { white-space: pre-wrap; unicode-bidi: plaintext; color: color-mix(in srgb, var(--q-fg) 82%, var(--q-muted)); }
+.plain-body .coo-q .coo-q .coo-q__body { color: var(--q-muted); }
+.plain-body[data-quotes="rail"] .coo-q { background: none; border-radius: 0; padding: 0 0 0 15px; position: relative; }
+.plain-body[data-quotes="rail"] .coo-q::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; border-radius: 2px;
+  background: color-mix(in srgb, var(--q-accent) 30%, transparent);
+}
+.plain-body[data-quotes="rail"] .coo-q .coo-q::before { background: color-mix(in srgb, var(--q-accent) 15%, transparent); }

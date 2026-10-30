@@ -366,6 +366,8 @@ fn ReaderWindow(props: ReaderWindowProps) -> Element {
                         super::bird::FlagIcon { flagged, class: "icon--lg", always: true }
                     }
                     span { class: "spacer" }
+                    if let Some(v) = current.clone() { super::reader::ColorsButton { view: v } }
+                    span { class: "reader-toolbar__sep" }
                     button { class: "icon-btn", "aria-label": tip("Reply", Do::Reply), onclick: move |_| reply(s, &i4, ReplyKind::Reply), Icon { name: "reply", class: "icon--lg" } }
                     button { class: "icon-btn", "aria-label": tip("Reply all", Do::ReplyAll), onclick: move |_| reply(s, &i5, ReplyKind::ReplyAll), Icon { name: "replyall", class: "icon--lg" } }
                     button { class: "icon-btn", "aria-label": tip("Forward", Do::Forward), onclick: move |_| reply(s, &i6, ReplyKind::Forward), Icon { name: "forward", class: "icon--lg" } }

@@ -148,6 +148,7 @@ fn ThreadReader() -> Element {
                 }
                 super::compose::DockedDraftChip {}
                 span { class: "spacer" }
+                ColorsButton { view: view.clone() }
                 if total > 0 { span { class: "reader-toolbar__pos", "{pos} of {total}" } }
                 span { class: "reader-toolbar__sep" }
                 button { class: "icon-btn", "aria-label": tip("Reply", Do::Reply), onclick: move |_| if let Some(i) = &i4 { reply(i, ReplyKind::Reply) }, Icon { name: "reply", class: "icon--lg" } }
@@ -250,6 +251,13 @@ pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Elem
     });
     let ordered: Vec<MessageHeader> =
         if inline_draft.is_some() { ordered.into_iter().filter(|m| !m.is_draft).collect() } else { ordered };
+    // A newly opened conversation starts at the top: no toolbar shadow
+    // (the bridge sets it as the reader scrolls).
+    use_hook(|| {
+        document::eval(
+            "document.querySelectorAll('.reader-toolbar[data-scrolled]').forEach(t=>t.removeAttribute('data-scrolled'))",
+        );
+    });
     let count = if inline_draft.is_some() { ordered.len() } else { count };
 
     rsx! {
@@ -271,17 +279,16 @@ pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Elem
                 if count > 1 {
                     {
                         let nf = *newest_first.read();
-                        let icon: &'static str = if nf { "chev-down" } else { "chev-up" };
+                        let tip = if nf { "Newest first · click for oldest first" } else { "Oldest first · click for newest first" };
                         rsx! {
-                            button { class: "thread-order", r#type: "button",
-                                title: if nf { "Showing newest first. Click for oldest first." } else { "Showing oldest first. Click for newest first." },
+                            button { class: "icon-btn icon-btn--sm thread-order", r#type: "button", "aria-label": tip, title: tip,
+                                "data-order": if nf { "newest" } else { "oldest" },
                                 onclick: move |_| {
                                     let v = !*newest_first.read();
                                     newest_first.set(v);
                                     crate::prefs::update(move |p| p.thread_newest_first = v);
                                 },
-                                Icon { name: icon, class: "icon--xs" }
-                                if nf { "Newest first" } else { "Oldest first" }
+                                Icon { name: "sort" }
                             }
                         }
                     }
@@ -308,13 +315,20 @@ pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Elem
                 }
             }
         }
-        div { style: "padding:12px 48px 20px;flex:none",
+        div { class: "reply-dock",
             match inline_draft {
                 Some(d) => rsx! { super::compose::InlineReply { key: "{d.id}", draft: d } },
                 None => {
                     let last = view.messages.last().map(|m| m.id.clone()).unwrap_or_default();
                     let account_id = view.account_id.clone();
                     let to = view.messages.last().and_then(|m| m.from.as_ref()).map(|a| a.display().to_string()).unwrap_or_default();
+                    let (me_email, me_label) = s
+                        .accounts
+                        .read()
+                        .iter()
+                        .find(|a| a.account.id == view.account_id)
+                        .map(|a| (a.account.email.clone(), s.account_label(&a.account.id, &a.account.email)))
+                        .unwrap_or_default();
                     let start = move |kind: ReplyKind| {
                         let (account_id, message_id) = (account_id.clone(), last.clone());
                         if windowed {
@@ -323,16 +337,27 @@ pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Elem
                             send_cmd(Cmd::StartReply { account_id, message_id, kind })
                         }
                     };
+                    let (s1, s2, s3) = (start.clone(), start.clone(), start.clone());
+                    let (k_reply, k_all, k_fwd) = (hint(Do::Reply), hint(Do::ReplyAll), hint(Do::Forward));
                     rsx! {
-                        div { class: "reply-bar",
-                            button { class: "reply-bar__main", r#type: "button", onclick: move |_| start(ReplyKind::Reply),
-                                Icon { name: "reply", class: "icon--sm" }
-                                span { class: "reply-bar__text", dir: "auto", "Reply to {to}…" }
+                        div { class: "reply-card",
+                            super::avatar::Avatar { email: me_email, label: me_label, class: "avatar--28" }
+                            button { class: "reply-card__field", r#type: "button", onclick: move |_| start(ReplyKind::Reply),
+                                span { dir: "auto", "Reply to {to}…" }
                             }
-                            div { class: "reply-bar__keys", "aria-hidden": "true",
-                                span { class: "reply-bar__key", kbd { class: "kbd", {hint(Do::Reply)} } "Reply" }
-                                span { class: "reply-bar__key", kbd { class: "kbd", {hint(Do::ReplyAll)} } "Reply all" }
-                                span { class: "reply-bar__key", kbd { class: "kbd", {hint(Do::Forward)} } "Forward" }
+                            div { class: "reply-card__actions",
+                                button { class: "btn btn--primary btn--sm reply-card__btn", r#type: "button", onclick: move |_| s1(ReplyKind::Reply),
+                                    "Reply"
+                                    if !k_reply.is_empty() { span { class: "reply-card__key", "{k_reply}" } }
+                                }
+                                button { class: "btn btn--secondary btn--sm reply-card__btn", r#type: "button", onclick: move |_| s2(ReplyKind::ReplyAll),
+                                    "Reply all"
+                                    if !k_all.is_empty() { kbd { class: "kbd", "{k_all}" } }
+                                }
+                                button { class: "btn btn--secondary btn--sm reply-card__btn", r#type: "button", onclick: move |_| s3(ReplyKind::Forward),
+                                    "Forward"
+                                    if !k_fwd.is_empty() { kbd { class: "kbd", "{k_fwd}" } }
+                                }
                             }
                         }
                     }
@@ -379,6 +404,33 @@ fn Message(account_id: String, header: MessageHeader, #[props(default)] windowed
                     }
                 }
                 span { class: "msg-head__time", "{time}" }
+                if !header.is_draft {
+                    {
+                        let (account_id, message_id) = (account_id.clone(), header.id.clone());
+                        rsx! {
+                            button { class: "icon-btn icon-btn--sm msg-head__btn", r#type: "button", "aria-label": tip("Reply", Do::Reply),
+                                onclick: move |_| {
+                                    let (account_id, message_id) = (account_id.clone(), message_id.clone());
+                                    if windowed {
+                                        super::reader_window::reply_here(s, account_id, message_id, ReplyKind::Reply)
+                                    } else {
+                                        send_cmd(Cmd::StartReply { account_id, message_id, kind: ReplyKind::Reply })
+                                    }
+                                },
+                                Icon { name: "reply" }
+                            }
+                        }
+                    }
+                }
+                if !windowed {
+                    button { class: "icon-btn icon-btn--sm msg-head__btn", r#type: "button", "aria-label": "More",
+                        onclick: move |e| if let Some(i) = selected_item(&s) {
+                            let p = e.client_coordinates();
+                            super::row_menu::open(s, &i, p.x - 8.0, p.y + 14.0);
+                        },
+                        Icon { name: "more" }
+                    }
+                }
             }
             if let Some((inv, view)) = invite {
                 super::invite::InviteCard { account_id: account_id.clone(), invite: inv, view }
@@ -578,7 +630,7 @@ fn show_match(i: usize) {
 fn Body(account_id: String, message_id: String, sender: String, body: StoredBody) -> Element {
     let s = use_context::<AppState>();
     let mut remote_ok = s.remote_ok;
-    let mut flip = s.render_flip;
+    let flip = s.render_flip;
     let prefs = crate::prefs::get();
     let trusted = prefs.remote_images_always || (!sender.is_empty() && prefs.remote_images_senders.contains(&sender));
     let allowed = trusted || remote_ok.read().contains(&message_id);
@@ -591,21 +643,18 @@ fn Body(account_id: String, message_id: String, sender: String, body: StoredBody
     let total: u64 = attachments.iter().filter_map(|a| a.meta.size).sum();
     let att_menu = use_signal(|| None::<super::attachments::Menu>);
     let (save_account, save_message, save_files) = (account_id.clone(), message_id.clone(), files.clone());
-    let (id1, id2) = (message_id.clone(), message_id.clone());
+    let id2 = message_id.clone();
 
     let terms = search_terms(&s);
     let content = match mailframe::shown(body.html.as_deref(), body.text.as_deref()) {
         mailframe::Shown::Empty => rsx! { div { class: "plain-body" } },
         mailframe::Shown::Html(html) => {
             let adapted = mailframe::is_complex(html) == flipped;
-            let (marked, _) = mailframe::highlight_html(html, &terms);
-            let doc = mailframe::srcdoc(&marked, &s.palette.read(), dark, adapted, allowed);
+            let folded = folded_html(&message_id, html);
+            let (marked, _) = mailframe::highlight_html(folded.as_deref().unwrap_or(html), &terms);
+            let doc = mailframe::srcdoc(&marked, &s.palette.read(), dark, adapted, allowed, &prefs.quote_style);
             rsx! {
-                div { class: "mail-body",
-                    button { class: "btn btn--ghost btn--sm mail-body__toggle", r#type: "button",
-                        onclick: move |_| { let mut f = flip.write(); if !f.remove(&id1) { f.insert(id1.clone()); } },
-                        if adapted { "Original colors" } else { "Match theme" }
-                    }
+                div { class: "mail-body", "data-render": if adapted { "adapted" } else { "paper" },
                     iframe { class: "mail-frame", "data-render": if adapted { "adapted" } else { "paper" },
                         "sandbox": "allow-same-origin allow-popups allow-popups-to-escape-sandbox",
                         srcdoc: "{doc}"
@@ -614,15 +663,22 @@ fn Body(account_id: String, message_id: String, sender: String, body: StoredBody
             }
         }
         mailframe::Shown::Text(text) => {
+            // A ">"-quoted history folds the way HTML quotes do.
+            let split = pigeon_core::quotes::split_text(text);
+            let main = split.as_ref().map_or(text, |(m, _)| m.as_str());
+            let quote = split.as_ref().map(|(_, q)| q.clone());
             let runs: Vec<(String, bool)> =
-                mailframe::split_matches(text, &terms).into_iter().map(|(t, m)| (t.to_string(), m)).collect();
+                mailframe::split_matches(main, &terms).into_iter().map(|(t, m)| (t.to_string(), m)).collect();
             rsx! {
-                div { class: "plain-body", dir: "auto",
+                div { class: "plain-body", dir: "auto", "data-quotes": "{prefs.quote_style}",
                     // One inline run: .plain-body is a flex column.
                     div { dir: "auto", style: "unicode-bidi:plaintext",
                         for (i, (t, m)) in runs.into_iter().enumerate() {
                             if m { mark { key: "{i}", "data-pg-match": "true", "{t}" } } else { span { key: "{i}", "{t}" } }
                         }
+                    }
+                    if let Some(q) = quote {
+                        TextQuoted { quote: q }
                     }
                 }
             }
@@ -715,6 +771,132 @@ fn Body(account_id: String, message_id: String, sender: String, body: StoredBody
         }
         {content}
         if !on_top { {files_view} }
+    }
+}
+
+/// The body with its quoted history folded (pigeon_core::quotes), or None
+/// when it has none. Remembered per message: parsing a long newsletter on
+/// every render would be wasted work.
+fn folded_html(message_id: &str, html: &str) -> Option<String> {
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    thread_local! {
+        static CACHE: RefCell<HashMap<(String, usize), Option<String>>> = RefCell::new(HashMap::new());
+    }
+    let key = (message_id.to_string(), html.len());
+    CACHE.with(|c| {
+        if let Some(hit) = c.borrow().get(&key) {
+            return hit.clone();
+        }
+        let out = pigeon_core::quotes::fold_html(html).map(|(h, _)| h);
+        let mut c = c.borrow_mut();
+        if c.len() > 64 {
+            c.clear();
+        }
+        c.insert(key, out.clone());
+        out
+    })
+}
+
+/// A plain-text message's quoted history, folded behind the same pill as
+/// HTML quotes (app.css styles it with the frame's look).
+#[component]
+fn TextQuoted(quote: pigeon_core::quotes::TextQuote) -> Element {
+    let total = quote.depth();
+    let more = match (total, quote.who.is_some()) {
+        (1, false) => "Quoted text".to_string(),
+        (1, true) => "Quoted: 1 earlier message".to_string(),
+        (n, _) => format!("Quoted: {n} earlier messages"),
+    };
+    rsx! {
+        details { class: "coo-quoted",
+            summary { class: "coo-quoted__pill",
+                span { class: "coo-quoted__dots", "aria-hidden": "true" }
+                span { class: "coo-quoted__more", "{more}" }
+                span { class: "coo-quoted__less", "Hide quoted text" }
+            }
+            TextQuoteLevel { quote, level: 1 }
+        }
+    }
+}
+
+#[component]
+fn TextQuoteLevel(quote: pigeon_core::quotes::TextQuote, level: usize) -> Element {
+    let inner = quote.inner.as_deref().cloned();
+    let text = quote.lines.join("\n");
+    let deeper = inner.as_ref().map_or(0, |q| q.depth());
+    rsx! {
+        div { class: "coo-q",
+            if let Some(w) = &quote.who {
+                div { class: "coo-q__who",
+                    span { class: "coo-q__av", "aria-hidden": "true", "{w.initial()}" }
+                    b { dir: "auto", "{w.name}" }
+                    if let Some(t) = &w.when { span { "{t}" } }
+                }
+            }
+            div { class: "coo-q__body", dir: "auto", "{text}" }
+            if let Some(q) = inner {
+                if level >= 2 {
+                    details { class: "coo-quoted coo-quoted--deeper",
+                        summary { class: "coo-quoted__pill",
+                            span { class: "coo-quoted__dots", "aria-hidden": "true" }
+                            span { class: "coo-quoted__more", if deeper == 1 { "1 more quoted message" } else { "{deeper} more quoted messages" } }
+                            span { class: "coo-quoted__less", "Hide" }
+                        }
+                        TextQuoteLevel { quote: q, level: level + 1 }
+                    }
+                } else {
+                    TextQuoteLevel { quote: q, level: level + 1 }
+                }
+            }
+        }
+    }
+}
+
+/// One button for the whole conversation: the senders' own colors (each
+/// message on its own paper) or the theme's. Shown when a message in it has
+/// an HTML body; per message, Coo starts from its own guess (`is_complex`).
+#[component]
+pub(super) fn ColorsButton(view: ReaderView) -> Element {
+    let s = use_context::<AppState>();
+    let htmls: Vec<(String, bool)> = {
+        let bodies = s.bodies.read();
+        view.messages
+            .iter()
+            .filter_map(|m| {
+                let b = bodies.get(&(view.account_id.clone(), m.id.clone()))?;
+                match mailframe::shown(b.html.as_deref(), b.text.as_deref()) {
+                    mailframe::Shown::Html(h) => Some((m.id.clone(), mailframe::is_complex(h))),
+                    _ => None,
+                }
+            })
+            .collect()
+    };
+    if htmls.is_empty() {
+        return rsx! {};
+    }
+    let mut flip = s.render_flip;
+    // A message is adapted when complex == flipped; "original" when none is.
+    let original = {
+        let f = flip.read();
+        htmls.iter().all(|(id, complex)| *complex != f.contains(id))
+    };
+    let tip = if original {
+        "Showing the senders’ own colors · click to match your theme"
+    } else {
+        "Show the senders’ own colors"
+    };
+    rsx! {
+        button { class: "icon-btn reader-colors", r#type: "button", "aria-pressed": "{original}", "aria-label": tip, title: tip,
+            onclick: move |_| {
+                let want_adapted = original;
+                let mut f = flip.write();
+                for (id, complex) in &htmls {
+                    if *complex == want_adapted { f.insert(id.clone()); } else { f.remove(id); }
+                }
+            },
+            Icon { name: "droplet", class: "icon--lg" }
+        }
     }
 }
 

@@ -111,6 +111,8 @@ pub fn Reading() -> Element {
     let att_now = att.read().clone();
     let mut read_after = use_signal(|| prefs::get().read_delay_secs);
     let read_now = *read_after.read();
+    let mut quotes = use_signal(|| prefs::get().quote_style);
+    let quotes_now = quotes.read().clone();
     rsx! {
         div { class: "settings__title", "Reading" }
         Group { title: "Opening messages",
@@ -158,6 +160,21 @@ pub fn Reading() -> Element {
                             onclick: move |_| {
                                 prefs::update(move |p| p.attachments_position = value.to_string());
                                 att.set(value.to_string());
+                            },
+                            "{label}"
+                        }
+                    }
+                }
+            }
+        }
+        Group { title: "Quoted text",
+            Row { label: "Earlier messages in a reply", hint: "Folded away until you open them. Cards: each one a shade deeper; Rail: a thin line per level.",
+                div { class: "segmented", role: "radiogroup", "aria-label": "How quoted earlier messages look",
+                    for (value, label) in [("cards", "Cards"), ("rail", "Rail")] {
+                        button { role: "radio", key: "{value}", "aria-checked": "{quotes_now == value}", "aria-selected": "{quotes_now == value}",
+                            onclick: move |_| {
+                                prefs::update(move |p| p.quote_style = value.to_string());
+                                quotes.set(value.to_string());
                             },
                             "{label}"
                         }

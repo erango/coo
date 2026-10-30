@@ -37,7 +37,7 @@ pub const PAGES: &[(&str, &str, &str)] = &[
     (
         "Reading",
         "mailopen",
-        "read unread mark seconds delay archive delete next message after move attachments files top bottom open",
+        "read unread mark seconds delay archive delete next message after move attachments files top bottom open quoted quote quotes history earlier cards rail",
     ),
     (
         "Writing",

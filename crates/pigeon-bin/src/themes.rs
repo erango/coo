@@ -567,6 +567,15 @@ pub fn mail_colors(id: &str, dark: bool) -> (String, String, String) {
     }
 }
 
+/// The palette's accent in this mode, for the email frame's quote styling.
+pub fn mail_accent(id: &str, dark: bool) -> String {
+    match resolved(id, dark) {
+        Some(r) => r.accent.hex(),
+        None if dark => "#3CCFAE".into(),
+        None => "#0A7A64".into(),
+    }
+}
+
 /// A palette's surfaces for Settings' theme cards, in one mode: bg-0, bg-2,
 /// bg-3, text and accent (the cards mix the window's ground and sheet from
 /// these the way app.css does).
