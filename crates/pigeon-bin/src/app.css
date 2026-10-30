@@ -1432,3 +1432,13 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
   .milestone { animation: none; }
   .milestone[data-leaving] { animation: none; opacity: 0; }
 }
+/* Standard-resolution (1x) screens: icons are drawn on a 24-unit grid and
+   shown at 12–22 px, so their 1.6-unit strokes land at about 1 px and smear
+   into a faint grey. There, every icon stroke is a steady 1.4 screen px
+   whatever the icon's size (dots are filled circles in the sprite, so they
+   stay round and visible). */
+@media (max-resolution: 1.49dppx) {
+  symbol[id^="i-"] :is(path, circle, rect, line, polyline, polygon, ellipse) {
+    vector-effect: non-scaling-stroke; stroke-width: 1.4px;
+  }
+}
