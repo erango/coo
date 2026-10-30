@@ -233,7 +233,9 @@ fn tools() -> Vec<Tool> {
                        "end": ex("Event end.", json!(["2026-11-02T10:30"])),
                        "all_day": bool_("All-day event (start/end are dates; end is inclusive).", false),
                        "attendees": strs("Invitee addresses."), "location": str_("Location."),
-                       "description": str_("Plain text."), "calendar_id": str_("Default: the account's primary calendar.")}),
+                       "description": str_("Plain text."), "calendar_id": str_("Default: the account's primary calendar."),
+                       "video": ex("Add a video call: meet (Google calendars only) or zoom (needs Zoom connected in Coo). \
+                                    Default none.", json!(["meet", "zoom", "none"]))}),
                 &["account", "title", "start", "end"],
             ),
             write: true,
@@ -396,6 +398,7 @@ async fn call(app: &Pigeon, w: Writes, name: &str, a: &Value) -> pigeon_core::Re
                     location: arg(a, "location"),
                     description: arg(a, "description"),
                     calendar: arg(a, "calendar_id"),
+                    video: arg(a, "video"),
                 },
             )
             .await?)

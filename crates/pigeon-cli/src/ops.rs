@@ -524,6 +524,18 @@ pub struct NewEvent<'a> {
     pub location: Option<&'a str>,
     pub description: Option<&'a str>,
     pub calendar: Option<&'a str>,
+    /// "meet" (Google calendars), "zoom" (needs Zoom connected in Coo), or
+    /// none.
+    pub video: Option<&'a str>,
+}
+
+fn parse_video(v: Option<&str>) -> Result<Conferencing> {
+    Ok(match v.map(str::trim).unwrap_or("") {
+        "" | "none" => Conferencing::None,
+        "meet" | "google_meet" | "google-meet" => Conferencing::GoogleMeet,
+        "zoom" => Conferencing::Zoom,
+        other => return Err(Error::Other(format!("unknown video {other:?} (meet, zoom or none)"))),
+    })
 }
 
 pub async fn create_event(app: &Pigeon, w: Writes, n: NewEvent<'_>) -> Result<EventOut> {
@@ -548,7 +560,7 @@ pub async fn create_event(app: &Pigeon, w: Writes, n: NewEvent<'_>) -> Result<Ev
             .into_iter()
             .map(|address| Attendee { address, response: Response::None, optional: false })
             .collect(),
-        conferencing: Default::default(),
+        conferencing: parse_video(n.video)?,
     };
     let e = app.create_event(&a, &draft).await?;
     Ok(EventOut::from(&EventRow { account_id: a.id.clone(), event: e }))

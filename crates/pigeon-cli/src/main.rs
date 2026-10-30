@@ -205,6 +205,9 @@ enum Cmd {
         /// Calendar id (default: the account's primary calendar).
         #[arg(long)]
         calendar: Option<String>,
+        /// Add a video call: meet (Google calendars) or zoom (Zoom connected in Coo).
+        #[arg(long)]
+        video: Option<String>,
     },
     /// Delete an event (cancels it for attendees if you organize it).
     EventDelete { account: String, calendar_id: String, event_id: String },
@@ -634,7 +637,18 @@ async fn run(cli: Cli) -> pigeon_core::Result<()> {
             };
             emit(json, &ops::reply(&app, w, r, dry_run).await?, print_draft);
         }
-        Cmd::EventCreate { account, title, start, duration, all_day, attendees, location, description, calendar } => {
+        Cmd::EventCreate {
+            account,
+            title,
+            start,
+            duration,
+            all_day,
+            attendees,
+            location,
+            description,
+            calendar,
+            video,
+        } => {
             let start_at = if all_day {
                 let d = chrono::NaiveDate::parse_from_str(&start, "%Y-%m-%d")
                     .map_err(|e| pigeon_core::Error::Other(format!("bad --start date: {e}")))?;
@@ -656,6 +670,7 @@ async fn run(cli: Cli) -> pigeon_core::Result<()> {
                     location: location.as_deref(),
                     description: description.as_deref(),
                     calendar: calendar.as_deref(),
+                    video: video.as_deref(),
                 },
             )
             .await?;

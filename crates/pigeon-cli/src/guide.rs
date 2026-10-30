@@ -34,7 +34,7 @@ const COMMANDS: &[(&str, &str, &str)] = &[
     (
         "event-create",
         "coo --json --yes event-create <account> --title T --start 2026-11-02T10:00 --duration 30",
-        "new event",
+        "new event (--video meet|zoom adds a call)",
     ),
     ("event-delete", "coo --json --yes event-delete <account> <calendar_id> <event_id>", "delete/cancel an event"),
     ("login", "coo login google", "a person signs in (browser); agents can't"),

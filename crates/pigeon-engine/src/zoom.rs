@@ -13,7 +13,7 @@ use pigeon_core::{Error, Result, now_ms};
 
 use crate::Pigeon;
 
-pub(crate) const NOT_CONNECTED: &str = "Connect Zoom first (Settings › Accounts › Video calls).";
+pub(crate) const NOT_CONNECTED: &str = "Connect Zoom first, in Coo: Settings › Calendar › Video calls.";
 
 impl Pigeon {
     /// The connected Zoom account, if any.

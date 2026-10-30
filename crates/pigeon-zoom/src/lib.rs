@@ -169,7 +169,7 @@ pub async fn whoami(access_token: &str) -> Result<ZoomUser> {
 /// Turn Zoom API failures into something a person can act on.
 fn plain(e: Error) -> Error {
     match e.status() {
-        Some(401) => Error::Auth("Zoom needs you to connect it again (Settings › Accounts › Video calls).".into()),
+        Some(401) => Error::Auth("Zoom needs you to connect it again (Settings › Calendar › Video calls).".into()),
         Some(403) => Error::Auth(
             "Zoom refused: while Coo's Zoom app is in development, only accounts in its owner's Zoom organization \
              can use it."
