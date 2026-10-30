@@ -877,22 +877,22 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 @keyframes coo-enter-fwd { from { opacity: 0; transform: translateX(10px); } }
 @keyframes coo-enter-back { from { opacity: 0; transform: translateX(-10px); } }
 .app[data-swap] > .sidebar > :not(.sidebar__top):not(.sidebar__footer),
-.app[data-swap] > :not(.sidebar):not(.splitter) { will-change: opacity, transform; }
+.app[data-swap] > .sheet > * { will-change: opacity, transform; }
 .app[data-swap^="leave"] > .sidebar > :not(.sidebar__top):not(.sidebar__footer),
-.app[data-swap^="leave"] > :not(.sidebar):not(.splitter) {
+.app[data-swap^="leave"] > .sheet > * {
   animation: coo-leave-fwd 110ms cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 .app[data-swap="leave-back"] > .sidebar > :not(.sidebar__top):not(.sidebar__footer),
-.app[data-swap="leave-back"] > :not(.sidebar):not(.splitter) { animation-name: coo-leave-back; }
+.app[data-swap="leave-back"] > .sheet > * { animation-name: coo-leave-back; }
 .app[data-swap^="enter"] > .sidebar > :not(.sidebar__top):not(.sidebar__footer),
-.app[data-swap^="enter"] > :not(.sidebar):not(.splitter) {
+.app[data-swap^="enter"] > .sheet > * {
   animation: coo-enter-fwd 190ms var(--ease-standard) backwards;
 }
 .app[data-swap="enter-back"] > .sidebar > :not(.sidebar__top):not(.sidebar__footer),
-.app[data-swap="enter-back"] > :not(.sidebar):not(.splitter) { animation-name: coo-enter-back; }
-.app[data-swap^="enter"] > :not(.sidebar):not(.splitter) { animation-delay: 20ms; }
+.app[data-swap="enter-back"] > .sheet > * { animation-name: coo-enter-back; }
+.app[data-swap^="enter"] > .sheet > * { animation-delay: 20ms; }
 @media (prefers-reduced-motion: reduce) {
-  .app[data-swap] > .sidebar > *, .app[data-swap] > * { animation: none !important; }
+  .app[data-swap] > .sidebar > *, .app[data-swap] > .sheet > * { animation: none !important; }
 }
 
 /* A setting with options that belong to it (Settings › Calendar › Video
@@ -923,45 +923,61 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 
 /* List styles (Settings › Appearance; state::ListStyle). Row heights must
    match ListStyle::metrics: the list is virtualized on them. */
-/* Card surfaces by mode (mirrors tokens.css's selectors; palettes only
-   change the bg tokens these mix). Dark: cards sit lighter than the ground
-   and unread ones lighter still; light: unread cards are white on bg-1 and
-   read ones a tinted step down, so unread is what stands out either way.
-   --card-read is the read rows' ground, --row-unread/--row-read the
-   classic list's. */
+/* Surfaces ("Paper on stone"). The window's ground (sidebar) is stone;
+   everything else sits on one raised sheet (.sheet, ui/mod.rs). Inside the
+   sheet the bg scale is re-based on it (--bg-0 is the sheet), so components
+   that paint "the background" match it in every palette. Dark: the ground
+   drops below --bg-0 and the sheet rises between --bg-2 and --bg-3, so the
+   two read apart. */
 :root, :root[data-theme="dark"] {
-  /* A shade below the reader, so the panes read apart and cards lift. */
-  --list-ground: color-mix(in oklab, var(--bg-0) 84%, #000);
-  --card: color-mix(in srgb, var(--bg-1) 40%, var(--bg-2));
-  /* Unread: a step lighter, with a breath of the accent. */
-  --card-unread: color-mix(in srgb, var(--accent) 6%, color-mix(in srgb, var(--bg-2) 55%, var(--bg-3)));
-  --card-read: var(--card);
-  --row-unread: color-mix(in srgb, var(--accent) 6%, transparent);
-  --row-read: transparent;
-  --card-edge: 0 0 0 1px color-mix(in srgb, var(--text-1) 5%, transparent);
-  --card-lift: 0 0 0 1px color-mix(in srgb, var(--text-1) 9%, transparent), 0 2px 8px rgba(0, 0, 0, 0.35);
+  --ground: color-mix(in oklab, var(--bg-0) 75%, #000);
+  --sheet: color-mix(in oklab, var(--bg-2) 70%, var(--bg-3));
+  --sheet-1: color-mix(in oklab, var(--sheet), var(--text-1) 3%);
+  --sheet-2: color-mix(in oklab, var(--sheet), var(--text-1) 6%);
+  --sheet-3: color-mix(in oklab, var(--sheet), var(--text-1) 10%);
+  --nav-on: color-mix(in oklab, var(--bg-2), var(--text-1) 8%);
+  --nav-on-edge: 0 0 0 1px var(--line);
+  --sheet-edge: 0 0 0 1px rgba(255, 255, 255, 0.09), 0 8px 28px rgba(0, 0, 0, 0.45);
 }
 :root[data-theme="light"] {
-  --list-ground: var(--bg-1);
-  --card: var(--bg-0);
-  --card-unread: var(--bg-0);
-  --card-read: color-mix(in srgb, var(--accent) 6%, var(--bg-0));
-  --row-unread: transparent;
-  --row-read: color-mix(in srgb, var(--accent) 6%, transparent);
-  --card-edge: 0 0 0 1px rgba(15, 17, 20, 0.05), 0 1px 2px rgba(15, 17, 20, 0.04);
-  --card-lift: 0 0 0 1px rgba(15, 17, 20, 0.08), 0 2px 8px rgba(15, 17, 20, 0.08);
+  --ground: color-mix(in oklab, var(--bg-2), var(--text-1) 5%);
+  --sheet: var(--bg-0);
+  --sheet-1: var(--bg-1);
+  --sheet-2: var(--bg-2);
+  --sheet-3: var(--bg-3);
+  --nav-on: var(--bg-0);
+  --nav-on-edge: 0 1px 2px rgba(15, 17, 20, 0.08);
+  --sheet-edge: 0 0 0 1px rgba(15, 17, 20, 0.06), 0 1px 3px rgba(15, 17, 20, 0.06);
 }
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]):not([data-theme="light"]) {
-    --list-ground: var(--bg-1);
-    --card: var(--bg-0);
-    --card-unread: var(--bg-0);
-    --card-read: color-mix(in srgb, var(--accent) 6%, var(--bg-0));
-    --row-unread: transparent;
-    --row-read: color-mix(in srgb, var(--accent) 6%, transparent);
-    --card-edge: 0 0 0 1px rgba(15, 17, 20, 0.05), 0 1px 2px rgba(15, 17, 20, 0.04);
-    --card-lift: 0 0 0 1px rgba(15, 17, 20, 0.08), 0 2px 8px rgba(15, 17, 20, 0.08);
+    --ground: color-mix(in oklab, var(--bg-2), var(--text-1) 5%);
+    --sheet: var(--bg-0);
+    --sheet-1: var(--bg-1);
+    --sheet-2: var(--bg-2);
+    --sheet-3: var(--bg-3);
+    --nav-on: var(--bg-0);
+    --nav-on-edge: 0 1px 2px rgba(15, 17, 20, 0.08);
+    --sheet-edge: 0 0 0 1px rgba(15, 17, 20, 0.06), 0 1px 3px rgba(15, 17, 20, 0.06);
   }
+}
+.sheet { --bg-0: var(--sheet); --bg-1: var(--sheet-1); --bg-2: var(--sheet-2); --bg-3: var(--sheet-3); }
+/* List surfaces, resolved against whatever --bg-0 is where they're used
+   (the sheet, or a reader window). Read rows sit on the sheet; unread ones
+   on a faint accent wash (with the dot and bold, so unread shows even to
+   someone who misses those); the open one on a firmer wash and ring. */
+:root, .sheet {
+  --list-ground: transparent;
+  --card: var(--bg-0);
+  --card-read: var(--bg-0);
+  --card-unread: color-mix(in srgb, var(--accent) 6%, var(--bg-0));
+  --card-unread-edge: 0 0 0 1px color-mix(in srgb, var(--accent) 18%, var(--bg-0));
+  --card-open: color-mix(in srgb, var(--accent) 13%, var(--bg-0));
+  --card-open-ring: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 60%, transparent);
+  --card-edge: 0 0 0 1px var(--line);
+  --card-lift: 0 0 0 1px var(--line-strong);
+  --row-read: transparent;
+  --row-unread: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 .list[data-style="cards"], .list[data-style="bands"] {
   --card-hover: color-mix(in srgb, var(--text-1) 3%, var(--card));
@@ -972,16 +988,14 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
    selected card gets an accent ring, the open one a firmer ring and tint. */
 .list[data-style="cards"] .list-group { height: 32px; padding-left: 22px; }
 .list[data-style="cards"] .row {
-  height: 72px; margin: 0 10px 6px; padding: 9px 12px 0 24px; border-radius: 12px;
+  height: 72px; margin: 0 10px 6px; padding: 9px 12px 0 24px; border-radius: 10px;
   background: var(--card-read); box-shadow: var(--card-edge);
   transition: box-shadow var(--dur-fast) var(--ease-standard), background-color var(--dur-fast) var(--ease-standard);
 }
-.list[data-style="cards"] .row[data-unread] { background: var(--card-unread); }
+.list[data-style="cards"] .row[data-unread] { background: var(--card-unread); box-shadow: var(--card-unread-edge); }
 .list[data-style="cards"] .row[data-unread] .row__time { color: var(--accent); font-weight: var(--fw-semibold); }
 .list[data-style="cards"] .row:hover { background: var(--card-hover); box-shadow: var(--card-lift); }
-.list[data-style="cards"] .row[aria-selected="true"] {
-  background: var(--card); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 70%, transparent);
-}
+.list[data-style="cards"] .row[aria-selected="true"] { background: var(--card-open); box-shadow: var(--card-open-ring); }
 .list[data-style="cards"] .row[data-focused] { background: var(--card-selected); box-shadow: inset 0 0 0 1.5px var(--focus-ring); }
 .list[data-style="cards"] .row[data-unread]::before { left: 10px; top: 16px; }
 
@@ -1005,7 +1019,7 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
    tell apart at a glance (hover and selection still win). */
 .list[data-style="bands"] .row[data-unread] { background: var(--card-unread); }
 .list[data-style="bands"] .row:hover { background: var(--card-hover); }
-.list[data-style="bands"] .row[aria-selected="true"] { background: var(--card-selected); }
+.list[data-style="bands"] .row[aria-selected="true"] { background: var(--card-open); box-shadow: var(--card-open-ring); }
 .list[data-style="bands"] .row[data-focused] { box-shadow: inset 0 0 0 1.5px var(--focus-ring); }
 .list[data-style="bands"] .row[data-unread]::before { left: 11px; top: 16px; }
 
@@ -1277,7 +1291,7 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .list[data-style="classic"] .row { background: var(--row-read); }
 .list[data-style="classic"] .row[data-unread] { background: var(--row-unread); }
 .list[data-style="classic"] .row:hover { background: var(--bg-2); }
-.list[data-style="classic"] .row[aria-selected="true"] { background: var(--selection); }
+.list[data-style="classic"] .row[aria-selected="true"] { background: var(--card-open); box-shadow: var(--card-open-ring); }
 
 /* The row under a still pointer while the list animates (bridge.rs). */
 .list:not([data-style]) .row[data-hover], .list[data-style="classic"] .row[data-hover] { background: var(--bg-2); }
@@ -1310,3 +1324,18 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
 }
+
+/* ---- Paper on stone: the shell (tokens above, "Surfaces") ----
+   The sidebar sits straight on the stone ground; the panes share one sheet
+   with a rounded edge, 8 px in from the window. */
+.app:not(.reader-window) { background: var(--ground); }
+.app:not(.reader-window) > .sidebar { background: transparent; box-shadow: none; }
+.sheet {
+  flex: 1; min-width: 0; display: flex; position: relative;
+  margin: 8px 8px 8px 0; border-radius: 12px; overflow: hidden;
+  background: var(--sheet); box-shadow: var(--sheet-edge);
+}
+.sheet .pane--list, .sheet .pane--list:is([data-list-style="cards"], [data-list-style="bands"]) { background: transparent; }
+/* The current mailbox is a raised pill on the stone. */
+.sidebar .nav-item[aria-current="page"] { background: var(--nav-on); box-shadow: var(--nav-on-edge); }
+.sidebar .nav-item:not([aria-current="page"]):hover, .sidebar .account-nav:hover { background: color-mix(in oklab, var(--ground), var(--text-1) 6%); }

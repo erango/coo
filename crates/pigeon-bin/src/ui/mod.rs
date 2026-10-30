@@ -626,17 +626,21 @@ pub fn App() -> Element {
                 sidebar::Sidebar {}
                 div { class: "splitter", "data-pane": "sidebar", role: "separator", "aria-orientation": "vertical",
                     title: "Drag to resize · double-click to reset" }
-                if *s.settings_shown.read() {
-                    settings::Settings {}
-                } else {
-                    match *s.mode.read() {
-                        Mode::Mail => rsx! {
-                            list::MailList {}
-                            div { class: "splitter", role: "separator", "aria-orientation": "vertical",
-                                title: "Drag to resize · double-click to reset" }
-                            reader::Reader {}
-                        },
-                        Mode::Calendar => rsx! { calendar::CalendarView {} },
+                // Everything but the sidebar sits on one sheet, raised off
+                // the window's ground (app.css, "Paper on stone").
+                div { class: "sheet",
+                    if *s.settings_shown.read() {
+                        settings::Settings {}
+                    } else {
+                        match *s.mode.read() {
+                            Mode::Mail => rsx! {
+                                list::MailList {}
+                                div { class: "splitter", role: "separator", "aria-orientation": "vertical",
+                                    title: "Drag to resize · double-click to reset" }
+                                reader::Reader {}
+                            },
+                            Mode::Calendar => rsx! { calendar::CalendarView {} },
+                        }
                     }
                 }
             }
