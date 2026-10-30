@@ -184,7 +184,8 @@ const NATURAL_HEIGHT_CSS: &str =
 /// Folded quoted history (pigeon_core::quotes): the collapsed pill, each
 /// earlier message's "who and when" line, and the levels, as stacked cards
 /// (default) or, with `body[data-quotes="rail"]`, one soft rail per level.
-/// Colors come in as `--q-fg`, `--q-muted` and `--q-accent`.
+/// Colors come in as `--q-fg`, `--q-muted` and `--q-accent`, with `!important`
+/// where adapted mail (design/mail-adapted.css) resets div and span colors.
 const QUOTE_CSS: &str = "\
 .coo-quoted{margin:18px 0 4px;font:14px/1.55 -apple-system,BlinkMacSystemFont,system-ui,sans-serif}\
 .coo-quoted>summary{list-style:none;display:inline-flex;align-items:center;gap:8px;height:26px;padding:0 11px;\
@@ -198,16 +199,16 @@ cursor:pointer;-webkit-user-select:none;user-select:none}\
 .coo-quoted[open]>summary .coo-quoted__more,.coo-quoted[open]>summary .coo-quoted__dots{display:none}\
 .coo-quoted[open]>summary .coo-quoted__less{display:inline}\
 .coo-quoted--deeper{margin:10px 0 0}\
-.coo-q{margin-top:10px;padding:12px 14px;border-radius:10px;background:color-mix(in srgb,var(--q-fg) 4%,transparent)}\
-.coo-q .coo-q{padding:10px 12px;border-radius:8px;background:color-mix(in srgb,var(--q-fg) 5%,transparent)}\
-.coo-q__who{display:flex;align-items:center;gap:8px;margin:0 0 8px;font:12px/1.3 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;color:var(--q-muted)}\
-.coo-q__who b{font-weight:600;color:var(--q-fg)}\
+.coo-q{margin-top:10px;padding:12px 14px;border-radius:10px;background-color:color-mix(in srgb,var(--q-fg) 5%,transparent)!important}\
+.coo-q .coo-q{padding:10px 12px;border-radius:8px;background-color:color-mix(in srgb,var(--q-fg) 6%,transparent)!important}\
+.coo-q__who{display:flex;align-items:center;gap:8px;margin:0 0 8px;font:12px/1.3 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;color:var(--q-muted)!important}\
+.coo-q__who b{font-weight:600;color:var(--q-fg)!important}\
 .coo-q__av{width:18px;height:18px;border-radius:9px;flex:none;display:inline-flex;align-items:center;justify-content:center;\
-font-size:9px;font-weight:700;background:color-mix(in srgb,var(--q-accent) 18%,transparent);color:var(--q-accent)}\
-.coo-q__body{color:color-mix(in srgb,var(--q-fg) 82%,var(--q-muted))}\
+font-size:9px;font-weight:700;background-color:color-mix(in srgb,var(--q-accent) 18%,transparent)!important;color:var(--q-accent)!important}\
+.coo-q__body{color:color-mix(in srgb,var(--q-fg) 82%,var(--q-muted))!important}\
 .coo-q__body>:first-child{margin-top:0}\
-.coo-q .coo-q .coo-q__body{color:var(--q-muted)}\
-body[data-quotes=rail] .coo-q{background:none;border-radius:0;padding:0 0 0 15px;position:relative}\
+.coo-q .coo-q .coo-q__body{color:var(--q-muted)!important}\
+body[data-quotes=rail] .coo-q{background-color:transparent!important;border-radius:0;padding:0 0 0 15px;position:relative}\
 body[data-quotes=rail] .coo-q::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:2px;\
 background:color-mix(in srgb,var(--q-accent) 30%,transparent)}\
 body[data-quotes=rail] .coo-q .coo-q::before{background:color-mix(in srgb,var(--q-accent) 15%,transparent)}";
