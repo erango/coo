@@ -548,27 +548,15 @@ pub fn mail_colors(id: &str, dark: bool) -> (String, String, String) {
     }
 }
 
-/// Small preview swatch for the picker: (bg-0, bg-2, accent, 4 hues).
-pub fn preview(id: &str, dark: bool) -> (String, String, String, [String; 4]) {
+/// A palette's surfaces for Settings' theme cards, in one mode: bg-0, bg-2,
+/// bg-3, text and accent (the cards mix the window's ground and sheet from
+/// these the way app.css does).
+pub fn swatch(id: &str, dark: bool) -> [String; 5] {
     match resolved(id, dark) {
-        Some(r) => (
-            r.bg[0].hex(),
-            r.bg[2].hex(),
-            r.accent.hex(),
-            [r.hues[0].hex(), r.hues[1].hex(), r.hues[2].hex(), r.hues[4].hex()],
-        ),
-        None if dark => (
-            "#0D0E10".into(),
-            "#1A1C20".into(),
-            "#3CCFAE".into(),
-            ["#7B93FF".into(), "#F0B04A".into(), "#F27596".into(), "#9BD255".into()],
-        ),
-        None => (
-            "#FFFFFF".into(),
-            "#EFEFEC".into(),
-            "#0A7A64".into(),
-            ["#3A57D6".into(), "#A86500".into(), "#C7365F".into(), "#4C7A12".into()],
-        ),
+        Some(r) => [r.bg[0].hex(), r.bg[2].hex(), r.bg[3].hex(), r.text[0].hex(), r.accent.hex()],
+        // Coo's own palette (tokens.css).
+        None if dark => ["#0D0E10", "#1A1C20", "#23252B", "#EDEEF0", "#3CCFAE"].map(String::from),
+        None => ["#FFFFFF", "#EFEFEC", "#FFFFFF", "#16171A", "#0A7A64"].map(String::from),
     }
 }
 

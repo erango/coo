@@ -1,10 +1,13 @@
-//! Settings: Appearance (mode, color theme, text size) and Accounts (order,
-//! sign out, add). Opens with ⌘, or from ⌘K; while open it takes over the
-//! sidebar (page list, search, Back). Esc, Back or ⌘1/⌘2 leave.
+//! Settings: nine pages (General, Appearance, Accounts & agents, Reading,
+//! Writing, Calendar, Notifications, Privacy, Keyboard shortcuts), each a
+//! title over groups of rows (`Group`, `Row`). Opens with ⌘, or from ⌘K;
+//! while open it takes over the sidebar (page list, search, Back). Esc,
+//! Back or ⌘1/⌘2 leave.
 
 use dioxus::prelude::*;
 use pigeon_core::compose::{is_icloud_mail, is_plain_address};
 use pigeon_core::model::ProviderKind;
+use pigeon_engine::agent_setup::{self as agents, Agent, Status};
 use pigeon_engine::service::{AccountNav, Cmd};
 
 use super::Icon;
@@ -13,39 +16,46 @@ use crate::send_cmd;
 use crate::state::{AppState, Mode, Theme};
 use crate::{prefs, themes};
 
-/// Settings subpages: (title, icon, search keywords).
+/// Settings subpages: (title, icon, search keywords). Keywords keep the
+/// old page names (Composing, Signatures, AI agents, About) findable.
 pub const PAGES: &[(&str, &str, &str)] = &[
     (
         "General",
         "gear",
-        "close window menu bar quit startup archive delete next message after attachments files top bottom mark read unread seconds delay",
+        "window close menu bar quit startup update updates version check automatic about help report bug",
     ),
     (
         "Appearance",
         "sun",
-        "theme dark light mode color colour text size font zoom list cards bands avatars density hover actions buttons row toolbar photos google contacts",
+        "theme themes dark light mode color colour palette text size font zoom list cards bands classic style avatars hover actions buttons row toolbar sender photos google microsoft outlook contacts gravatar logos",
     ),
     (
-        "Accounts",
+        "Accounts & agents",
         "at",
-        "account sign in sign out add microsoft google gmail icloud zoom video calls order nickname name rename default from sender alias aliases address",
+        "account accounts sign in sign out add microsoft google gmail icloud order nickname name rename alias aliases address main ai agent agents claude mcp assistant connect",
     ),
-    ("Composing", "edit", "undo send later reply new message window docked draft save autosave ask"),
-    ("Signatures", "text", "signature signatures sign-off footer html"),
+    (
+        "Reading",
+        "mailopen",
+        "read unread mark seconds delay archive delete next message after move attachments files top bottom open",
+    ),
+    (
+        "Writing",
+        "edit",
+        "composing compose new message reply replies window docked draft drafts save autosave ask undo send default from sender signature signatures sign-off footer",
+    ),
     (
         "Calendar",
         "cal",
-        "week start sunday monday weekend video call meet google zoom meeting link location default calendar new events",
+        "week start sunday monday saturday video call calls meet google zoom meeting link location default calendar new events",
     ),
     (
         "Notifications",
         "bell",
-        "sound sounds alert banner reminder meeting focus do not disturb mute volume dock badge unread count icon",
+        "notify sound sounds alert banner reminder reminders meeting focus do not disturb mute muted volume dock badge unread count icon test",
     ),
-    ("Privacy", "lock", "remote images tracking crash reports sentry photos gravatar"),
-    ("Keyboard shortcuts", "dash", "keys shortcut hotkey gmail outlook style"),
-    ("AI agents", "link", "agent claude mcp assistant"),
-    ("About & updates", "question", "version update check about"),
+    ("Privacy", "lock", "remote images tracking trusted senders crash reports sentry"),
+    ("Keyboard shortcuts", "dash", "keys shortcut shortcuts hotkey gmail outlook style custom"),
 ];
 
 /// Pages whose title or keywords match `query` (all pages when empty).
@@ -63,10 +73,10 @@ pub fn matching_pages(query: &str) -> Vec<&'static str> {
         .collect()
 }
 
-/// Settings › Accounts with one account's row scrolled into view, briefly
-/// highlighted, its nickname field focused (sidebar account menu).
+/// Settings › Accounts & agents with one account's row scrolled into view,
+/// briefly highlighted, its nickname field focused (sidebar account menu).
 pub fn show_account(s: AppState, account_id: &str) {
-    super::open_settings_at(s, "Accounts");
+    super::open_settings_at(s, "Accounts & agents");
     let id = serde_json::to_string(account_id).unwrap_or_default();
     // The page renders after this returns: retry for a moment.
     document::eval(&format!(
@@ -79,11 +89,55 @@ pub fn show_account(s: AppState, account_id: &str) {
     ));
 }
 
-/// Switch Settings to a page (unknown titles fall back to General).
+/// The page a title names, including the pages that were merged away
+/// (callers and debug hooks still use them); unknown titles are General.
+pub fn page_for(title: &str) -> &'static str {
+    let merged = match title.to_lowercase().as_str() {
+        "accounts" | "ai agents" => Some("Accounts & agents"),
+        "composing" | "signatures" => Some("Writing"),
+        "about & updates" | "about" => Some("General"),
+        _ => None,
+    };
+    merged
+        .or_else(|| PAGES.iter().find(|(t, _, _)| t.eq_ignore_ascii_case(title)).map(|(t, _, _)| *t))
+        .unwrap_or("General")
+}
+
+/// Switch Settings to a page.
 pub fn show_page(s: AppState, title: &str) {
-    let page = PAGES.iter().find(|(t, _, _)| t.eq_ignore_ascii_case(title)).map_or("General", |(t, _, _)| *t);
     let mut p = s.settings_page;
-    p.set(page.to_string());
+    p.set(page_for(title).to_string());
+}
+
+/// A group of settings: a small caption over its rows, in one rounded box.
+#[component]
+pub fn Group(#[props(into)] title: String, children: Element) -> Element {
+    rsx! {
+        section { class: "sgroup",
+            if !title.is_empty() { h2 { class: "sgroup__title", "{title}" } }
+            div { class: "sgroup__box", {children} }
+        }
+    }
+}
+
+/// One setting: its name and a one-line hint on the left, the control on
+/// the right; `stack` puts the control below, across the row.
+#[component]
+pub fn Row(
+    #[props(into)] label: String,
+    #[props(into, default)] hint: String,
+    #[props(default)] stack: bool,
+    children: Element,
+) -> Element {
+    rsx! {
+        div { class: "srow", "data-stack": stack.then_some("true"),
+            div { class: "srow__text",
+                span { class: "srow__label", "{label}" }
+                if !hint.is_empty() { span { class: "srow__hint", "{hint}" } }
+            }
+            div { class: "srow__control", {children} }
+        }
+    }
 }
 
 /// The sidebar while Settings is open: it takes over the mail/calendar
@@ -95,7 +149,7 @@ pub fn SettingsSidebar() -> Element {
     let mut open = s.settings_open;
     let mut page = s.settings_page;
     let mut query = use_signal(String::new);
-    let current = page.read().clone();
+    let current = page_for(&page.read()).to_string();
     let shown = matching_pages(&query.read());
     let back = match *s.mode.read() {
         Mode::Mail => "Back to Mail",
@@ -103,15 +157,14 @@ pub fn SettingsSidebar() -> Element {
     };
     rsx! {
         div { class: "sidebar__controls settings-side",
+            // Esc leaves too (shortcuts.rs Close), so no keycap here.
             button { class: "settings-back", r#type: "button", title: "{back} (Esc)", onclick: move |_| open.set(false),
-                Icon { name: "arrow-left", class: "icon--sm" }
-                span { class: "spacer", "{back}" }
-                kbd { class: "kbd", "Esc" }
+                Icon { name: "chev-left", class: "icon--sm" }
+                span { "{back}" }
             }
-            h1 { class: "settings-side__title", "Settings" }
             label { class: "settings-nav__search",
                 Icon { name: "search", class: "icon--sm" }
-                input { r#type: "search", placeholder: "Find a setting", "aria-label": "Find a setting", value: "{query}", autocomplete: "off",
+                input { r#type: "search", placeholder: "Search settings", "aria-label": "Search settings", value: "{query}", autocomplete: "off",
                     oninput: move |e| {
                         let v = e.value();
                         // Jump to the first page that has it.
@@ -147,27 +200,15 @@ pub fn Settings() -> Element {
             div { class: "settings",
                 // Empty title strip: drags the window, hairline once scrolled.
                 div { class: "settings__crumbs" }
-                match current.as_str() {
+                match page_for(&current) {
                     "Appearance" => rsx! { Appearance {} },
-                    "Accounts" => rsx! { Accounts {} },
-                    "Composing" => rsx! { super::settings_sections::Composing {} },
-                    "Signatures" => rsx! { super::settings_sections::Signatures {} },
+                    "Accounts & agents" => rsx! { Accounts {} },
+                    "Reading" => rsx! { super::settings_sections::Reading {} },
+                    "Writing" => rsx! { super::settings_sections::Writing {} },
                     "Calendar" => rsx! { super::settings_sections::CalendarSettings {} },
                     "Notifications" => rsx! { super::settings_sections::Notifications {} },
                     "Privacy" => rsx! { super::settings_sections::Privacy {} },
                     "Keyboard shortcuts" => rsx! { super::settings_sections::Shortcuts {} },
-                    "About & updates" => rsx! { super::settings_sections::AboutUpdates {} },
-                    "AI agents" => rsx! {
-                        div { class: "settings__title", "AI agents" }
-                        div { class: "settings__hint", "Let Claude or another agent search and read your mail and calendar through Coo." }
-                        div {
-                            button { class: "btn btn--secondary", r#type: "button",
-                                onclick: move |_| { let mut o = s.agent_setup_open; o.set(true); },
-                                Icon { name: "link", class: "icon--sm" }
-                                "Connect an AI agent…"
-                            }
-                        }
-                    },
                     _ => rsx! { super::settings_sections::General {} },
                 }
             }
@@ -182,13 +223,28 @@ mod page_tests {
     #[test]
     fn search_finds_the_right_page() {
         assert_eq!(matching_pages("sound").first(), Some(&"Notifications"));
-        assert_eq!(matching_pages("signature").first(), Some(&"Signatures"));
+        assert_eq!(matching_pages("signature").first(), Some(&"Writing"));
         assert_eq!(matching_pages("week").first(), Some(&"Calendar"));
         assert_eq!(matching_pages("dark").first(), Some(&"Appearance"));
-        assert_eq!(matching_pages("default").first(), Some(&"Accounts"));
-        assert_eq!(matching_pages("from").first(), Some(&"Accounts"));
+        assert_eq!(matching_pages("nickname").first(), Some(&"Accounts & agents"));
+        assert_eq!(matching_pages("claude").first(), Some(&"Accounts & agents"));
+        assert_eq!(matching_pages("from").first(), Some(&"Writing"));
+        assert_eq!(matching_pages("gravatar").first(), Some(&"Appearance"));
+        assert_eq!(matching_pages("attachments").first(), Some(&"Reading"));
+        assert_eq!(matching_pages("update").first(), Some(&"General"));
         assert_eq!(matching_pages("").len(), PAGES.len());
         assert!(matching_pages("zzz").is_empty());
+    }
+
+    #[test]
+    fn merged_pages_still_open() {
+        assert_eq!(page_for("Composing"), "Writing");
+        assert_eq!(page_for("Signatures"), "Writing");
+        assert_eq!(page_for("AI agents"), "Accounts & agents");
+        assert_eq!(page_for("Accounts"), "Accounts & agents");
+        assert_eq!(page_for("About & updates"), "General");
+        assert_eq!(page_for("calendar"), "Calendar");
+        assert_eq!(page_for("nope"), "General");
     }
 }
 
@@ -199,8 +255,9 @@ fn Appearance() -> Element {
     let mut palette = s.palette;
     let mut scale = use_signal(|| prefs::get().font_scale);
     let current = *theme.read();
+    let dark = s.dark();
     let selected = palette.read().clone();
-    let modes = [(Theme::System, "System"), (Theme::Light, "Light"), (Theme::Dark, "Dark")];
+    let modes = [(Theme::Light, "Light"), (Theme::Dark, "Dark"), (Theme::System, "Match system")];
     let mut step = move |st: Step| {
         zoom::change(s, st);
         scale.set(prefs::get().font_scale);
@@ -212,28 +269,35 @@ fn Appearance() -> Element {
 
     rsx! {
         div { class: "settings__title", "Appearance" }
-        div { class: "settings-group",
-            div { class: "settings-field",
-                span { class: "settings-field__label", "Mode" }
+        Group { title: "Look",
+            Row { label: "Mode", hint: "Match system follows macOS.",
                 div { class: "segmented", role: "radiogroup", "aria-label": "Appearance mode",
                     for (t, label) in modes {
                         button { role: "radio", "aria-selected": "{current == t}", "aria-checked": "{current == t}",
                             onclick: move |_| theme.set(t), "{label}" }
                     }
                 }
-                span { class: "settings-field__hint", "System follows macOS appearance." }
             }
-            div { class: "settings-field settings-field--top",
-                span { class: "settings-field__label", "Theme" }
+            Row { label: "Theme", hint: "Each comes in light and dark; these show the one you're in.", stack: true,
                 div { class: "theme-grid", role: "radiogroup", "aria-label": "Color theme",
                     for (id, name) in themes::choices() {
-                        ThemeCard { key: "{id}", id, name, checked: selected == id,
+                        ThemeCard { key: "{id}", id, name, checked: selected == id, dark,
                             on_pick: move |id: &'static str| palette.set(id.to_string()) }
                     }
                 }
             }
-            div { class: "settings-field settings-field--top",
-                span { class: "settings-field__label", "Message list" }
+            Row { label: "Text size", hint: "Also ⌘+ and ⌘−. Messages and the composer follow.",
+                div { class: "text-size",
+                    button { class: "icon-btn icon-btn--sm", "aria-label": "Smaller text (⌘-)", onclick: move |_| step(Step::Smaller), "−" }
+                    span { class: "text-size__value", "{pct}%" }
+                    button { class: "icon-btn icon-btn--sm", "aria-label": "Bigger text (⌘+)", onclick: move |_| step(Step::Bigger), "+" }
+                    button { class: "btn btn--ghost btn--sm", r#type: "button", disabled: pct == 100.0,
+                        onclick: move |_| step(Step::Reset), "Reset" kbd { class: "kbd", "⌘0" } }
+                }
+            }
+        }
+        Group { title: "Message list",
+            Row { label: "Style", stack: true,
                 div { class: "theme-grid list-style-grid", role: "radiogroup", "aria-label": "Message list style",
                     for st in crate::state::ListStyle::ALL {
                         button { class: "theme-card", r#type: "button", role: "radio", key: "{st.as_pref()}",
@@ -249,36 +313,44 @@ fn Appearance() -> Element {
                     }
                 }
             }
-            label { class: "settings-field",
-                span { class: "settings-field__label", "Sender avatars" }
-                input { class: "switch", r#type: "checkbox", checked: avatars_on,
+            HoverActions {}
+        }
+        Group { title: "Sender photos",
+            Row { label: "Show sender photos", hint: "Initials when there's no photo.",
+                input { class: "switch", r#type: "checkbox", checked: avatars_on, "aria-label": "Show sender photos",
                     onchange: move |_| {
                         let on = !avatars_on;
                         list_avatars.set(on);
                         prefs::update(move |p| p.list_avatars = on);
                     }
                 }
-                span { class: "settings-field__hint", "Initials, or the sender's photo: from your Google contacts, or Gravatar when Privacy › Sender photos is on." }
             }
             GoogleContactPhotos {}
             MicrosoftContactPhotos {}
-            HoverActions {}
-            div { class: "settings-field",
-                span { class: "settings-field__label", "Text size" }
-                div { class: "text-size",
-                    button { class: "icon-btn icon-btn--sm", "aria-label": "Smaller text (⌘-)", onclick: move |_| step(Step::Smaller), "−" }
-                    span { class: "text-size__value", "{pct}%" }
-                    button { class: "icon-btn icon-btn--sm", "aria-label": "Bigger text (⌘+)", onclick: move |_| step(Step::Bigger), "+" }
-                    button { class: "btn btn--ghost btn--sm", r#type: "button", disabled: pct == 100.0,
-                        onclick: move |_| step(Step::Reset), "Reset" kbd { class: "kbd", "⌘0" } }
+            GravatarPhotos {}
+        }
+    }
+}
+
+/// Sender photos from Gravatar and company logos (BIMI), off by default:
+/// Gravatar gets a one-way hash of each sender's address.
+#[component]
+fn GravatarPhotos() -> Element {
+    let mut on = use_signal(|| prefs::get().photos_gravatar);
+    rsx! {
+        Row { label: "Gravatar and company logos",
+            hint: "Sends Gravatar a scrambled form of each sender's address; logos come from the sender's domain.",
+            input { class: "switch", r#type: "checkbox", checked: *on.read(), "aria-label": "Gravatar and company logos",
+                onchange: move |_| {
+                    let now = !*on.peek();
+                    on.set(now);
+                    prefs::update(move |x| x.photos_gravatar = now);
                 }
             }
         }
     }
 }
 
-/// Settings › Appearance › Hover actions: the buttons a row shows under the
-/// pointer, up to five, in order, from anything in its right-click menu.
 /// Sender photos from Google contacts: on/off, and an Allow button for each
 /// Google account whose sign-in doesn't let Coo see its contacts yet.
 #[component]
@@ -300,9 +372,8 @@ fn GoogleContactPhotos() -> Element {
     let email = |id: &str| id.split_once(':').map_or(id, |(_, e)| e).to_string();
     let first_missing = missing.first().cloned();
     rsx! {
-        label { class: "settings-field",
-            span { class: "settings-field__label", "Photos from Google contacts" }
-            input { class: "switch", r#type: "checkbox", checked: *on.read(),
+        Row { label: "From your Google contacts", hint: "People you've saved or mailed with, and coworkers.",
+            input { class: "switch", r#type: "checkbox", checked: *on.read(), "aria-label": "Photos from Google contacts",
                 onchange: move |_| {
                     let now = !*on.peek();
                     on.set(now);
@@ -315,22 +386,21 @@ fn GoogleContactPhotos() -> Element {
                     }
                 }
             }
-            span { class: "settings-field__hint", "Show the photo a sender has in your Google contacts." }
         }
         if *on.read() {
             for id in missing {
-                div { class: "settings-field", key: "{id}",
-                    span { class: "settings-field__label", "{email(&id)}" }
+                Row { key: "{id}", label: email(&id), hint: "Needs your OK in the browser, once.",
                     button { class: "btn btn--secondary btn--sm", r#type: "button",
                         onclick: { let id = id.clone(); move |_| send_cmd(Cmd::AllowGoogleContacts { account_id: id.clone() }) },
                         "Allow contacts…" }
-                    span { class: "settings-field__hint", "Needs your OK in the browser, once." }
                 }
             }
         }
     }
 }
 
+/// Sender photos from Microsoft 365: Outlook contacts and coworkers, with
+/// an Allow button for each account that hasn't allowed it yet.
 #[component]
 fn MicrosoftContactPhotos() -> Element {
     let s = use_context::<AppState>();
@@ -350,9 +420,8 @@ fn MicrosoftContactPhotos() -> Element {
     let email = |id: &str| id.split_once(':').map_or(id, |(_, e)| e).to_string();
     let first_missing = missing.first().cloned();
     rsx! {
-        label { class: "settings-field",
-            span { class: "settings-field__label", "Photos from Microsoft 365" }
-            input { class: "switch", r#type: "checkbox", checked: *on.read(),
+        Row { label: "From Microsoft 365", hint: "Your Outlook contacts, and coworkers' own photos.",
+            input { class: "switch", r#type: "checkbox", checked: *on.read(), "aria-label": "Photos from Microsoft 365",
                 onchange: move |_| {
                     let now = !*on.peek();
                     on.set(now);
@@ -365,22 +434,21 @@ fn MicrosoftContactPhotos() -> Element {
                     }
                 }
             }
-            span { class: "settings-field__hint", "Show the photo a sender has in your Outlook contacts, or a coworker's own." }
         }
         if *on.read() {
             for id in missing {
-                div { class: "settings-field", key: "{id}",
-                    span { class: "settings-field__label", "{email(&id)}" }
+                Row { key: "{id}", label: email(&id), hint: "Needs your OK in the browser, once. Some organizations need an admin to approve coworkers' photos.",
                     button { class: "btn btn--secondary btn--sm", r#type: "button",
                         onclick: { let id = id.clone(); move |_| send_cmd(Cmd::AllowMicrosoftPhotos { account_id: id.clone() }) },
                         "Allow…" }
-                    span { class: "settings-field__hint", "Needs your OK in the browser, once. Some organizations ask an admin to approve coworkers' photos." }
                 }
             }
         }
     }
 }
 
+/// Settings › Appearance › Hover actions: the buttons a row shows under the
+/// pointer, up to five, in order, from anything in its right-click menu.
 #[component]
 fn HoverActions() -> Element {
     use super::row_actions::{ALL, CHOSEN, DEFAULT, MAX, find, set};
@@ -396,8 +464,7 @@ fn HoverActions() -> Element {
         }
     };
     rsx! {
-        div { class: "settings-field settings-field--top",
-            span { class: "settings-field__label", "Hover actions" }
+        Row { label: "Hover actions", hint: "Up to 5 buttons a message shows under the pointer, from its right-click menu.", stack: true,
             div { class: "hover-actions",
                 // The buttons as a row shows them.
                 div { class: "hover-actions__preview", "aria-hidden": "true",
@@ -449,8 +516,8 @@ fn HoverActions() -> Element {
                         }
                     }
                 }
-                span { class: "settings-field__hint",
-                    "Up to 5, from the right-click menu. Right-click a row's buttons to come back here. "
+                span { class: "srow__hint",
+                    "Right-click a row's buttons to come back here. "
                     if !is_default {
                         a { href: "#", onclick: move |e| { e.prevent_default(); set(DEFAULT.iter().map(|s| s.to_string()).collect()); },
                             "Restore defaults" }
@@ -485,29 +552,39 @@ fn ListStylePreview(style: crate::state::ListStyle, avatars: bool) -> Element {
     }
 }
 
+/// A palette as a tiny window in the mode in use: its sidebar ground, a
+/// sheet with text lines and an accent button (mixed as app.css does).
 #[component]
-fn ThemeCard(id: &'static str, name: &'static str, checked: bool, on_pick: EventHandler<&'static str>) -> Element {
+fn ThemeCard(
+    id: &'static str,
+    name: &'static str,
+    checked: bool,
+    dark: bool,
+    on_pick: EventHandler<&'static str>,
+) -> Element {
     let variants = themes::FAMILIES.iter().find(|f| f.id == id).map(|f| f.variants).unwrap_or(("Dark", "Light"));
-    let half = |dark: bool| {
-        let (bg, raised, accent, hues) = themes::preview(id, dark);
-        rsx! {
-            div { class: "theme-card__half", style: "background:{bg}",
-                div { class: "theme-card__bar", style: "background:{raised}",
-                    span { class: "theme-card__accent", style: "background:{accent}" }
-                }
-                div { class: "theme-card__dots",
-                    for h in hues { span { style: "background:{h}" } }
-                }
-            }
-        }
-    };
+    let [bg0, bg2, bg3, text, accent] = themes::swatch(id, dark);
+    let variant = if dark { variants.0 } else { variants.1 };
     rsx! {
         button { class: "theme-card", r#type: "button", role: "radio", "aria-checked": "{checked}",
             title: "{name}: {variants.1} / {variants.0}",
             onclick: move |_| on_pick.call(id),
-            div { class: "theme-card__preview", {half(false)} {half(true)} }
+            div { class: "tp", "data-dark": dark.then_some("true"), "aria-hidden": "true",
+                style: "--p-bg0:{bg0};--p-bg2:{bg2};--p-bg3:{bg3};--p-text:{text};--p-accent:{accent}",
+                div { class: "tp__side",
+                    span { class: "tp__pill" }
+                    span { class: "tp__line" }
+                    span { class: "tp__line tp__line--short" }
+                }
+                div { class: "tp__sheet",
+                    span { class: "tp__line tp__line--title" }
+                    span { class: "tp__line" }
+                    span { class: "tp__line tp__line--short" }
+                    span { class: "tp__btn" }
+                }
+            }
             div { class: "theme-card__name", "{name}" }
-            div { class: "theme-card__variants", "{variants.1} · {variants.0}" }
+            div { class: "theme-card__variants", "{variant}" }
         }
     }
 }
@@ -519,25 +596,71 @@ fn Accounts() -> Element {
     let sheet_open = s.add_account.read().is_some();
 
     rsx! {
-        div { class: "settings__title", style: "margin-top:12px", "Accounts" }
-        div { class: "settings__hint", "Click an account's name to give it a nickname. Drag accounts in the sidebar to reorder them; this list follows the same order. New messages come from the default account; right-click an account in the sidebar for more." }
-        AccountList {}
-        div { class: "account-detail__actions", style: "margin-top:4px",
-            button { class: "btn btn--outline", r#type: "button",
-                onclick: move |_| super::add_account::open(s, ""), Icon { name: "plus", class: "icon--sm" } "Add account…" }
-            if *signing_in.read() && !sheet_open { span { class: "settings__hint", style: "margin:0;align-self:center", "Finish signing in in your browser…" } }
+        div { class: "settings__title", "Accounts & agents" }
+        Group { title: "Mail accounts",
+            Row { label: "Accounts", hint: "Click a name to give it a nickname. Drag accounts in the sidebar to reorder them.", stack: true,
+                AccountList {}
+                div { class: "account-detail__actions",
+                    button { class: "btn btn--secondary btn--sm", r#type: "button",
+                        onclick: move |_| super::add_account::open(s, ""), Icon { name: "plus", class: "icon--sm" } "Add account…" }
+                    if *signing_in.read() && !sheet_open { span { class: "srow__hint", style: "align-self:center", "Finish signing in in your browser…" } }
+                }
+            }
         }
-        if !s.accounts.read().is_empty() {
-            div { class: "settings-group", style: "margin-top:16px", DefaultFromField {} }
-        }
-        VideoCalls {}
+        Group { title: "AI agents", AgentList {} }
     }
 }
 
-/// "Send from": the default account for new messages, or
+/// Settings › Accounts & agents › AI agents: each agent Coo can set up,
+/// with its status as the setup dialog shows it, and a button that opens
+/// the dialog on that agent.
+#[component]
+fn AgentList() -> Element {
+    let s = use_context::<AppState>();
+    let mut entries = use_signal(agents::existing_entries);
+    // Read again when the setup dialog closes (it may have changed one).
+    use_effect(move || {
+        if !*s.agent_setup_open.read() {
+            entries.set(agents::existing_entries());
+        }
+    });
+    let list = entries.read().clone();
+    rsx! {
+        Row { label: "Agents", hint: "Apps that can read your mail and calendar through Coo, on this Mac.", stack: true,
+            div { class: "agent-list",
+                for agent in Agent::ALL {
+                    {
+                        let status = Status::of(agent, &list);
+                        let can_send = matches!(status, Status::Connected { allow_write: true });
+                        rsx! {
+                            div { class: "agent-list__row", key: "{agent.label()}",
+                                span { class: "agent-list__icon", Icon { name: super::agent_setup::agent_icon(agent), class: "icon--sm" } }
+                                span { class: "agent-list__name", "{agent.label()}" }
+                                span { class: super::agent_setup::chip_class(status, can_send),
+                                    span { class: "agent-chip__dot" }
+                                    "{status.label(can_send)}"
+                                }
+                                button { class: "btn btn--secondary btn--sm", r#type: "button",
+                                    onclick: move |_| {
+                                        *super::agent_setup::PICK.write() = Some(agent);
+                                        let mut o = s.agent_setup_open;
+                                        o.set(true);
+                                    },
+                                    if status.is_connected() { "Manage" } else { "Set up" }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// "New messages come from": the default account for new messages, or
 /// Automatic (the top account in the sidebar). Replies and forwards keep
 /// coming from the account the mail came to; the composer's From picker
-/// changes one message only. Also on Settings › Composing.
+/// changes one message only. Settings › Writing.
 #[component]
 pub fn DefaultFromField() -> Element {
     let s = use_context::<AppState>();
@@ -545,8 +668,7 @@ pub fn DefaultFromField() -> Element {
     let chosen = s.chosen_default().unwrap_or_default();
     let top = accounts.first().map(|a| s.account_label(&a.account.id, &a.account.email)).unwrap_or_default();
     rsx! {
-        div { class: "settings-field",
-            span { class: "settings-field__label", title: "The account new messages come from", "Send from" }
+        Row { label: "New messages come from", hint: "Automatic is the top account in the sidebar. Replies come from the address the message was sent to.",
             select { class: "select default-from", "aria-label": "Default account for new messages",
                 onchange: move |e| {
                     let v = e.value();
@@ -556,52 +678,6 @@ pub fn DefaultFromField() -> Element {
                 for a in accounts.iter() {
                     option { key: "{a.account.id}", value: "{a.account.id}", selected: chosen == a.account.id,
                         "{s.account_label(&a.account.id, &a.account.email)}" }
-                }
-            }
-            span { class: "settings-field__hint", "For new messages; Automatic is the top account in the sidebar. Replies come from the account the message was sent to." }
-        }
-    }
-}
-
-/// Settings › Accounts › Video calls: the connected Zoom account.
-#[component]
-fn VideoCalls() -> Element {
-    let s = use_context::<AppState>();
-    let zoom = s.zoom.read().clone();
-    let mut connecting = use_signal(|| false);
-    // A reply (connected or a failure toast) ends the wait.
-    use_effect(move || {
-        let _ = s.zoom.read();
-        connecting.set(false);
-    });
-    let available = pigeon_core::auth::zoom_client_id().is_some();
-    rsx! {
-        div { class: "settings__title", style: "margin-top:20px", "Video calls" }
-        div { class: "settings__hint", "Add Zoom meetings to events on any of your calendars." }
-        div { class: "settings-group",
-            div { class: "settings-field",
-                span { class: "settings-field__label", "Zoom" }
-                match zoom {
-                    Some(z) => rsx! {
-                        div { style: "display:flex;align-items:center;gap:10px;flex:1;min-width:0",
-                            Icon { name: "video", class: "icon--sm" }
-                            span { dir: "auto", style: "overflow:hidden;text-overflow:ellipsis;white-space:nowrap",
-                                "{z.display_name} ", span { class: "settings-field__hint", style: "margin:0", "{z.email}" } }
-                        }
-                        button { class: "btn btn--ghost btn--sm", r#type: "button",
-                            onclick: move |_| send_cmd(Cmd::ZoomDisconnect), "Disconnect" }
-                    },
-                    None => rsx! {
-                        button { class: "btn btn--secondary btn--sm", r#type: "button",
-                            disabled: *connecting.read() || !available,
-                            onclick: move |_| { connecting.set(true); send_cmd(Cmd::ZoomConnect); },
-                            Icon { name: "video", class: "icon--sm" } "Connect Zoom" }
-                        span { class: "settings-field__hint", style: "margin:0",
-                            if !available { "Zoom isn't set up in this build." }
-                            else if *connecting.read() { "Finish signing in to Zoom in your browser…" }
-                            else { "While Coo's Zoom app is in development, only accounts in its owner's Zoom organization can connect." }
-                        }
-                    },
                 }
             }
         }
