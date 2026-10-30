@@ -599,24 +599,51 @@ fn SyncFooter() -> Element {
     };
     // Only news gets a line of its own: a sync you asked for, a problem,
     // offline, a sign-in, an update. "Synced" is the sync button's tooltip.
-    let news = state != "synced" || s.update_ready.read().is_some();
+    // What the status line says now (None: nothing worth a line).
+    let line: Option<(String, &'static str, String)> = match s.update_ready.read().clone() {
+        Some(v) => Some(("update".to_string(), "sync", v)),
+        None if state != "synced" => Some((state.to_string(), icon, text.clone())),
+        None => None,
+    };
+    // The line on screen: it stays a moment after the news clears, to
+    // slide away (app.css `.sidebar__status[data-leaving]`).
+    let mut shown = use_signal(|| line.clone());
+    let mut leaving = use_signal(|| false);
+    let mut epoch = use_signal(|| 0u64);
+    use_effect(use_reactive!(|line| {
+        if line.is_some() {
+            leaving.set(false);
+            shown.set(line);
+        } else if shown.peek().is_some() && !*leaving.peek() {
+            leaving.set(true);
+            let g = *epoch.peek() + 1;
+            epoch.set(g);
+            spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(260)).await;
+                if *epoch.peek() == g && *leaving.peek() {
+                    shown.set(None);
+                    leaving.set(false);
+                }
+            });
+        }
+    }));
     let settings_shown = *s.settings_shown.read();
     let mut mode = s.mode;
     let mut settings_open = s.settings_open;
     let sync_tip = if state == "synced" { format!("{text} · Sync now") } else { text.clone() };
     rsx! {
         div { class: "sidebar__footer",
-            if news {
-                div { class: "sidebar__status",
-                    if let Some(v) = s.update_ready.read().clone() {
-                        button { class: "update-pill", r#type: "button", title: "Restart Coo to update to {v}",
+            if let Some((kind, icon, text)) = shown.read().clone() {
+                div { class: "sidebar__status", "data-leaving": leaving.read().then_some("true"),
+                    if kind == "update" {
+                        button { class: "update-pill", r#type: "button", title: "Restart Coo to update to {text}",
                             onclick: move |_| super::restart_to_update(),
                             Icon { name: "sync", class: "icon--xs" }
                             span { "Update ready · Restart" }
                         }
                     } else {
-                        button { class: "sync-status", r#type: "button", "data-state": "{state}", title: "{text}",
-                            disabled: state == "syncing",
+                        button { class: "sync-status", r#type: "button", "data-state": "{kind}", title: "{text}",
+                            disabled: kind == "syncing",
                             onclick: move |_| super::sync_now(s),
                             Icon { name: icon, class: "icon--sm" }
                             span { class: "sync-status__text", "{text}" }
