@@ -110,11 +110,19 @@ pub fn show_page(s: AppState, title: &str) {
 }
 
 /// A group of settings: a small caption over its rows, in one rounded box.
+/// `perch` seats the Settings pigeon on the box's top edge, at the right.
 #[component]
-pub fn Group(#[props(into)] title: String, children: Element) -> Element {
+pub fn Group(#[props(into)] title: String, #[props(default)] perch: bool, children: Element) -> Element {
     rsx! {
         section { class: "sgroup",
-            if !title.is_empty() { h2 { class: "sgroup__title", "{title}" } }
+            if perch {
+                div { class: "sgroup__head",
+                    h2 { class: "sgroup__title", "{title}" }
+                    super::settings_bird::Perch {}
+                }
+            } else if !title.is_empty() {
+                h2 { class: "sgroup__title", "{title}" }
+            }
             div { class: "sgroup__box", {children} }
         }
     }
@@ -259,8 +267,13 @@ fn Appearance() -> Element {
     let selected = palette.read().clone();
     let modes = [(Theme::Light, "Light"), (Theme::Dark, "Dark"), (Theme::System, "Match system")];
     let mut step = move |st: Step| {
+        let before = *scale.peek();
         zoom::change(s, st);
-        scale.set(prefs::get().font_scale);
+        let after = prefs::get().font_scale;
+        scale.set(after);
+        if let Some(c) = super::settings_bird::size_cue(before, after) {
+            super::settings_bird::cue(c);
+        }
     };
     let pct = (*scale.read() * 100.0).round();
     let (mut list_style, mut list_avatars) = (s.list_style, s.list_avatars);
@@ -269,7 +282,7 @@ fn Appearance() -> Element {
 
     rsx! {
         div { class: "settings__title", "Appearance" }
-        Group { title: "Look",
+        Group { title: "Look", perch: true,
             Row { label: "Mode", hint: "Match system follows macOS.",
                 div { class: "segmented", role: "radiogroup", "aria-label": "Appearance mode",
                     for (t, label) in modes {
@@ -282,7 +295,12 @@ fn Appearance() -> Element {
                 div { class: "theme-grid", role: "radiogroup", "aria-label": "Color theme",
                     for (id, name) in themes::choices() {
                         ThemeCard { key: "{id}", id, name, checked: selected == id, dark,
-                            on_pick: move |id: &'static str| palette.set(id.to_string()) }
+                            on_pick: move |id: &'static str| {
+                                if *palette.peek() != id {
+                                    super::settings_bird::cue(super::settings_bird::Cue::Twirl);
+                                }
+                                palette.set(id.to_string());
+                            } }
                     }
                 }
             }

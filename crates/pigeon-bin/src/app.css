@@ -1626,3 +1626,54 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
   .bird *, .perch__coo, .perch__feather, .list[data-sweep] .row, .flag-wave > .icon, .count--zero, .count__feather { animation: none !important; }
   .count__feather { display: none; }
 }
+/* The Settings pigeon (ui/settings_bird.rs): perched on the Look and Sounds
+   boxes, feet on the box's top edge, reacting to theme, sound and text size. */
+.sgroup__head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; padding-right: 28px; }
+.settings-perch { position: relative; z-index: 1; display: block; width: 34px; height: 31px; margin: -15px 0 -12px; flex: none; }
+.settings-perch > .bird { width: 34px; height: 31px; display: block; }
+.bird--twirl .bird__scarf { transform-box: fill-box; transform-origin: 70% 60%; animation: bird-twirl 700ms cubic-bezier(0.22, 1, 0.36, 1); }
+.bird--twirl .bird__body { transform-origin: 34px 54px; animation: bird-hop 700ms cubic-bezier(0.22, 1, 0.36, 1); }
+.bird--bob .bird__body { transform-origin: 32px 52px; animation: bird-bob 900ms ease-in-out; }
+.bird--sway .bird__body { transform-origin: 32px 54px; animation: bird-sway 1600ms ease-in-out; }
+.bird--tilt .bird__body { transform-origin: 30px 46px; animation: bird-tilt 850ms cubic-bezier(0.22, 1, 0.36, 1); }
+.bird--puff .bird__body { transform-origin: 34px 54px; animation: bird-puff 650ms cubic-bezier(0.22, 1, 0.36, 1); }
+.bird--tuck .bird__body { transform-origin: 34px 54px; animation: bird-tuck 650ms cubic-bezier(0.22, 1, 0.36, 1); }
+@keyframes bird-twirl { 0% { transform: none; } 35% { transform: scale(1.35) rotate(-24deg); } 70% { transform: scale(0.95) rotate(8deg); } 100% { transform: none; } }
+@keyframes bird-hop { 0%, 100% { transform: none; } 30% { transform: translateY(-5px); } 55% { transform: translateY(0) scale(1.05, 0.95); } }
+@keyframes bird-bob { 0%, 50%, 100% { transform: none; } 25%, 75% { transform: rotate(-10deg); } }
+@keyframes bird-sway { 0%, 100% { transform: none; } 30% { transform: rotate(-6deg); } 70% { transform: rotate(5deg); } }
+@keyframes bird-tilt { 0%, 100% { transform: none; } 30%, 70% { transform: rotate(14deg); } }
+@keyframes bird-puff { 0%, 100% { transform: none; } 40% { transform: scale(1.16); } 70% { transform: scale(1.06); } }
+@keyframes bird-tuck { 0%, 100% { transform: none; } 40% { transform: scale(0.84, 0.8); } 70% { transform: scale(0.94); } }
+/* About Coo: the tap-for-a-surprise pigeon beside the Open button. */
+.about-bird { position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.about-bird__btn { border: 0; padding: 0; background: transparent; cursor: pointer; line-height: 0; }
+.about-bird__btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: 6px; }
+.about-bird__fig { display: block; }
+.about-bird__fig > .bird { width: 30px; height: 28px; display: block; }
+.about-bird__dots { display: flex; gap: 3px; }
+.about-bird__dots > span { width: 4px; height: 4px; border-radius: 50%; background: var(--line-strong); transition: background-color var(--dur-fast, 120ms) ease; }
+.about-bird__dots > span[data-on] { background: var(--accent); }
+.about-bird__coo {
+  position: absolute; right: calc(100% + 4px); top: -12px; padding: 3px 8px; border-radius: 10px 10px 3px 10px;
+  background: var(--bg-0); box-shadow: 0 0 0 1px var(--line), 0 2px 6px rgba(0, 0, 0, 0.12);
+  font-size: 12px; font-weight: 700; white-space: nowrap; color: var(--text-1);
+  animation: bird-say 1600ms cubic-bezier(0.22, 1, 0.36, 1) 450ms both;
+}
+.about-bird__letter { position: absolute; left: -16px; top: 10px; width: 16px; height: 12px; animation: letter-drop 2600ms cubic-bezier(0.3, 0.7, 0.4, 1) both; }
+.bird--squash .bird__body { transform-origin: 34px 54px; animation: bird-squash 240ms ease-out; }
+.bird--flip .bird__body { transform-origin: 34px 30px; animation: bird-flip 1100ms cubic-bezier(0.3, 0.7, 0.3, 1); }
+@keyframes bird-squash { 0%, 100% { transform: none; } 45% { transform: translateY(2px) scale(1.06, 0.9); } }
+@keyframes bird-flip {
+  0% { transform: none; } 15% { transform: translateY(2px) scale(1.06, 0.92); }
+  45% { transform: translateY(-24px) rotate(-180deg); } 70% { transform: translateY(-14px) rotate(-340deg); }
+  85% { transform: translateY(0) rotate(-360deg) scale(1.06, 0.92); } 100% { transform: rotate(-360deg); }
+}
+@keyframes letter-drop {
+  0% { opacity: 0; transform: translate(10px, -6px) rotate(-10deg) scale(0.6); }
+  15% { opacity: 1; } 45% { transform: translate(0, 12px) rotate(8deg); } 55% { transform: translate(0, 8px) rotate(-4deg); }
+  65% { transform: translate(0, 12px) rotate(0); } 85% { opacity: 1; transform: translate(0, 12px); } 100% { opacity: 0; transform: translate(0, 12px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings-perch .bird *, .about-bird .bird *, .about-bird__coo, .about-bird__letter { animation: none !important; }
+}

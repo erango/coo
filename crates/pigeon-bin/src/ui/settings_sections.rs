@@ -94,6 +94,7 @@ pub fn General() -> Element {
                 button { class: "btn btn--secondary btn--sm", r#type: "button", onclick: move |_| super::report_bug(s), "Report a bug…" }
             }
             Row { label: "About Coo", hint: "Credits and the website.",
+                super::settings_bird::AboutBird {}
                 button { class: "btn btn--secondary btn--sm", r#type: "button", onclick: move |_| crate::about::show(), "Open" }
             }
         }
@@ -681,7 +682,7 @@ pub fn Notifications() -> Element {
                     onchange: move |_| set(|p| p.reminders_time_sensitive = !p.reminders_time_sensitive) }
             }
         }
-        Group { title: "Sounds",
+        Group { title: "Sounds", perch: true,
             Row { label: "Sound", hint: "Each set has a new-mail sound and a reminder sound. Click one to hear it.", stack: true,
                 div { class: "chips", role: "radiogroup", "aria-label": "Sound theme",
                     {
@@ -693,6 +694,7 @@ pub fn Notifications() -> Element {
                                     onclick: move |_| {
                                         prefs::update(move |x| x.sound_theme = id.to_string());
                                         crate::sound::play(id, crate::sound::Kind::Mail);
+                                        if let Some(c) = super::settings_bird::sound_cue(id) { super::settings_bird::cue(c); }
                                         p.set(prefs::get());
                                     },
                                     if id == crate::sound::MACOS { "macOS" } else { "{label}" }
@@ -705,7 +707,11 @@ pub fn Notifications() -> Element {
             Row { label: "New mail",
                 div { class: "srow__inline",
                     button { class: "btn btn--ghost btn--sm", r#type: "button", disabled: quiet, title: "Play the new-mail sound",
-                        onclick: move |_| { let p = prefs::get(); crate::sound::play(&p.sound_theme, crate::sound::Kind::Mail); },
+                        onclick: move |_| {
+                            let p = prefs::get();
+                            crate::sound::play(&p.sound_theme, crate::sound::Kind::Mail);
+                            if let Some(c) = super::settings_bird::sound_cue(&p.sound_theme) { super::settings_bird::cue(c); }
+                        },
                         Icon { name: "play", class: "icon--xs" } "Play" }
                     input { class: "switch", r#type: "checkbox", checked: cur.mail_sound, disabled: quiet, "aria-label": "New mail sound",
                         onchange: move |_| set(|p| p.mail_sound = !p.mail_sound) }
@@ -714,7 +720,11 @@ pub fn Notifications() -> Element {
             Row { label: "Event reminders",
                 div { class: "srow__inline",
                     button { class: "btn btn--ghost btn--sm", r#type: "button", disabled: quiet, title: "Play the reminder sound",
-                        onclick: move |_| { let p = prefs::get(); crate::sound::play(&p.sound_theme, crate::sound::Kind::Meeting); },
+                        onclick: move |_| {
+                            let p = prefs::get();
+                            crate::sound::play(&p.sound_theme, crate::sound::Kind::Meeting);
+                            if let Some(c) = super::settings_bird::sound_cue(&p.sound_theme) { super::settings_bird::cue(c); }
+                        },
                         Icon { name: "play", class: "icon--xs" } "Play" }
                     input { class: "switch", r#type: "checkbox", checked: cur.meeting_sound, disabled: quiet, "aria-label": "Reminder sound",
                         onchange: move |_| set(|p| p.meeting_sound = !p.meeting_sound) }
