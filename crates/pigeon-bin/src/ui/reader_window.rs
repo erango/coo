@@ -363,7 +363,7 @@ fn ReaderWindow(props: ReaderWindowProps) -> Element {
                     button { class: "icon-btn", "aria-label": tip("Delete", Do::Delete), onclick: move |_| archive(s, &i2, MailAction::Trash), Icon { name: "trash", class: "icon--lg" } }
                     button { class: "icon-btn", "aria-label": tip("Flag", Do::Flag),
                         onclick: move |_| act(s, &i3, if flagged { MailAction::Unflag } else { MailAction::Flag }),
-                        Icon { name: "flag", class: "icon--lg" }
+                        super::bird::FlagIcon { flagged, class: "icon--lg", always: true }
                     }
                     span { class: "spacer" }
                     button { class: "icon-btn", "aria-label": tip("Reply", Do::Reply), onclick: move |_| reply(s, &i4, ReplyKind::Reply), Icon { name: "reply", class: "icon--lg" } }

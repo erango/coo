@@ -166,7 +166,7 @@ fn MailNav(many: bool) -> Element {
                             onclick: move |e| { e.prevent_default(); mailbox.set(Mailbox::Unified(role)); },
                             Icon { name: icon }
                             span { class: "nav-item__label", "{label}" }
-                            if count > 0 { span { class: "count", "{count}" } }
+                            super::bird::CountBadge { count }
                         }
                     }
                 }
@@ -274,7 +274,7 @@ fn AccountSection(
             },
             if many { span { class: "pip", "{letter}" } } else { span { class: "dot" } }
             span { dir: "auto", style: "overflow:hidden;text-overflow:ellipsis;white-space:nowrap", title: "{tip}", "{name}" }
-            if collapsed && unread > 0 { span { class: "count nav-section__count", "{unread}" } }
+            if collapsed { super::bird::CountBadge { count: unread, class: "count nav-section__count" } }
             span { class: "nav-section__meta", title: "{meta}", dangerous_inner_html: provider_mark(nav.account.provider, meta) }
             if draggable { Icon { name: "grip", class: "icon--xs nav-section__grip" } }
         }
@@ -510,7 +510,7 @@ fn FolderRow(account_id: String, info: FolderInfo, pinned: bool, child: bool) ->
             span { class: "nav-item__label", dir: "auto", "{label}" }
             if deleting {
                 span { class: "nav-item__busy", "Deleting…" }
-            } else if unread > 0 { span { class: "count", "{unread}" } }
+            } else { super::bird::CountBadge { count: unread } }
             if custom && !deleting {
                 button { class: "nav-item__pin", r#type: "button", "aria-label": "{pin_label}", title: "{pin_label}",
                     "aria-pressed": "{pinned}",

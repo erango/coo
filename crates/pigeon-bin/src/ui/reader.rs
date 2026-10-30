@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use chrono::Timelike;
 use dioxus::prelude::*;
 use pigeon_core::compose::ReplyKind;
 use pigeon_core::model::{MessageHeader, StoredBody};
@@ -36,6 +37,16 @@ pub fn Reader() -> Element {
 /// Nothing open. With mail in the list, the app's bird waits on its perch,
 /// looking toward the list; with an empty list the list's own (sleeping) bird
 /// is the only one and this pane stays blank.
+/// The empty reader's pigeon by the hour: in a nightcap after midnight,
+/// yawning early in the morning, awake the rest of the day.
+fn night_pose(hour: u32) -> super::bird::Pose {
+    match hour {
+        0..=4 => super::bird::Pose::Nightcap,
+        5..=6 => super::bird::Pose::Yawn,
+        _ => super::bird::Pose::Awake,
+    }
+}
+
 #[component]
 fn ReaderEmpty() -> Element {
     let s = use_context::<AppState>();
@@ -58,7 +69,7 @@ fn ReaderEmpty() -> Element {
     rsx! {
         div { class: "empty-state reader-empty",
             div { class: "perch perch--awake",
-                svg { view_box: "4 4 60 56", "aria-hidden": "true", dangerous_inner_html: super::list::AWAKE_BIRD }
+                super::bird::Bird { pose: night_pose(chrono::Local::now().hour()) }
             }
             div { class: "empty-state__title", "Pick a conversation" }
             div { class: "empty-state__body", "{lede}" }
@@ -108,7 +119,7 @@ fn ThreadReader() -> Element {
                 button { class: "icon-btn", "aria-label": tip("Delete", Do::Delete), onclick: move |_| if let Some(i) = &i2 { act(s, i, MailAction::Trash) }, Icon { name: "trash", class: "icon--lg" } }
                 button { class: "icon-btn", "aria-label": tip("Flag", Do::Flag),
                     onclick: move |_| if let Some(i) = &i3 { act(s, i, if flagged { MailAction::Unflag } else { MailAction::Flag }) },
-                    Icon { name: "flag", class: "icon--lg" }
+                    super::bird::FlagIcon { flagged, class: "icon--lg", always: true }
                 }
                 }
                 button { class: "icon-btn", "aria-label": tip("Move", Do::Move), onclick: move |_| super::move_picker::open(s, false), Icon { name: "folder", class: "icon--lg" } }
@@ -720,5 +731,18 @@ mod thread_tests {
         assert_eq!(latest_message_id(&[h("a", 3), h("b", 1), h("c", 2)]).as_deref(), Some("a"));
         assert_eq!(latest_message_id(&[h("a", 1), h("b", 1)]).as_deref(), Some("b"));
         assert_eq!(latest_message_id(&[]), None);
+    }
+}
+
+#[cfg(test)]
+mod night_tests {
+    use super::*;
+
+    #[test]
+    fn the_pigeon_keeps_hours() {
+        assert_eq!(night_pose(1), super::super::bird::Pose::Nightcap);
+        assert_eq!(night_pose(6), super::super::bird::Pose::Yawn);
+        assert_eq!(night_pose(14), super::super::bird::Pose::Awake);
+        assert_eq!(night_pose(23), super::super::bird::Pose::Awake);
     }
 }

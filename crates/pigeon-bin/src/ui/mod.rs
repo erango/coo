@@ -3,6 +3,7 @@ pub mod add_account;
 mod agent_setup;
 mod attachments;
 mod avatar;
+pub mod bird;
 mod bug_report;
 pub mod calendar;
 pub mod compose;
@@ -1222,10 +1223,27 @@ pub fn empty_trash(account_ids: Vec<String>) {
             .show()
             .await;
         if answer == rfd::MessageDialogResult::Custom(empty) {
+            // Viewing that Trash: its rows sweep down into the bin first
+            // (app.css `.list[data-sweep]`), then go for real.
+            document::eval(SWEEP_JS);
+            tokio::time::sleep(std::time::Duration::from_millis(SWEEP_MS)).await;
             send_cmd(Cmd::EmptyTrash { account_ids });
+            tokio::time::sleep(std::time::Duration::from_millis(900)).await;
+            document::eval(
+                "const l=document.querySelector('.pane--list .list[role=listbox]'); if(l) delete l.dataset.sweep;",
+            );
         }
     });
 }
+
+/// How long the Empty Trash sweep runs before the rows go.
+const SWEEP_MS: u64 = 560;
+/// Stagger the Trash rows on screen and start their sweep (only while the
+/// list shows a Trash: its Empty button is there).
+const SWEEP_JS: &str = "(() => { const l = document.querySelector('.pane--list .list[role=listbox]'); \
+    if (!l || !document.querySelector('.list-empty-trash')) return; \
+    [...l.querySelectorAll('.row')].forEach((r, i) => { r.style.animationDelay = Math.min(i, 12) * 40 + 'ms'; }); \
+    l.dataset.sweep = '1'; })()";
 
 /// Whether Delete here deletes for good (viewing these accounts' Trash)
 /// rather than moving to Trash.
