@@ -1361,3 +1361,29 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .nav-account:has(> .nav-section:only-child) + .nav-account > .nav-section { margin-top: 4px; }
 .nav-account > .nav-section { height: 30px; border-radius: var(--radius-sm); cursor: default; }
 .nav-account > .nav-section:hover { background: color-mix(in oklab, var(--ground), var(--text-1) 6%); }
+/* Sidebar foot: a quiet icon bar (Mail · Calendar … Sync · Settings), with a
+   status line above it only when there's news (a sync you asked for, a
+   problem, offline, sign-in, an update). */
+.sidebar__footer {
+  height: auto; flex-direction: column; align-items: stretch; gap: 4px;
+  padding: 6px 10px 10px; box-shadow: none; overflow: visible;
+}
+.sidebar__status { display: flex; min-width: 0; }
+.sidebar__status .update-pill { flex: 1; justify-content: flex-start; }
+.sidebar__footer .sidebar__status button.sync-status {
+  flex: 1; min-width: 0; height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; margin: 0;
+  border: 0; border-radius: var(--radius-sm); font: inherit; font-size: var(--fs-caption); text-align: left;
+  color: var(--text-2); background: color-mix(in oklab, var(--ground), var(--text-1) 5%); cursor: pointer;
+}
+.sidebar__footer .sidebar__status button.sync-status:disabled { cursor: default; }
+.sidebar__status .sync-status[data-state="error"], .sidebar__status .sync-status[data-state="auth"] { color: var(--text-1); }
+.sidebar__status .sync-status[data-state="error"] .icon, .sidebar__status .sync-status[data-state="auth"] .icon { color: var(--warning); }
+.sidebar__bar { height: 34px; display: flex; align-items: center; gap: 2px; }
+.sidebar__bar .spacer { flex: 1; }
+.sidebar__modes { display: flex; gap: 2px; }
+.sidebar__bar .icon-btn { width: 32px; height: 32px; border-radius: var(--radius-sm); color: var(--text-2); }
+.sidebar__bar .icon-btn:hover { background: color-mix(in oklab, var(--ground), var(--text-1) 6%); color: var(--text-1); }
+.sidebar__modes .icon-btn[aria-selected="true"] { background: var(--nav-on); box-shadow: var(--nav-on-edge); color: var(--text-1); }
+.sidebar__sync[data-state="syncing"] .icon { animation: coo-spin 1s linear infinite; }
+.sidebar__sync[data-state="error"] .icon, .sidebar__sync[data-state="auth"] .icon { color: var(--warning); }
+@keyframes coo-spin { to { transform: rotate(360deg); } }

@@ -5,7 +5,7 @@ use pigeon_engine::service::{AccountNav, Cmd, Mailbox};
 use super::Icon;
 use crate::format;
 use crate::send_cmd;
-use crate::state::{AppState, Mode, Theme};
+use crate::state::{AppState, Mode};
 
 const UNIFIED: [(FolderRole, &str, &str); 4] = [
     (FolderRole::Inbox, "Inbox", "inbox"),
@@ -89,7 +89,7 @@ fn visible_folders(provider: ProviderKind, folders: &[FolderInfo]) -> Vec<&Folde
 #[component]
 pub fn Sidebar() -> Element {
     let s = use_context::<AppState>();
-    let mut mode = s.mode;
+    let mode = s.mode;
     let many = s.accounts.read().len() > 4;
 
     if *s.settings_shown.read() {
@@ -104,19 +104,6 @@ pub fn Sidebar() -> Element {
     rsx! {
         aside { class: "sidebar",
             div { class: "sidebar__top" }
-            div { class: "sidebar__controls",
-                // Search lives in the list pane (⌘F); this is the palette.
-                button { class: "search-field", r#type: "button", title: "Go to a folder, run a command, or search everywhere",
-                    onclick: move |_| { let mut p = s.palette_open; p.set(true); },
-                    Icon { name: "arrow-right", class: "icon--sm" }
-                    span { class: "spacer", style: "text-align:left", "Go to or do…" }
-                    kbd { class: "kbd", "⌘K" }
-                }
-                div { class: "segmented segmented--block", role: "tablist",
-                    button { role: "tab", "aria-selected": "{*mode.read() == Mode::Mail}", onclick: move |_| mode.set(Mode::Mail), "Mail" }
-                    button { role: "tab", "aria-selected": "{*mode.read() == Mode::Calendar}", onclick: move |_| mode.set(Mode::Calendar), "Calendar" }
-                }
-            }
             match *mode.read() {
                 Mode::Mail => rsx! { MailNav { many } },
                 Mode::Calendar => rsx! { super::calendar::CalendarSidebar {} },
@@ -610,41 +597,59 @@ fn SyncFooter() -> Element {
     } else {
         ("syncing", "sync", "Connecting…".to_string())
     };
-    let mut theme = s.theme;
-    let theme_label = match *theme.read() {
-        Theme::System => "Theme: system",
-        Theme::Dark => "Theme: dark",
-        Theme::Light => "Theme: light",
-    };
+    // Only news gets a line of its own: a sync you asked for, a problem,
+    // offline, a sign-in, an update. "Synced" is the sync button's tooltip.
+    let news = state != "synced" || s.update_ready.read().is_some();
+    let settings_shown = *s.settings_shown.read();
+    let mut mode = s.mode;
+    let mut settings_open = s.settings_open;
+    let sync_tip = if state == "synced" { format!("{text} · Sync now") } else { text.clone() };
     rsx! {
         div { class: "sidebar__footer",
-            button { class: "icon-btn icon-btn--sm", "aria-label": "{theme_label}", title: "{theme_label}",
-                onclick: move |_| {
-                    let next = match *theme.read() { Theme::System => Theme::Dark, Theme::Dark => Theme::Light, Theme::Light => Theme::System };
-                    theme.set(next);
-                },
-                Icon { name: "sun", class: "icon--sm" }
-            }
-            // Settings has its own Back button at the top while open.
-            if !*s.settings_shown.read() {
-                button { class: "icon-btn icon-btn--sm", "aria-label": "Settings", title: "Settings (⌘,)",
-                    onclick: move |_| { let mut o = s.settings_open; o.set(true); },
-                    Icon { name: "gear", class: "icon--sm" }
+            if news {
+                div { class: "sidebar__status",
+                    if let Some(v) = s.update_ready.read().clone() {
+                        button { class: "update-pill", r#type: "button", title: "Restart Coo to update to {v}",
+                            onclick: move |_| super::restart_to_update(),
+                            Icon { name: "sync", class: "icon--xs" }
+                            span { "Update ready · Restart" }
+                        }
+                    } else {
+                        button { class: "sync-status", r#type: "button", "data-state": "{state}", title: "{text}",
+                            disabled: state == "syncing",
+                            onclick: move |_| super::sync_now(s),
+                            Icon { name: icon, class: "icon--sm" }
+                            span { class: "sync-status__text", "{text}" }
+                        }
+                    }
                 }
             }
-            if let Some(v) = s.update_ready.read().clone() {
-                button { class: "update-pill", r#type: "button", title: "Restart Coo to update to {v}",
-                    onclick: move |_| super::restart_to_update(),
-                    Icon { name: "sync", class: "icon--xs" }
-                    span { "Update ready · Restart" }
+            div { class: "sidebar__bar",
+                if !settings_shown {
+                    div { class: "sidebar__modes", role: "tablist", "aria-label": "Mail or calendar",
+                        button { class: "icon-btn", role: "tab", "aria-label": "Mail", title: "Mail",
+                            "aria-selected": "{*mode.read() == Mode::Mail}", onclick: move |_| mode.set(Mode::Mail),
+                            Icon { name: "mail", class: "icon--sm" }
+                        }
+                        button { class: "icon-btn", role: "tab", "aria-label": "Calendar", title: "Calendar",
+                            "aria-selected": "{*mode.read() == Mode::Calendar}", onclick: move |_| mode.set(Mode::Calendar),
+                            Icon { name: "cal", class: "icon--sm" }
+                        }
+                    }
                 }
-            }
-            // A button once there's nothing in flight: hover reads "Sync now".
-            button { class: "sync-status", r#type: "button", "data-state": "{state}", title: "{text}",
-                disabled: state == "syncing",
-                onclick: move |_| super::sync_now(s),
-                span { class: "sync-status__now", Icon { name: icon, class: "icon--sm" } span { class: "sync-status__text", "{text}" } }
-                span { class: "sync-status__hover", "aria-hidden": "true", Icon { name: "sync", class: "icon--sm" } span { class: "sync-status__text", "Sync now" } }
+                span { class: "spacer" }
+                button { class: "icon-btn sidebar__sync", r#type: "button", "aria-label": "Sync now", title: "{sync_tip}",
+                    "data-state": "{state}", disabled: state == "syncing",
+                    onclick: move |_| super::sync_now(s),
+                    Icon { name: "sync", class: "icon--sm" }
+                }
+                // Settings has its own Back button at the top while open.
+                if !settings_shown {
+                    button { class: "icon-btn", r#type: "button", "aria-label": "Settings", title: "Settings (⌘,)",
+                        onclick: move |_| settings_open.set(true),
+                        Icon { name: "gear", class: "icon--sm" }
+                    }
+                }
             }
         }
     }
