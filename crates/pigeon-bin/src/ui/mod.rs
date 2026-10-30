@@ -1029,6 +1029,7 @@ async fn bridge_loop(s: AppState) {
             "attach-drag" => crate::dragout::start(&msg.v),
             "list-band" => multi::on_band(s, &msg.v),
             "shortcut-rec" => settings_sections::on_shortcut_recorded(&msg.v),
+            "pane" => *LIST_FOCUS.write() = msg.v == "list",
             // A row pressed and moved: drag it (or the selection it's in).
             "mail-drag" => {
                 if let Some(item) = s.visible_items().into_iter().find(|i| AppState::key(i) == msg.v) {
@@ -1354,6 +1355,10 @@ fn on_key(s: AppState, key: &str) {
     }
 }
 
+/// Whether the message list is the pane last clicked (bridge "pane"): ⌘F
+/// then searches the folder even with a message open.
+static LIST_FOCUS: GlobalSignal<bool> = Signal::global(|| false);
+
 /// Undo the latest action that can still be undone (its notice may be
 /// long gone).
 pub fn undo_last(s: AppState) {
@@ -1472,8 +1477,14 @@ pub fn run(s: AppState, what: Do) {
         return;
     }
     match what {
-        // A conversation open: find in it; otherwise search the folder.
-        Do::Find if s.reader.read().is_some() && multi::items(&s).is_empty() && !*s.settings_open.read() => {
+        // A conversation open (and the list not the pane last clicked):
+        // find in it; otherwise search the folder.
+        Do::Find
+            if s.reader.read().is_some()
+                && !*LIST_FOCUS.peek()
+                && multi::items(&s).is_empty()
+                && !*s.settings_open.read() =>
+        {
             let mut f = s.find;
             if f.read().is_none() {
                 f.set(Some(String::new()));

@@ -40,7 +40,14 @@ pub const JS: &str = r#"
   const editable = (el) => el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
   let lastShift = 0; // 1 = left, 2 = right
   let listFocus = false;
+  // Which pane ⌘F searches: the list after a click in it (not on a row,
+  // which opens a message), the open message after a click or key there.
+  let pane = 'reader';
+  const setPane = (p) => { if (p !== pane) { pane = p; send('pane', p); } };
   document.addEventListener('mousedown', (e) => {
+    const c = (sel) => e.target.closest && e.target.closest(sel);
+    if (c('.pane--list')) setPane(c('.row') ? 'reader' : 'list');
+    else if (c('.pane--reader')) setPane('reader');
     listFocus = !!(e.target.closest && e.target.closest('.pane--list .list'));
   }, true);
   // A key event's shortcut name: "r", "J" (⇧J), "meta+shift+r", "ctrl+e"...
@@ -117,6 +124,8 @@ pub const JS: &str = r#"
     }
     const key = keyName(e);
     if (editable(e.target)) {
+      // ⌘F in the folder's search field: select what's typed, to replace it.
+      if (key === 'meta+f' && e.target.id === 'search-input') { e.preventDefault(); e.target.select(); return; }
       // An open autocomplete owns Escape (the input closes it itself).
       if (key === 'Escape' && e.target.dataset && e.target.dataset.suggestOpen === 'true') return;
       if (key === 'meta+Enter' || key === 'Escape') { e.preventDefault(); send('key', key); }
@@ -136,6 +145,7 @@ pub const JS: &str = r#"
     try { if (f.contentDocument.body.isContentEditable) return; } catch (_) { return; }
     const key = keyName(e);
     if (['ArrowUp','ArrowDown','Enter','meta+a'].includes(key)) return;
+    setPane('reader');
     shortcut(e, key, true);
   };
 
