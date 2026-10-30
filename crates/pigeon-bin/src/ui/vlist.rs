@@ -1,10 +1,10 @@
 //! Windowing math for the virtualized message list. Rows and date group
 //! headers have fixed heights per list style (`Metrics`; classic is the
-//! design's 76 px `--row-h` and 30 px header, design/screens/mail-list.css),
+//! 68 px edge-to-edge rows and 26 px group strips, app.css),
 //! so every offset is exact without measuring the DOM.
 
-pub const ROW_H: f64 = 76.0;
-pub const GROUP_H: f64 = 30.0;
+pub const ROW_H: f64 = 68.0;
+pub const GROUP_H: f64 = 26.0;
 
 /// Slot heights of one list style (app.css sizes the rows to match).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -167,7 +167,7 @@ mod tests {
     #[test]
     fn keyboard_selection_scrolls_minimally() {
         assert_eq!(scroll_into_view(1000.0, 600.0, 1100.0, 1176.0, GROUP_H), None);
-        assert_eq!(scroll_into_view(1000.0, 600.0, 900.0, 976.0, GROUP_H), Some(870.0));
+        assert_eq!(scroll_into_view(1000.0, 600.0, 900.0, 976.0, GROUP_H), Some(874.0));
         assert_eq!(scroll_into_view(1000.0, 600.0, 1580.0, 1656.0, GROUP_H), Some(1064.0));
     }
 

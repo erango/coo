@@ -335,14 +335,14 @@ mod tests {
     #[test]
     fn a_selection_rectangle_takes_the_rows_it_touches() {
         let m = super::super::vlist::CLASSIC;
-        // "Today" header (0..30), rows a (30..106), b (106..182), then
-        // "Older" (182..212) and c (212..288).
+        // "Today" header (0..26), rows a (26..94), b (94..162), then
+        // "Older" (162..188) and c (188..256).
         let layout = super::super::vlist::layout(["Today", "Today", "Older"], m);
         let k: Vec<String> = ["a", "b", "c"].iter().map(|s| s.to_string()).collect();
         assert_eq!(band_hits(&layout, &k, 0.0, 20.0), Vec::<String>::new());
-        assert_eq!(band_hits(&layout, &k, 100.0, 120.0), ["a", "b"]);
+        assert_eq!(band_hits(&layout, &k, 90.0, 120.0), ["a", "b"]);
         assert_eq!(band_hits(&layout, &k, 300.0, 150.0), ["b", "c"]);
-        assert_eq!(band_hits(&layout, &k, 185.0, 210.0), Vec::<String>::new());
+        assert_eq!(band_hits(&layout, &k, 165.0, 185.0), Vec::<String>::new());
     }
 
     fn keys() -> Vec<String> {

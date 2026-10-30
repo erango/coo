@@ -230,14 +230,17 @@ fn AccountSection(
         _ => None,
     };
     let mailbox = s.mailbox;
-    let mut collapsed_set = s.collapsed_accounts;
+    let mut accounts_open = s.accounts_open;
     let id = nav.account.id.clone();
-    let collapsed = collapsed_set.read().contains(&id);
+    let current = mailbox.read().clone();
+    // Closed unless opened; a closed account still shows the folder you're in.
+    let collapsed = !accounts_open.read().contains(&id);
+    let here = matches!(&current, Mailbox::Folder { account_id, .. } if *account_id == id);
+    let unread: u32 = nav.folders.iter().filter(|f| f.folder.role == Some(FolderRole::Inbox)).map(|f| f.unread).sum();
     let name = s.account_label(&nav.account.id, &nav.account.email);
     let address = crate::state::main_address(&nav).to_string();
     let meta = crate::state::provider_name(nav.account.provider, &nav.account.email);
     let letter = format::initials(&name).chars().next().unwrap_or('?');
-    let current = mailbox.read().clone();
     let toggle_id = id.clone();
     let menu_id = id.clone();
     // Quiet: the default for new messages shows only in the name's tooltip.
@@ -274,13 +277,24 @@ fn AccountSection(
                 super::account_menu::open(s, &menu_id, p.x, p.y);
             },
             onclick: move |_| {
-                let mut set = collapsed_set.write();
-                if !set.remove(&toggle_id) { set.insert(toggle_id.clone()); }
+                let mut open = accounts_open.write();
+                match open.iter().position(|a| *a == toggle_id) {
+                    Some(i) => { open.remove(i); }
+                    None => open.push(toggle_id.clone()),
+                }
+                let saved = open.clone();
+                crate::prefs::update(move |p| p.accounts_open = saved);
             },
             if many { span { class: "pip", "{letter}" } } else { span { class: "dot" } }
             span { dir: "auto", style: "overflow:hidden;text-overflow:ellipsis;white-space:nowrap", title: "{tip}", "{name}" }
+            if collapsed && unread > 0 { span { class: "count nav-section__count", "{unread}" } }
             span { class: "nav-section__meta", title: "{meta}", dangerous_inner_html: provider_mark(nav.account.provider, meta) }
             if draggable { Icon { name: "grip", class: "icon--xs nav-section__grip" } }
+        }
+        if collapsed && here {
+            for f in nav.folders.iter().filter(|f| current == Mailbox::Folder { account_id: id.clone(), folder_id: f.folder.id.clone() }) {
+                FolderRow { key: "{f.folder.id}", account_id: id.clone(), info: f.clone(), pinned: false, child: false }
+            }
         }
         if !collapsed {
             {

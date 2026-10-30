@@ -260,7 +260,7 @@ mod tests {
             for (k, w) in [("mail", t.mail), ("meeting", t.meeting)] {
                 assert_eq!(&w[0..4], b"RIFF", "{} {k}", t.id);
                 assert_eq!(u16::from_le_bytes([w[22], w[23]]), 1, "{} {k} mono", t.id);
-                assert!(w.len() < 200_000, "{} {k} too big", t.id);
+                assert!(w.len() < 300_000, "{} {k} too big", t.id);
             }
             assert!(t.meeting.len() > t.mail.len(), "{}: reminder should be the longer of the pair", t.id);
         }

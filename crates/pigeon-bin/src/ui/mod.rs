@@ -706,7 +706,7 @@ fn on_menu(s: AppState, id: &str) {
             let mut o = s.agent_setup_open;
             o.set(true);
         }
-        crate::menu::REPORT_BUG => report_bug(s),
+        crate::menu::REPORT_BUG | crate::menu::REPORT_BUG_APP => report_bug(s),
         crate::menu::ABOUT => crate::about::show(),
         crate::menu::RESTART_TO_UPDATE => restart_to_update(),
         crate::menu::CHECK_UPDATES => check_for_updates(s),

@@ -17,6 +17,8 @@ use crate::shortcuts::{Do, Style};
 pub const SETTINGS: &str = "pigeon-settings";
 pub const AGENT_SETUP: &str = "pigeon-agent-setup";
 pub const REPORT_BUG: &str = "pigeon-report-bug";
+/// The same form from the Coo menu (menu ids must be unique).
+pub const REPORT_BUG_APP: &str = "pigeon-report-bug-app";
 pub const CHECK_UPDATES: &str = "pigeon-check-updates";
 pub const ABOUT: &str = "pigeon-about";
 pub const RESTART_TO_UPDATE: &str = "pigeon-restart-to-update";
@@ -170,6 +172,7 @@ pub fn build() -> Menu {
             // Our own About (credits link + update status), not muda's.
             &MenuItem::with_id(ABOUT, "About Coo", true, None),
             &MenuItem::with_id(CHECK_UPDATES, "Check for Updates…", true, None),
+            &MenuItem::with_id(REPORT_BUG_APP, "Report a Bug…", true, None),
             &PredefinedMenuItem::separator(),
             &settings,
             &PredefinedMenuItem::separator(),

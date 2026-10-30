@@ -314,7 +314,8 @@ pub struct AppState {
     pub update_dialog: Signal<bool>,
     pub os_dark: Signal<bool>,
     pub signing_in: Signal<bool>,
-    pub collapsed_accounts: Signal<HashSet<String>>,
+    /// Accounts open in the sidebar (prefs `accounts_open`).
+    pub accounts_open: Signal<Vec<String>>,
     /// Account nicknames (Settings › Accounts), by account id.
     pub nicknames: Signal<std::collections::BTreeMap<String, String>>,
     /// The chosen default account for new messages (prefs
@@ -422,7 +423,7 @@ impl AppState {
             update_dialog: Signal::new(false),
             os_dark: Signal::new(true),
             signing_in: Signal::new(false),
-            collapsed_accounts: Signal::new(HashSet::new()),
+            accounts_open: Signal::new(crate::prefs::get().accounts_open),
             nicknames: Signal::new(crate::prefs::get().account_nicknames),
             default_account: Signal::new(crate::prefs::get().default_from_account),
             default_calendar: Signal::new(crate::prefs::get().default_calendar),

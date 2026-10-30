@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Synthesize Coo's sound themes (new mail + meeting reminder per theme) into crates/pigeon-bin/assets/sounds/.
 
-Short, soft and low-level on purpose (peak about -14 dBFS, under a second):
-a sound that says "mail" without pulling you out of what you're doing.
-Pure stdlib; rerun after tweaking a recipe.
+Short, soft and low-level on purpose (peak about -14 dBFS, a second or two;
+the bells ring out and fade rather than stop): a sound that says "mail"
+without pulling you out of what you're doing.
+Pure stdlib; rerun after tweaking a recipe (`gen-sounds.py chime bowl` redoes
+only those themes).
 """
-import math, os, random, struct, wave
+import math, os, random, struct, sys, wave
 
 RATE = 44100
 OUT = os.path.join(os.path.dirname(__file__), "..", "crates", "pigeon-bin", "assets", "sounds")
@@ -110,11 +112,11 @@ def coo(t):
 
 
 def chime(t):
-    return bell(1318.5, 0.9, 0.22)(t) * 0.8 + bell(1975.5, 0.9, 0.28, start=0.11)(t) * 0.6
+    return bell(1318.5, 1.7, 0.32)(t) * 0.8 + bell(1975.5, 1.7, 0.38, start=0.11)(t) * 0.6
 
 
 def bowl(t):
-    return bell(784.0, 1.2, 0.42, partials=((1, 1.0), (2.0, 0.08), (2.98, 0.05)), attack=0.012)(t)
+    return bell(784.0, 2.4, 0.6, partials=((1, 1.0), (2.0, 0.08), (2.98, 0.05)), attack=0.012)(t)
 
 
 def wood(t):
@@ -136,13 +138,13 @@ def coo_meeting(t):
 
 def chime_meeting(t):
     # Rising three-note arpeggio on the same bell.
-    return sum(bell(f, 1.1, 0.24, start=st)(t) * a for f, st, a in ((1318.5, 0.0, 0.8), (1661.2, 0.13, 0.7), (1975.5, 0.26, 0.65)))
+    return sum(bell(f, 2.0, 0.34, start=st)(t) * a for f, st, a in ((1318.5, 0.0, 0.8), (1661.2, 0.13, 0.7), (1975.5, 0.26, 0.65)))
 
 
 def bowl_meeting(t):
     # The bowl struck twice, second a fifth higher.
     p = ((1, 1.0), (2.0, 0.08), (2.98, 0.05))
-    return bell(784.0, 1.6, 0.42, partials=p, attack=0.012)(t) + bell(1174.7, 1.6, 0.42, partials=p, attack=0.012, start=0.35)(t) * 0.8
+    return bell(784.0, 3.0, 0.6, partials=p, attack=0.012)(t) + bell(1174.7, 3.0, 0.6, partials=p, attack=0.012, start=0.35)(t) * 0.8
 
 
 def wood_meeting(t):
@@ -151,18 +153,26 @@ def wood_meeting(t):
 
 
 # theme -> (mail recipe, length), (meeting recipe, length)
+# Bells that ring out: the last part of the file fades smoothly to silence.
+RING_OUT = {"chime", "bowl"}
 SOUNDS = {
     "droplet": ((droplet, 0.3), (droplet_meeting, 0.6)),
     "coo": ((coo, 0.72), (coo_meeting, 1.4)),
-    "chime": ((chime, 0.95), (chime_meeting, 1.3)),
+    "chime": ((chime, 1.6), (chime_meeting, 2.0)),
     "knock": ((wood, 0.5), (wood_meeting, 0.75)),
-    "bowl": ((bowl, 1.25), (bowl_meeting, 1.9)),
+    "bowl": ((bowl, 2.3), (bowl_meeting, 3.0)),
 }
 
 
-def render(fn, dur):
+def render(fn, dur, ring_out=False):
     n = int(RATE * dur)
     xs = [fn(i / RATE) for i in range(n)]
+    if ring_out:
+        # A cosine fade over the last 45%, so the tail dies away instead of
+        # being cut off at the end of the file.
+        f = int(n * 0.45)
+        for i in range(f):
+            xs[n - f + i] *= 0.5 * (1 + math.cos(math.pi * i / f))
     # 3 ms fade at both ends so nothing clicks.
     f = int(RATE * 0.003)
     for i in range(f):
@@ -175,9 +185,12 @@ def render(fn, dur):
 def main():
     random.seed(1)
     os.makedirs(OUT, exist_ok=True)
+    only = set(sys.argv[1:])
     for name, pair in SOUNDS.items():
+        if only and name not in only:
+            continue
         for kind, (fn, dur) in zip(("mail", "meeting"), pair):
-            xs = render(fn, dur)
+            xs = render(fn, dur, name in RING_OUT)
             path = os.path.join(OUT, f"{name}-{kind}.wav")
             with wave.open(path, "wb") as w:
                 w.setnchannels(1)
