@@ -249,12 +249,19 @@ pub enum Cmd {
         email: String,
     },
     /// A sender photo from the on-disk cache, a Google account's contacts
-    /// (`google`), or Gravatar and brand logos (`gravatar`), as the user
-    /// turned them on. Answered with `Delta::Photo`.
+    /// (`google`), Microsoft 365 contacts and coworkers (`microsoft`), or
+    /// Gravatar and brand logos (`gravatar`), as the user turned them on.
+    /// Answered with `Delta::Photo`.
     Photo {
         email: String,
         google: bool,
+        microsoft: bool,
         gravatar: bool,
+    },
+    /// Let a Microsoft account show sender photos (browser consent), then
+    /// read its contacts. Answered with `Delta::MicrosoftPhotos`.
+    AllowMicrosoftPhotos {
+        account_id: String,
     },
     /// Give a Google account contacts access (browser consent), then read
     /// its contacts' photos. Answered with `Delta::GoogleContacts`.
@@ -482,6 +489,8 @@ pub enum Delta {
     Zoom(Option<pigeon_core::model::ConnectedService>),
     /// Google accounts whose sign-in allows contact photos.
     GoogleContacts(Vec<String>),
+    /// Microsoft accounts whose sign-in allows sender photos.
+    MicrosoftPhotos(Vec<String>),
     /// A Google account's contact photos were read again: senders shown
     /// without a photo may have one now.
     ContactPhotosChanged,
@@ -830,6 +839,7 @@ impl Service {
         self.send(Delta::Accounts(accounts));
         self.send(Delta::Zoom(self.app.zoom_service().unwrap_or(None)));
         self.send(Delta::GoogleContacts(self.app.contact_photo_accounts().unwrap_or_default()));
+        self.send(Delta::MicrosoftPhotos(self.app.microsoft_photo_accounts().unwrap_or_default()));
         self.send(Delta::List { mailbox, threaded, items });
         self.send(Delta::NextUp(next_up.into_iter().filter(|e| !e.event.all_day).take(3).collect()));
         if let Some((from, to, events, calendars)) = cal {
@@ -1183,6 +1193,25 @@ impl Service {
                 }
                 self.send(Delta::GoogleContacts(self.app.contact_photo_accounts().unwrap_or_default()));
             }
+            Cmd::AllowMicrosoftPhotos { account_id } => {
+                self.toast("Continue in your browser to allow contacts access.", false, None);
+                let allowed = self
+                    .app
+                    .allow_microsoft_photos(&account_id, |url| tracing::debug!(url, "Microsoft photos consent URL"))
+                    .await;
+                match allowed {
+                    Ok(()) => {
+                        self.toast("Photos from Microsoft 365 are on", false, None);
+                        self.send(Delta::ContactPhotosChanged);
+                    }
+                    Err(e) => {
+                        // Not `fail`: messages can name the account.
+                        tracing::warn!(error = %e, "Microsoft photos not allowed");
+                        self.toast(e.to_string(), true, None);
+                    }
+                }
+                self.send(Delta::MicrosoftPhotos(self.app.microsoft_photo_accounts().unwrap_or_default()));
+            }
             Cmd::ConnectDrive { account_id } => match self.connect_drive(&account_id).await {
                 Ok(()) => self.toast("Google Drive connected", false, None),
                 Err(e) => self.toast(e.to_string(), true, None),
@@ -1259,7 +1288,7 @@ impl Service {
                 let count = self.app.store().messages_from(&account_id, &email)?;
                 self.send(Delta::SenderSeen { account_id, email, count });
             }
-            Cmd::Photo { email, google, gravatar } => {
+            Cmd::Photo { email, google, microsoft, gravatar } => {
                 let svc = self.clone();
                 tokio::spawn(async move {
                     use pigeon_core::photos::{self, Cached};
@@ -1267,7 +1296,7 @@ impl Service {
                     let cached = photos::cached(&dir, &email, std::time::SystemTime::now());
                     // A contact photo first, even past a cached "none": the
                     // contacts index may know them since.
-                    let contact = match &cached {
+                    let mut contact = match &cached {
                         Cached::Photo(_) => None,
                         _ if google => svc.app.contact_photo(&email).await.unwrap_or_else(|e| {
                             tracing::debug!(error = %e, "contact photo lookup failed");
@@ -1275,6 +1304,12 @@ impl Service {
                         }),
                         _ => None,
                     };
+                    if contact.is_none() && microsoft && !matches!(cached, Cached::Photo(_)) {
+                        contact = svc.app.microsoft_photo(&email).await.unwrap_or_else(|e| {
+                            tracing::debug!(error = %e, "Microsoft photo lookup failed");
+                            None
+                        });
+                    }
                     if let Some(found) = &contact
                         && let Err(e) = photos::store(&dir, &email, Some(found))
                     {

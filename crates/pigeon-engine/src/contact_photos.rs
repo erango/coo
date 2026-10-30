@@ -1,7 +1,9 @@
 //! Sender photos from Google contacts: each Google account that allowed
 //! contacts access keeps an index of its contacts' photo URLs (refreshed
 //! about daily), and a sender's photo comes from the first account that
-//! knows them. Only addresses (hashed) and photo URLs are kept.
+//! knows them. Only addresses (hashed) and photo URLs are kept. Microsoft
+//! accounts' Outlook contacts share the index and its daily refresh
+//! (`contact_photos_ms`).
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -62,6 +64,9 @@ impl Pigeon {
     /// Read the account's contact photos again: people it mailed with, plus
     /// its own contacts and Workspace directory where those are allowed.
     pub async fn refresh_contact_photos(&self, account: &Account) -> Result<()> {
+        if account.provider == ProviderKind::Microsoft {
+            return self.refresh_microsoft_contacts(account).await;
+        }
         let scopes = self.store().account_scopes(&account.id)?.unwrap_or_default();
         if !has_scope(&scopes, GOOGLE_OTHER_CONTACTS_SCOPE) {
             return Ok(());
@@ -100,7 +105,8 @@ impl Pigeon {
     }
 
     async fn refresh_due_accounts(&self) -> bool {
-        let Ok(ids) = self.contact_photo_accounts() else { return false };
+        let Ok(mut ids) = self.contact_photo_accounts() else { return false };
+        ids.extend(self.microsoft_contact_accounts().unwrap_or_default());
         let mut read = false;
         for id in ids {
             let synced = self.store().contact_photos_synced_at(&id).ok().flatten();
@@ -119,7 +125,7 @@ impl Pigeon {
                     FAILED.lock().unwrap_or_else(|p| p.into_inner()).remove(&id);
                 }
                 Err(e) => {
-                    tracing::warn!(error = %e, "could not read Google contact photos");
+                    tracing::warn!(error = %e, "could not read contact photos");
                     FAILED.lock().unwrap_or_else(|p| p.into_inner()).insert(id, now_ms());
                 }
             }

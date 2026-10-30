@@ -43,6 +43,9 @@ other generic IMAP/CalDAV account.
 - Microsoft: multi-tenant Entra app registration, `common` authority.
   Scopes: `offline_access User.Read Mail.ReadWrite Mail.Send Calendars.ReadWrite
   MailboxSettings.Read People.Read`. Some tenants require admin consent.
+  Sender photos ask separately (incremental consent, never at sign-in):
+  `Contacts.Read` (Outlook contacts) and `User.ReadBasic.All` (coworkers'
+  profile photos; contacts only where that needs an admin).
 - Google: "Desktop app" OAuth client. Scopes: `https://mail.google.com/` (full access: emptying Trash needs it), `gmail.send`,
   `calendar`, `drive.file`, `contacts.other.readonly` + `contacts.readonly` +
   `directory.readonly` (sender photos from the People API), `userinfo.email`.

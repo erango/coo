@@ -34,7 +34,10 @@ You need your own OAuth client registrations.
 3. Authentication → Add platform → *Mobile and desktop applications* →
    redirect URI `http://localhost`. Enable *Allow public client flows*.
 4. API permissions (delegated, Microsoft Graph): `User.Read`, `Mail.ReadWrite`,
-   `Mail.Send`, `Calendars.ReadWrite`, `offline_access`.
+   `Mail.Send`, `Calendars.ReadWrite`, `offline_access`. For sender photos
+   (asked for later, in Settings › Appearance, never at sign-in) also
+   `Contacts.Read` and `User.ReadBasic.All`; some organizations need an
+   admin to approve the latter, and Coo then asks for contacts only.
 5. `export PIGEON_MS_CLIENT_ID=<application (client) id>`
 
 **Google**
