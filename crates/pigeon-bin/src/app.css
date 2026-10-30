@@ -1714,3 +1714,10 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
    window buttons (as in the design), not a toolbar's height below them. */
 .app:not(.reader-window) > .sidebar > .sidebar__top { height: 40px; }
 .app:not(.reader-window) > .sidebar > .sidebar__nav { padding-top: 4px; }
+/* Classic: the list keeps a 10 px scrollbar gutter on the right that rows
+   can't paint into, so they stop 10 px in from the left too and both edges
+   match. */
+.list[data-style="classic"] .row, .list[data-style="classic"] .list-group { margin-left: 10px; }
+/* …and the gutter is always there (a transparent track), so short lists
+   keep the same edges as long ones. */
+.list[data-style="classic"] { overflow-y: scroll; }
