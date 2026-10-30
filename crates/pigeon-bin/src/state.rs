@@ -411,7 +411,7 @@ impl AppState {
             hidden_calendars: Signal::new(crate::prefs::get().hidden_calendars),
             palette: Signal::new({
                 let p = crate::prefs::get().palette;
-                if crate::themes::is_known(&p) { p } else { crate::themes::DEFAULT.to_string() }
+                crate::themes::current(&p).to_string()
             }),
             settings_open: Signal::new(false),
             settings_shown: Signal::new(false),

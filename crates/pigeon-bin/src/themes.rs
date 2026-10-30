@@ -100,94 +100,101 @@ pub static FAMILIES: &[Family] = &[
             ],
         },
     },
-    // https://github.com/catppuccin/palette (palette.json: mocha, latte)
+    // Coo's own: no popular editor theme reads as mint with both a light and
+    // a dark variant (Everforest and Bamboo are earthy sage), so this one is
+    // drawn here. Mint-tinted surfaces (hue ~160°) with a cool spearmint
+    // accent; the account hues are fresh pastels in dark and their deeper
+    // counterparts in light.
     Family {
-        id: "catppuccin",
-        name: "Catppuccin",
-        source: "https://github.com/catppuccin/palette",
-        variants: ("Mocha", "Latte"),
+        id: "mint",
+        name: "Mint",
+        source: "Coo's own palette (themes.rs)",
+        variants: ("Night", "Day"),
         dark: ModeSpec {
-            bg: [Hex("#1e1e2e"), Hex("#181825"), Hex("#313244"), Hex("#45475a")],
-            text: [Hex("#cdd6f4"), Hex("#a6adc8"), Hex("#7f849c")],
-            accent: Hex("#cba6f7"),
-            success: Hex("#a6e3a1"),
-            warning: Hex("#f9e2af"),
-            error: Hex("#f38ba8"),
-            info: Hex("#89b4fa"),
+            bg: [Hex("#0f1a17"), Hex("#0b1411"), Hex("#16241f"), Hex("#1e2f29")],
+            text: [Hex("#e4f4ed"), Hex("#a9c4b9"), Hex("#7f9a8f")],
+            accent: Hex("#5fe3b5"),
+            success: Hex("#86e08f"),
+            warning: Hex("#f2c46d"),
+            error: Hex("#ff7f8e"),
+            info: Hex("#6cc4ff"),
             hues: [
-                Hex("#89b4fa"),
-                Hex("#f9e2af"),
-                Hex("#f38ba8"),
-                Hex("#cba6f7"),
-                Hex("#a6e3a1"),
-                Hex("#fab387"),
-                Hex("#89dceb"),
-                Hex("#f5c2e7"),
+                Hex("#6cb6ff"),
+                Hex("#f2c46d"),
+                Hex("#ff8fa3"),
+                Hex("#b4a2ff"),
+                Hex("#a6e36e"),
+                Hex("#ffad72"),
+                Hex("#67d9e8"),
+                Hex("#f09bd8"),
             ],
         },
         light: ModeSpec {
-            bg: [Hex("#eff1f5"), Hex("#e6e9ef"), Hex("#dce0e8"), Hex("#eff1f5")],
-            text: [Hex("#4c4f69"), Hex("#5c5f77"), Hex("#6c6f85")],
-            accent: Hex("#8839ef"),
-            success: Hex("#40a02b"),
-            warning: Hex("#df8e1d"),
-            error: Hex("#d20f39"),
-            info: Hex("#1e66f5"),
+            bg: [Hex("#f5fbf8"), Hex("#e9f5ef"), Hex("#dcefe6"), Hex("#ffffff")],
+            text: [Hex("#12302a"), Hex("#3b5a50"), Hex("#5b776d")],
+            // Spearmint deepened until white labels on it read at AA.
+            accent: Hex("#078463"),
+            success: Hex("#2f8a3a"),
+            warning: Hex("#a87400"),
+            error: Hex("#c93a55"),
+            info: Hex("#1f6fc6"),
             hues: [
-                Hex("#1e66f5"),
-                Hex("#df8e1d"),
-                Hex("#d20f39"),
-                Hex("#8839ef"),
-                Hex("#40a02b"),
-                Hex("#fe640b"),
-                Hex("#04a5e5"),
-                Hex("#ea76cb"),
+                Hex("#2f6fd0"),
+                Hex("#a87400"),
+                Hex("#c93a55"),
+                Hex("#6e57d8"),
+                Hex("#3e8a1f"),
+                Hex("#c25a16"),
+                Hex("#0e8a9e"),
+                Hex("#b0428f"),
             ],
         },
     },
-    // https://github.com/morhetz/gruvbox (colors/gruvbox.vim, medium contrast)
+    // https://github.com/scottmckendry/cyberdream.nvim (lua/cyberdream/colors.lua:
+    // default + light). Neon on near-black; its magenta is the accent.
     Family {
-        id: "gruvbox",
-        name: "Gruvbox",
-        source: "https://github.com/morhetz/gruvbox",
+        id: "cyberdream",
+        name: "Cyberdream",
+        source: "https://github.com/scottmckendry/cyberdream.nvim",
         variants: ("Dark", "Light"),
         dark: ModeSpec {
-            bg: [Hex("#282828"), Hex("#1d2021"), Hex("#32302f"), Hex("#3c3836")],
-            text: [Hex("#ebdbb2"), Hex("#d5c4a1"), Hex("#a89984")],
-            accent: Hex("#8ec07c"),
-            success: Hex("#b8bb26"),
-            warning: Hex("#fabd2f"),
-            error: Hex("#fb4934"),
-            info: Hex("#83a598"),
+            // bg, a sunken step below it (derived), bg_alt, and an overlay
+            // step between bg_alt and bg_highlight (derived).
+            bg: [Hex("#16181a"), Mix("#16181a", "#000000", 0.3), Hex("#1e2124"), Mix("#1e2124", "#3c4048", 0.35)],
+            text: [Hex("#ffffff"), Mix("#ffffff", "#7b8496", 0.45), Hex("#7b8496")],
+            accent: Hex("#ff5ef1"),
+            success: Hex("#5eff6c"),
+            warning: Hex("#ffbd5e"),
+            error: Hex("#ff6e5e"),
+            info: Hex("#5ea1ff"),
             hues: [
-                Hex("#83a598"),
-                Hex("#fabd2f"),
-                Hex("#fb4934"),
-                Hex("#d3869b"),
-                Hex("#b8bb26"),
-                Hex("#fe8019"),
-                Hex("#8ec07c"),
-                // Gruvbox has 7 accents; the 8th slot uses its neutral blue.
-                Hex("#458588"),
+                Hex("#5ea1ff"),
+                Hex("#f1ff5e"),
+                Hex("#ff6e5e"),
+                Hex("#bd5eff"),
+                Hex("#5eff6c"),
+                Hex("#ffbd5e"),
+                Hex("#5ef1ff"),
+                Hex("#ff5ef1"),
             ],
         },
         light: ModeSpec {
-            bg: [Hex("#fbf1c7"), Hex("#f2e5bc"), Hex("#ebdbb2"), Hex("#f9f5d7")],
-            text: [Hex("#3c3836"), Hex("#504945"), Hex("#7c6f64")],
-            accent: Hex("#427b58"),
-            success: Hex("#79740e"),
-            warning: Hex("#b57614"),
-            error: Hex("#9d0006"),
-            info: Hex("#076678"),
+            bg: [Hex("#ffffff"), Mix("#ffffff", "#eaeaea", 0.5), Hex("#eaeaea"), Hex("#ffffff")],
+            text: [Hex("#16181a"), Mix("#16181a", "#7b8496", 0.5), Hex("#7b8496")],
+            accent: Hex("#d100bf"),
+            success: Hex("#008b0c"),
+            warning: Hex("#d17c00"),
+            error: Hex("#d11500"),
+            info: Hex("#0057d1"),
             hues: [
-                Hex("#076678"),
-                Hex("#b57614"),
-                Hex("#9d0006"),
-                Hex("#8f3f71"),
-                Hex("#79740e"),
-                Hex("#af3a03"),
-                Hex("#427b58"),
-                Hex("#d3869b"),
+                Hex("#0057d1"),
+                Hex("#997b00"),
+                Hex("#d11500"),
+                Hex("#a018ff"),
+                Hex("#008b0c"),
+                Hex("#d17c00"),
+                Hex("#008c99"),
+                Hex("#d100bf"),
             ],
         },
     },
@@ -388,6 +395,18 @@ pub fn choices() -> Vec<(&'static str, &'static str)> {
 
 pub fn is_known(id: &str) -> bool {
     id == DEFAULT || FAMILIES.iter().any(|f| f.id == id)
+}
+
+/// A saved palette id as it is today: retired palettes map to the one that
+/// took their place (Catppuccin to Mint, Gruvbox to Cyberdream); unknown ids
+/// fall back to the default.
+pub fn current(id: &str) -> &str {
+    match id {
+        "catppuccin" => "mint",
+        "gruvbox" => "cyberdream",
+        id if is_known(id) => id,
+        _ => DEFAULT,
+    }
 }
 
 // ---------- color math ----------
@@ -680,6 +699,32 @@ mod tests {
                 assert!(contrast(*t, r.bg[0]) >= MIN_HUE_TEXT - 0.01, "{id}/{m}: hue-{}-text", i + 1);
             }
         }
+    }
+
+    #[test]
+    fn new_palettes_meet_aa_everywhere() {
+        // Mint and Cyberdream: secondary text AA on the canvas and raised
+        // surfaces, and the accent's label text AA.
+        for f in FAMILIES.iter().filter(|f| ["mint", "cyberdream"].contains(&f.id)) {
+            for r in [resolve_mode(&f.dark, true), resolve_mode(&f.light, false)] {
+                let m = if r.dark { "dark" } else { "light" };
+                // Raised surfaces (hover, chips, cards) carry text too.
+                for b in [0, 2] {
+                    assert!(contrast(r.text[0], r.bg[b]) >= 4.5, "{}/{m}: text-1 on bg-{b}", f.id);
+                    assert!(contrast(r.text[1], r.bg[b]) >= 4.5, "{}/{m}: text-2 on bg-{b}", f.id);
+                }
+                assert!(contrast(r.on_accent, r.accent) >= 4.5, "{}/{m}: on-accent", f.id);
+            }
+        }
+    }
+
+    #[test]
+    fn retired_palettes_map_to_their_replacements() {
+        assert_eq!(current("catppuccin"), "mint");
+        assert_eq!(current("gruvbox"), "cyberdream");
+        assert_eq!(current("dracula"), "dracula");
+        assert_eq!(current("nope"), DEFAULT);
+        assert!(is_known(current("catppuccin")) && is_known(current("gruvbox")));
     }
 
     #[test]
