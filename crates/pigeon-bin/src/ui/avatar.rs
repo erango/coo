@@ -24,7 +24,8 @@ pub fn Avatar(
     let prefs = crate::prefs::get();
     let gravatar = prefs.photos_gravatar;
     let google = prefs.photos_google && !s.google_contacts.read().is_empty();
-    let enabled = gravatar || google;
+    let microsoft = prefs.photos_microsoft && !s.microsoft_photos.read().is_empty();
+    let enabled = gravatar || google || microsoft;
     let key = email.trim().to_lowercase();
     let hue = hue_for(if key.is_empty() { &label } else { &key });
     let photo = if enabled { s.photos.read().get(&key).cloned().flatten() } else { None };
@@ -36,7 +37,7 @@ pub fn Avatar(
         if enabled && !asked && !ask.is_empty() && !s.photos.peek().contains_key(&ask) {
             let mut photos = s.photos;
             photos.write().insert(ask.clone(), None);
-            send_cmd(Cmd::Photo { email: ask, google, gravatar });
+            send_cmd(Cmd::Photo { email: ask, google, microsoft, gravatar });
         }
     }));
     match photo {

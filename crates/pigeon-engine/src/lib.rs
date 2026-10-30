@@ -10,6 +10,7 @@ pub mod agent_setup;
 pub mod broker;
 mod calendar;
 pub mod contact_photos;
+mod contact_photos_ms;
 pub mod detect;
 pub mod drive;
 pub mod notify;
@@ -211,6 +212,10 @@ impl Pigeon {
     }
 
     fn backend(&self, account: &Account) -> Result<Arc<Backend>> {
+        // Read before taking the backends lock (store, then backends).
+        let ms_grants = (account.provider == ProviderKind::Microsoft)
+            .then(|| self.store().account_scopes(&account.id).ok().flatten())
+            .flatten();
         let mut backends = self.backends.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(b) = backends.get(&account.id) {
             return Ok(b.clone());
@@ -225,7 +230,11 @@ impl Pigeon {
                 }))
             }
             provider => {
-                let app = OAuthApp::from_env(provider)?;
+                let mut app = OAuthApp::from_env(provider)?;
+                // Keep consented photo scopes in refreshed tokens.
+                if let Some(granted) = &ms_grants {
+                    app = app.microsoft_with_grants(granted);
+                }
                 let tokens = Arc::new(TokenSource::new(app, &account.id, self.tokens.clone()));
                 self.sources.lock().unwrap_or_else(|p| p.into_inner()).insert(account.id.clone(), tokens.clone());
                 match provider {

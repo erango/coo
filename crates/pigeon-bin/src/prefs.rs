@@ -110,6 +110,9 @@ pub struct Prefs {
     pub photos_gravatar: bool,
     /// Show sender photos from Google accounts' contacts (where allowed).
     pub photos_google: bool,
+    /// Show sender photos from Microsoft 365 (Outlook contacts, coworkers),
+    /// where allowed.
+    pub photos_microsoft: bool,
     /// Message list look: "cards", "bands" or "classic" (`state::ListStyle`).
     pub list_style: String,
     /// A sender avatar column in the message list.
@@ -174,6 +177,7 @@ impl Default for Prefs {
             reply_mode: "inline".into(),
             photos_gravatar: false,
             photos_google: true,
+            photos_microsoft: true,
             list_style: "cards".into(),
             list_avatars: true,
             folders_open: Vec::new(),

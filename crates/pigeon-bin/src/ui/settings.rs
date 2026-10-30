@@ -261,6 +261,7 @@ fn Appearance() -> Element {
                 span { class: "settings-field__hint", "Initials, or the sender's photo: from your Google contacts, or Gravatar when Privacy › Sender photos is on." }
             }
             GoogleContactPhotos {}
+            MicrosoftContactPhotos {}
             HoverActions {}
             div { class: "settings-field",
                 span { class: "settings-field__label", "Text size" }
@@ -324,6 +325,56 @@ fn GoogleContactPhotos() -> Element {
                         onclick: { let id = id.clone(); move |_| send_cmd(Cmd::AllowGoogleContacts { account_id: id.clone() }) },
                         "Allow contacts…" }
                     span { class: "settings-field__hint", "Needs your OK in the browser, once." }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn MicrosoftContactPhotos() -> Element {
+    let s = use_context::<AppState>();
+    let mut on = use_signal(|| prefs::get().photos_microsoft);
+    let microsoft: Vec<String> = s
+        .accounts
+        .read()
+        .iter()
+        .filter(|a| a.account.provider == ProviderKind::Microsoft)
+        .map(|a| a.account.id.clone())
+        .collect();
+    if microsoft.is_empty() {
+        return rsx! {};
+    }
+    let allowed = s.microsoft_photos.read().clone();
+    let missing: Vec<String> = microsoft.into_iter().filter(|id| !allowed.contains(id)).collect();
+    let email = |id: &str| id.split_once(':').map_or(id, |(_, e)| e).to_string();
+    let first_missing = missing.first().cloned();
+    rsx! {
+        label { class: "settings-field",
+            span { class: "settings-field__label", "Photos from Microsoft 365" }
+            input { class: "switch", r#type: "checkbox", checked: *on.read(),
+                onchange: move |_| {
+                    let now = !*on.peek();
+                    on.set(now);
+                    prefs::update(move |p| p.photos_microsoft = now);
+                    let mut photos = s.photos;
+                    photos.write().retain(|_, uri| uri.is_some());
+                    // Turning it on asks for the first account that needs it.
+                    if now && let Some(id) = first_missing.clone() {
+                        send_cmd(Cmd::AllowMicrosoftPhotos { account_id: id });
+                    }
+                }
+            }
+            span { class: "settings-field__hint", "Show the photo a sender has in your Outlook contacts, or a coworker's own." }
+        }
+        if *on.read() {
+            for id in missing {
+                div { class: "settings-field", key: "{id}",
+                    span { class: "settings-field__label", "{email(&id)}" }
+                    button { class: "btn btn--secondary btn--sm", r#type: "button",
+                        onclick: { let id = id.clone(); move |_| send_cmd(Cmd::AllowMicrosoftPhotos { account_id: id.clone() }) },
+                        "Allow…" }
+                    span { class: "settings-field__hint", "Needs your OK in the browser, once. Some organizations ask an admin to approve coworkers' photos." }
                 }
             }
         }

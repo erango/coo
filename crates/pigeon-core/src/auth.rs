@@ -31,6 +31,48 @@ const MS_SCOPES: &[&str] = &[
     "Calendars.ReadWrite",
 ];
 
+// Sender photos from Microsoft 365, asked for separately (Settings ›
+// Appearance), never at sign-in: some organizations make
+// `User.ReadBasic.All` need an admin's OK, and a scope the user can't grant
+// must not block signing in to mail.
+/// Outlook contacts (and their photos).
+pub const MS_CONTACTS_SCOPE: &str = "Contacts.Read";
+/// Basic profiles (and photos) of people in the user's organization.
+pub const MS_PEOPLE_SCOPE: &str = "User.ReadBasic.All";
+const MS_PHOTO_SCOPES: &[&str] = &[
+    "offline_access",
+    "openid",
+    "profile",
+    "email",
+    "User.Read",
+    "Mail.ReadWrite",
+    "Mail.Send",
+    "Calendars.ReadWrite",
+    MS_CONTACTS_SCOPE,
+    MS_PEOPLE_SCOPE,
+];
+/// Contacts only: for organizations where `User.ReadBasic.All` needs an admin.
+const MS_CONTACT_SCOPES: &[&str] = &[
+    "offline_access",
+    "openid",
+    "profile",
+    "email",
+    "User.Read",
+    "Mail.ReadWrite",
+    "Mail.Send",
+    "Calendars.ReadWrite",
+    MS_CONTACTS_SCOPE,
+];
+
+/// Whether a Microsoft granted-scope string includes `name` (Entra answers
+/// with bare names or full `https://graph.microsoft.com/` ones).
+pub fn ms_has_scope(granted: &str, name: &str) -> bool {
+    granted.split_whitespace().any(|s| {
+        let bare = s.rsplit('/').next().unwrap_or(s);
+        bare.eq_ignore_ascii_case(name)
+    })
+}
+
 /// Gmail's full-access scope (deleting for good needs it).
 pub const GMAIL_FULL_SCOPE: &str = "https://mail.google.com/";
 
@@ -144,6 +186,30 @@ impl OAuthApp {
             login_hint: Some(email.to_string()),
             ..self
         }
+    }
+
+    /// Microsoft incremental consent for sender photos on an account that's
+    /// already signed in: mail scopes plus contacts and, unless
+    /// `contacts_only`, people in the organization; pinned to `email`.
+    pub fn microsoft_add_photo_scopes(self, email: &str, contacts_only: bool) -> Self {
+        OAuthApp {
+            scopes: if contacts_only { MS_CONTACT_SCOPES } else { MS_PHOTO_SCOPES },
+            extra_auth_params: &[],
+            login_hint: Some(email.to_string()),
+            ..self
+        }
+    }
+
+    /// A Microsoft app that refreshes with what the account was granted
+    /// (`granted`, as recorded at sign-in or consent), so photo scopes stay
+    /// in its tokens.
+    pub fn microsoft_with_grants(self, granted: &str) -> Self {
+        let scopes = match (ms_has_scope(granted, MS_CONTACTS_SCOPE), ms_has_scope(granted, MS_PEOPLE_SCOPE)) {
+            (true, true) => MS_PHOTO_SCOPES,
+            (true, false) => MS_CONTACT_SCOPES,
+            _ => return self,
+        };
+        OAuthApp { scopes, ..self }
     }
 
     /// Pre-fill the sign-in page with the address typed in "Add account"
@@ -677,5 +743,21 @@ mod tests {
         assert_eq!(admin_consent_code("interaction_required: consent_required"), Some("consent_required"));
         assert_eq!(admin_consent_code("access_denied: User said no"), None);
         assert!(admin_consent_url("abc").ends_with("adminconsent?client_id=abc"));
+    }
+
+    #[test]
+    fn microsoft_photo_scopes_are_asked_for_apart_and_kept_on_refresh() {
+        let app = OAuthApp::microsoft("cid");
+        assert!(!app.scope().contains("Contacts.Read"), "never at sign-in");
+        let both = app.clone().microsoft_add_photo_scopes("a@b.c", false).scope();
+        assert!(
+            both.contains("Contacts.Read") && both.contains("User.ReadBasic.All") && both.contains("Mail.ReadWrite")
+        );
+        let contacts = app.clone().microsoft_add_photo_scopes("a@b.c", true).scope();
+        assert!(contacts.contains("Contacts.Read") && !contacts.contains("User.ReadBasic.All"));
+        let granted = "https://graph.microsoft.com/Contacts.Read https://graph.microsoft.com/Mail.ReadWrite";
+        assert!(ms_has_scope(granted, MS_CONTACTS_SCOPE) && !ms_has_scope(granted, MS_PEOPLE_SCOPE));
+        assert_eq!(app.clone().microsoft_with_grants(granted).scope(), contacts);
+        assert_eq!(app.clone().microsoft_with_grants("User.Read Mail.Send").scope(), app.scope());
     }
 }
