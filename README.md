@@ -84,9 +84,12 @@ Bump `[workspace.package] version` in `Cargo.toml`, then
    embeds the provisioning profile (Time Sensitive reminders);
 2. notarizes and staples the app and the `.dmg`;
 3. signs the dmg for Sparkle (EdDSA) and writes `appcast.xml`;
-4. publishes a GitHub Release with the dmg, its `.sha256` and `appcast.xml`.
+4. publishes a GitHub Release with the dmg, its `.sha256` and `appcast.xml`,
+   here and in the public [erango/coo-releases](https://github.com/erango/coo-releases)
+   (needs the `RELEASES_TOKEN` secret: a fine-grained token with Contents
+   read/write on that repo). Downloads and the update feed point there.
 
-Installed apps read `releases/latest/download/appcast.xml` and check every
+Installed apps read coo-releases' `releases/latest/download/appcast.xml` (older builds read this repo's) and check every
 6 h, when they come back to the foreground (at most hourly) and when About
 opens. Updates download in the background; then the sidebar shows "Update
 ready · Restart" (also Coo → Restart to Update, and the menu-bar menu). While

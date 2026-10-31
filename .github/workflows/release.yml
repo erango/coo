@@ -11,6 +11,11 @@ on:
 permissions:
   contents: write
 
+# Downloads and the update feed are published to this public repo too
+# (RELEASES_TOKEN: a fine-grained token with Contents read/write on it).
+env:
+  PUBLIC_REPO: erango/coo-releases
+
 jobs:
   macos:
     runs-on: macos-15
@@ -168,8 +173,10 @@ jobs:
           rm -f "$KEY"
           BUILD="$(plutil -extract CFBundleVersion raw dist/Coo.app/Contents/Info.plist)"
           MIN_OS="$(plutil -extract LSMinimumSystemVersion raw dist/Coo.app/Contents/Info.plist)"
-          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${DMG}"
-          PAGE="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${GITHUB_REF_NAME}"
+          # Downloads live in the public releases repo (this one is going
+          # private); the feed points there.
+          URL="https://github.com/${PUBLIC_REPO}/releases/download/${GITHUB_REF_NAME}/${DMG}"
+          PAGE="https://github.com/${PUBLIC_REPO}/releases/tag/${GITHUB_REF_NAME}"
           # Inline notes (Sparkle renders them in its dialog): the hand-written
           # release-notes/<tag>.md if present, else this release's commit titles.
           PREV="$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
@@ -198,6 +205,7 @@ jobs:
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
           DMG="${{ steps.dmg.outputs.dmg }}"
           SHA="${{ steps.dmg.outputs.sha }}"
@@ -238,6 +246,21 @@ jobs:
           gh release create "$GITHUB_REF_NAME" "${ASSETS[@]}" \
             --title "Coo $GITHUB_REF_NAME" \
             --notes-file notes.md
+          # The public copy: the dmg, its hash and the feed, with the
+          # hand-written notes (no commit log). Installed apps and the
+          # download site read this repo.
+          if [ -z "$RELEASES_TOKEN" ]; then
+            echo "::warning::RELEASES_TOKEN not set: not published to $PUBLIC_REPO"
+            exit 0
+          fi
+          {
+            if [ -f "release-notes/$GITHUB_REF_NAME.md" ]; then cat "release-notes/$GITHUB_REF_NAME.md"; echo; fi
+            echo "Universal macOS build (Apple Silicon + Intel). Download \`$DMG\` and drag Coo to Applications."
+            echo
+            echo "\`sha256: $SHA\`"
+          } > public-notes.md
+          GH_TOKEN="$RELEASES_TOKEN" gh release create "$GITHUB_REF_NAME" "${ASSETS[@]}" \
+            -R "$PUBLIC_REPO" --title "Coo $GITHUB_REF_NAME" --notes-file public-notes.md
 
       - name: Bump Homebrew tap
         env:
@@ -255,7 +278,7 @@ jobs:
             echo "Casks/coo.rb missing in erango/homebrew-tap: skipping bump." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          sed -i '' -E "s/version \".*\"/version \"$VER\"/; s/sha256 \".*\"/sha256 \"$SHA\"/" Casks/coo.rb
+          sed -i '' -E "s/version \".*\"/version \"$VER\"/; s/sha256 \".*\"/sha256 \"$SHA\"/; s#github.com/erango/coo/releases#github.com/${PUBLIC_REPO}/releases#" Casks/coo.rb
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -am "coo $VER"

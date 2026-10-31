@@ -90,7 +90,7 @@
     <div class="bird-wrap"><img src="icon.svg" alt="Coo, a small white pigeon"><span class="coo-bubble" aria-hidden="true">coo!</span></div>
     <h1>All your mail and calendars,<br>in one calm place.</h1>
     <p class="lede">Coo brings your Outlook, Gmail and iCloud accounts together in one quick, friendly inbox, with your calendars right next to it. Free for Mac.</p>
-    <a class="download" id="download" href="https://github.com/erango/coo/releases/latest">
+    <a class="download" id="download" href="https://github.com/erango/coo-releases/releases/latest">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0l-5-5m5 5l5-5M4 19h16"/></svg>
       <span id="download-label">Download for Mac</span>
     </a>
@@ -129,7 +129,7 @@
   </div>
 
   <footer>
-    Made with care · <a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a> · <a href="https://github.com/erango/coo">Source code</a>
+    Made with care · <a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a>
   </footer>
 </main>
 <script>
@@ -141,7 +141,7 @@
       document.getElementById('not-mac').style.display = 'block';
     }
     try {
-      const r = await fetch('https://api.github.com/repos/erango/coo/releases/latest', { headers: { Accept: 'application/vnd.github+json' } });
+      const r = await fetch('https://api.github.com/repos/erango/coo-releases/releases/latest', { headers: { Accept: 'application/vnd.github+json' } });
       if (!r.ok) throw 0;
       const rel = await r.json();
       const dmg = (rel.assets || []).find(a => /\.dmg$/i.test(a.name));

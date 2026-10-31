@@ -33,7 +33,7 @@ done
 
 VERSION="$(grep -m1 '^version' "$ROOT/Cargo.toml" | sed 's/.*"\(.*\)".*/\1/')"
 BUILD="${COO_BUILD_NUMBER:-$(git -C "$ROOT" rev-list --count HEAD)}"
-FEED_URL="${COO_FEED_URL:-https://github.com/erango/coo/releases/latest/download/appcast.xml}"
+FEED_URL="${COO_FEED_URL:-https://github.com/erango/coo-releases/releases/latest/download/appcast.xml}"
 SPARKLE_PUBLIC_KEY="SI4PR6GjSgQtfjIuBmJxRHmBrUpi2O5vx8Ru1lXUT+g="
 SPARKLE="$("$ROOT/scripts/fetch-sparkle.sh")"
 ICNS="$ROOT/crates/pigeon-bin/assets/icon/Coo.icns"
