@@ -597,6 +597,7 @@ pub const JS: &str = r#"
       return;
     }
     if (el.classList.contains('cal-list')) { calEdges(el); return; }
+    if (el.classList.contains('list')) { listEdge(el); return; }
     if (!el.classList.contains('settings')) return;
     const head = el.querySelector('.settings__crumbs');
     if (head) head.toggleAttribute('data-scrolled', el.scrollTop > 0);
@@ -610,7 +611,19 @@ pub const JS: &str = r#"
     el.toggleAttribute('data-scrolled', el.scrollTop > 0);
     el.toggleAttribute('data-more', el.scrollTop + el.clientHeight < el.scrollHeight - 1);
   };
-  setInterval(() => { const el = document.querySelector('.sidebar .cal-list'); if (el) calEdges(el); }, 400);
+  // The message list: its header casts the reader's soft shadow once the
+  // list scrolls under it (also re-checked, since switching mailboxes
+  // swaps the list without a scroll event).
+  const listEdge = (el) => {
+    const pane = el.closest('.pane--list');
+    const head = pane && pane.querySelector(':scope > .pane-header');
+    if (head) head.toggleAttribute('data-scrolled', el.scrollTop > 0);
+  };
+  setInterval(() => {
+    const el = document.querySelector('.sidebar .cal-list'); if (el) calEdges(el);
+    const l = document.querySelector('.pane--list .list'); if (l) listEdge(l);
+    else { const h = document.querySelector('.pane--list > .pane-header[data-scrolled]'); if (h) h.removeAttribute('data-scrolled'); }
+  }, 400);
 
   // ---- Window: drag by the title strips, double-click to zoom ----
   // The titlebar is transparent with content under it, and WKWebView ignores

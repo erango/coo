@@ -1750,6 +1750,13 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 /* …and the gutter is always there (a transparent track), so short lists
    keep the same edges as long ones. */
 .list[data-style="classic"] { overflow-y: scroll; }
+/* Cards and Day bands the same way: always the gutter on the right, and
+   10 px more on the left to match it, so both sides look even. */
+.list[data-style="cards"], .list[data-style="bands"] { overflow-y: scroll; }
+.list[data-style="cards"] .row { margin-left: 20px; }
+.list[data-style="bands"] .row { margin-left: 20px; }
+.list[data-style="cards"] .list-group { padding-left: 32px; }
+.list[data-style="bands"] .list-group { padding-left: 32px; }
 /* List header: the folder's name over its account, each on its own line
    and taking the room left of the controls (wrapping rather than cutting
    a long folder name short). */
@@ -2146,3 +2153,9 @@ html[data-contrast="high"] .row[aria-selected="true"] { box-shadow: inset 0 0 0 
 .sidebar__away[data-away] { opacity: 0; transform: scale(0.8) translateY(4px); max-width: 0; pointer-events: none; }
 .sidebar__bar .sidebar__away:not([data-away]) { transition-delay: 60ms; }
 @media (prefers-reduced-motion: reduce) { .sidebar__away { transition: none; } }
+
+/* The message list's header casts the same soft shadow as the reader's
+   toolbar once the list scrolls under it (bridge.rs sets data-scrolled). */
+.pane--list > .pane-header { position: relative; z-index: 2; transition: box-shadow 150ms ease-out; }
+.pane--list > .pane-header[data-scrolled] { box-shadow: 0 1px 0 var(--line), 0 8px 16px -8px var(--scroll-shade); }
+@media (prefers-reduced-motion: reduce) { .pane--list > .pane-header { transition: none; } }
