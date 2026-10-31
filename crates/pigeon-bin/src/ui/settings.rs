@@ -27,7 +27,7 @@ pub const PAGES: &[(&str, &str, &str)] = &[
     (
         "Appearance",
         "sun",
-        "theme themes dark light mode high contrast accessibility color colour palette text size font zoom list cards bands classic style threads messages conversations group grouping lines density compact preview avatars hover actions buttons row toolbar sender photos google microsoft outlook contacts gravatar logos",
+        "theme themes dark light mode high contrast accessibility color colour palette text size font zoom list cards bands classic style threads messages conversations group grouping lines density compact preview avatars hover actions buttons row toolbar sender photos google microsoft outlook contacts gravatar logos daily hello greeting good morning pigeon",
     ),
     (
         "Accounts & agents",
@@ -238,6 +238,7 @@ mod page_tests {
         assert_eq!(matching_pages("claude").first(), Some(&"Accounts & agents"));
         assert_eq!(matching_pages("from").first(), Some(&"Writing"));
         assert_eq!(matching_pages("gravatar").first(), Some(&"Appearance"));
+        assert_eq!(matching_pages("greeting").first(), Some(&"Appearance"));
         assert_eq!(matching_pages("attachments").first(), Some(&"Reading"));
         assert_eq!(matching_pages("update").first(), Some(&"General"));
         assert_eq!(matching_pages("").len(), PAGES.len());
@@ -321,6 +322,7 @@ fn Appearance() -> Element {
                         onclick: move |_| step(Step::Reset), "Reset" kbd { class: "kbd", "⌘0" } }
                 }
             }
+            DailyHello {}
         }
         Group { title: "Message list",
             Row { label: "Style", stack: true,
@@ -378,6 +380,24 @@ fn Appearance() -> Element {
             GoogleContactPhotos {}
             MicrosoftContactPhotos {}
             GravatarPhotos {}
+        }
+    }
+}
+
+/// The pigeon's hello the first time Coo comes to the front each day.
+#[component]
+fn DailyHello() -> Element {
+    let mut on = use_signal(|| prefs::get().greeting);
+    rsx! {
+        Row { label: "Daily hello",
+            hint: "The pigeon says good morning (or good evening) the first time you open Coo each day.",
+            input { class: "switch", r#type: "checkbox", checked: *on.read(), "aria-label": "Daily hello",
+                onchange: move |_| {
+                    let now = !*on.peek();
+                    on.set(now);
+                    prefs::update(move |x| x.greeting = now);
+                }
+            }
         }
     }
 }

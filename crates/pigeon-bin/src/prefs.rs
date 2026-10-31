@@ -149,6 +149,13 @@ pub struct Prefs {
     pub high_contrast: bool,
     /// The list shows conversations (threads) rather than single messages.
     pub threaded: bool,
+    /// The daily hello (greeting.rs): the pigeon greets you the first time
+    /// Coo comes to the front each day.
+    pub greeting: bool,
+    /// The greeting day (YYYY-MM-DD) it last greeted (or skipped).
+    pub greeted_day: String,
+    /// The last greeting day Coo was used, for "Welcome back".
+    pub active_day: String,
 }
 
 impl Default for Prefs {
@@ -207,6 +214,9 @@ impl Default for Prefs {
             tour_seen: false,
             high_contrast: false,
             threaded: true,
+            greeting: true,
+            greeted_day: String::new(),
+            active_day: String::new(),
             mail_alert: "banner".into(),
             reminders_time_sensitive: true,
             sound_theme: crate::sound::DEFAULT.into(),
@@ -279,6 +289,7 @@ mod tests {
         assert_eq!(p.account_order, ["a"]);
         let p: Prefs = serde_json::from_str("{}").unwrap();
         assert_eq!(p, Prefs::default());
+        assert!(p.greeting, "the daily hello is on unless turned off");
     }
 }
 

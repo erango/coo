@@ -29,6 +29,11 @@ pub fn record(f: impl FnOnce(&mut MilestoneState, i64)) {
     }
 }
 
+/// A milestone card is on screen.
+pub fn showing() -> bool {
+    CARD.peek().is_some()
+}
+
 /// The card on screen's counter, if one is.
 fn shown_key() -> Option<u64> {
     (*CARD.peek()).map(|(n, _)| n)

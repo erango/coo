@@ -50,6 +50,11 @@ fn night_pose(hour: u32) -> super::bird::Pose {
 #[component]
 fn ReaderEmpty() -> Element {
     let s = use_context::<AppState>();
+    if super::greeting::in_empty_reader() {
+        return rsx! {
+            div { class: "empty-state reader-empty", super::greeting::GreetingHello {} }
+        };
+    }
     let items = s.visible_items();
     if items.is_empty() {
         return rsx! { div { class: "pane-empty" } };
@@ -113,6 +118,7 @@ fn ThreadReader() -> Element {
 
     rsx! {
         main { class: "pane pane--reader",
+            super::greeting::GreetingCard {}
             div { class: "reader-toolbar",
                 if !in_trash {
                 button { class: "icon-btn", "aria-label": tip("Archive", Do::Archive), onclick: move |_| if let Some(i) = &i1 { act(s, i, MailAction::Archive) }, Icon { name: "archive", class: "icon--lg" } }

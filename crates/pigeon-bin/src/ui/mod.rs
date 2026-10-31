@@ -11,6 +11,8 @@ pub mod compose_window;
 mod drive;
 pub mod event_editor;
 mod format_bar;
+pub mod greeting;
+mod greeting_art;
 mod icloud;
 mod invite;
 mod list;
@@ -141,6 +143,7 @@ pub fn App() -> Element {
         send_read_delay();
         crate::keymon::start();
         spawn(reminder_loop(s));
+        spawn(greeting::watch(s));
         spawn(click_loop(s));
         // Debug builds: open a surface on launch for screenshots/testing,
         // e.g. PIGEON_DEBUG_OPEN=palette:inv, search:invoice, event-new:a@x.com,b@y.com
@@ -221,6 +224,9 @@ pub fn App() -> Element {
                 }),
                 // milestone:<id> — that milestone's card (screenshots)
                 "milestone" => milestone::show_id(arg),
+                // greeting:<scene>[|<account_id>|<thread_id>] — the daily hello,
+                // as a card over that thread when given (screenshots)
+                "greeting" => greeting::debug(s, arg),
                 // saved-toast — a "Saved …" toast with Show in Finder (screenshots)
                 "saved-toast" => s.push_toast(pigeon_engine::service::Toast {
                     id: 2,
@@ -545,6 +551,13 @@ pub fn App() -> Element {
     use_effect(move || {
         let _ = s.accounts.read();
         refresh_badge(s);
+    });
+
+    // Opening a message ends the daily hello.
+    use_effect(move || {
+        if s.reader.read().is_some() {
+            greeting::reader_changed();
+        }
     });
 
     // Milestones: the anniversary clock, and inbox-zero days (the unified
@@ -1387,6 +1400,10 @@ pub fn join_now(s: AppState) {
 }
 
 fn on_key(s: AppState, key: &str) {
+    // The daily hello's card goes away on any key; Esc does only that.
+    if greeting::on_key(key) {
+        return;
+    }
     // An open right-click menu takes every key, like a native one.
     if s.row_menu.read().is_some() {
         return row_menu::on_key(s, key);
