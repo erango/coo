@@ -610,6 +610,22 @@ const JS: &str = r##"
     if (ed) refresh(ed);
   });
 
+  // Pasting a lone URL over selected text links the text instead of
+  // replacing it. Only addresses with a scheme or www., so pasting a file
+  // name or a sentence over a selection still replaces it.
+  document.addEventListener('paste', (e) => {
+    const sel = getSelection();
+    const ed = editorOf(caretNode());
+    if (!ed || sel.isCollapsed || editorOf(sel.focusNode) !== ed || !sel.toString().trim()) return;
+    const v = ((e.clipboardData && e.clipboardData.getData('text/plain')) || '').trim();
+    if (!/^(https?:\/\/|mailto:|www\.)\S+$/i.test(v)) return;
+    const href = normalizeUrl(v);
+    if (!href) return;
+    e.preventDefault();
+    exec('createLink', href);
+    refresh(ed);
+  }, true);
+
   // ---- List autoformat and list keys ----
   // `auto` remembers the list Space just made, so an immediate Backspace
   // turns it back into the typed text (like Word).
