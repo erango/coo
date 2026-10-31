@@ -842,6 +842,19 @@ pub fn set_theme(theme: &str) {
     document::eval(&format!("{SWAP_JS}('theme', {value})"));
 }
 
+/// High contrast on or off; a change also sweeps a band across the window
+/// (app.css `[data-hc-sweep]`).
+pub fn set_contrast(on: bool) {
+    document::eval(&format!(
+        "(() => {{ const r = document.documentElement; const was = r.dataset.contrast === 'high'; \
+         if (was !== {on} && r.dataset.colorsSet && !matchMedia('(prefers-reduced-motion: reduce)').matches) {{ \
+           r.dataset.hcSweep = r.dataset.hcSweep === 'a' ? 'b' : 'a'; r.dataset.hcDir = {on} ? 'on' : 'off'; \
+           clearTimeout(window.__cooSweepT); window.__cooSweepT = setTimeout(() => delete r.dataset.hcSweep, 700); }} }})(); \
+         {SWAP_JS}('contrast', {v})",
+        v = if on { "'high'" } else { "null" },
+    ));
+}
+
 pub fn set_palette(palette: &str) {
     document::eval(&format!("{SWAP_JS}('palette', {palette:?})"));
 }

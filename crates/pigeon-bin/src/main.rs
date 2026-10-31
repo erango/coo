@@ -79,11 +79,13 @@ pub fn head_html() -> String {
     };
     let palette = if themes::is_known(&prefs.palette) { prefs.palette.as_str() } else { themes::DEFAULT };
     format!(
-        "<style>{}\n{}\n{}\n{platform_css}\n{zoom_css}\n{list_css}\n{sidebar_css}</style><script>document.documentElement.dataset.theme={theme_mode:?};\
-         document.documentElement.dataset.palette={palette:?};</script>",
+        "<style>{}\n{}\n{}\n{}\n{platform_css}\n{zoom_css}\n{list_css}\n{sidebar_css}</style><script>document.documentElement.dataset.theme={theme_mode:?};\
+         document.documentElement.dataset.palette={palette:?};{contrast}</script>",
         fonts::css(),
         CSS.join("\n"),
-        themes::css()
+        themes::css(),
+        themes::hc_css(),
+        contrast = if prefs.high_contrast { "document.documentElement.dataset.contrast='high';" } else { "" },
     )
 }
 

@@ -524,8 +524,13 @@ pub fn App() -> Element {
     use_effect(move || {
         let theme = *s.theme.read();
         let palette = s.palette.read().clone();
+        let contrast = *s.high_contrast.read();
         bridge::set_theme(theme.as_pref());
         bridge::set_palette(&palette);
+        bridge::set_contrast(contrast);
+        if crate::prefs::get().high_contrast != contrast {
+            crate::prefs::update(move |p| p.high_contrast = contrast);
+        }
         let saved = crate::prefs::get();
         if saved.theme_mode != theme.as_pref() || saved.palette != palette {
             crate::prefs::update(|p| {

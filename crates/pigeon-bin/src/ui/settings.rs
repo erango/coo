@@ -27,7 +27,7 @@ pub const PAGES: &[(&str, &str, &str)] = &[
     (
         "Appearance",
         "sun",
-        "theme themes dark light mode color colour palette text size font zoom list cards bands classic style threads messages conversations group grouping lines density compact preview avatars hover actions buttons row toolbar sender photos google microsoft outlook contacts gravatar logos",
+        "theme themes dark light mode high contrast accessibility color colour palette text size font zoom list cards bands classic style threads messages conversations group grouping lines density compact preview avatars hover actions buttons row toolbar sender photos google microsoft outlook contacts gravatar logos",
     ),
     (
         "Accounts & agents",
@@ -294,10 +294,15 @@ fn Appearance() -> Element {
                     }
                 }
             }
-            Row { label: "Theme", hint: "Each comes in light and dark; these show the one you're in.", stack: true,
+            Row { label: "High contrast", hint: "Black or white text, solid edges and stronger focus rings, in whichever theme you pick. Messages keep their own colors.",
+                ContrastSwitch {}
+            }
+            Row { label: "Theme",
+                hint: if *s.high_contrast.read() { "Each theme at full contrast; yours keeps its accent." } else { "Each comes in light and dark; these show the one you're in." },
+                stack: true,
                 div { class: "theme-grid", role: "radiogroup", "aria-label": "Color theme",
                     for (id, name) in themes::choices() {
-                        ThemeCard { key: "{id}", id, name, checked: selected == id, dark,
+                        ThemeCard { key: "{id}", id, name, checked: selected == id, dark, hc: *s.high_contrast.read(),
                             on_pick: move |id: &'static str| {
                                 if *palette.peek() != id {
                                     super::settings_bird::cue(super::settings_bird::Cue::Twirl);
@@ -597,6 +602,27 @@ pub(crate) fn ListStylePreview(style: crate::state::ListStyle, avatars: bool, li
     }
 }
 
+/// High contrast's switch, with its half-filled disc that turns over when
+/// it changes (app.css `.hc-switch`). Settings › Appearance and the tour.
+#[component]
+pub(crate) fn ContrastSwitch() -> Element {
+    let s = use_context::<AppState>();
+    let mut hc = s.high_contrast;
+    let on = *hc.read();
+    rsx! {
+        div { class: "hc-switch", "data-on": on.then_some("true"),
+            span { class: "hc-switch__disc", "aria-hidden": "true",
+                svg { view_box: "0 0 24 24",
+                    circle { cx: "12", cy: "12", r: "8.5" }
+                    path { class: "hc-switch__half", d: "M12 3.5a8.5 8.5 0 0 1 0 17z" }
+                }
+            }
+            input { class: "switch", r#type: "checkbox", checked: on, "aria-label": "High contrast",
+                onchange: move |_| { let now = !*hc.peek(); hc.set(now); } }
+        }
+    }
+}
+
 /// A palette as a tiny window in the mode in use: its sidebar ground, a
 /// sheet with text lines and an accent button (mixed as app.css does).
 #[component]
@@ -605,16 +631,17 @@ pub(crate) fn ThemeCard(
     name: &'static str,
     checked: bool,
     dark: bool,
+    #[props(default)] hc: bool,
     on_pick: EventHandler<&'static str>,
 ) -> Element {
     let variants = themes::FAMILIES.iter().find(|f| f.id == id).map(|f| f.variants).unwrap_or(("Dark", "Light"));
-    let [bg0, bg2, bg3, text, accent] = themes::swatch(id, dark);
+    let [bg0, bg2, bg3, text, accent] = if hc { themes::swatch_hc(id, dark) } else { themes::swatch(id, dark) };
     let variant = if dark { variants.0 } else { variants.1 };
     rsx! {
         button { class: "theme-card", r#type: "button", role: "radio", "aria-checked": "{checked}",
             title: "{name}: {variants.1} / {variants.0}",
             onclick: move |_| on_pick.call(id),
-            div { class: "tp", "data-dark": dark.then_some("true"), "aria-hidden": "true",
+            div { class: "tp", "data-dark": dark.then_some("true"), "data-hc": hc.then_some("true"), "aria-hidden": "true",
                 style: "--p-bg0:{bg0};--p-bg2:{bg2};--p-bg3:{bg3};--p-text:{text};--p-accent:{accent}",
                 div { class: "tp__side",
                     span { class: "tp__pill" }

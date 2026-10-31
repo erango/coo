@@ -2095,3 +2095,34 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 html[data-theme-swap] *, html[data-theme-swap] *::before, html[data-theme-swap] *::after {
   transition: background-color 380ms ease, color 380ms ease, border-color 380ms ease, fill 380ms ease, stroke 380ms ease, box-shadow 380ms ease, outline-color 380ms ease !important;
 }
+
+/* ---- High contrast (themes.rs `hc_css`, prefs `high_contrast`) ----
+   The switch: a half-filled disc that turns over as it flips. */
+.hc-switch { display: flex; align-items: center; gap: 12px; }
+.hc-switch__disc { flex: none; width: 32px; height: 32px; border-radius: 9px; display: flex; align-items: center; justify-content: center; color: var(--accent); background: var(--accent-soft); transition: background-color 320ms, color 320ms; }
+.hc-switch[data-on] .hc-switch__disc { color: var(--bg-0); background: var(--text-1); animation: tour-pop 520ms cubic-bezier(0.34, 1.56, 0.64, 1); }
+.hc-switch__disc svg { width: 16px; height: 16px; }
+.hc-switch__disc circle { fill: none; stroke: currentColor; stroke-width: 1.8; }
+.hc-switch__half { fill: currentColor; transform-box: fill-box; transform-origin: 0% 50%; transition: transform 520ms cubic-bezier(0.34, 1.3, 0.5, 1); }
+.hc-switch[data-on] .hc-switch__half { transform: scaleX(-1); }
+.tour-hc { display: flex; align-items: center; gap: 14px; padding: 8px 10px 8px 14px; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--line); }
+.tour-hc:has([data-on]) { box-shadow: inset 0 0 0 2px var(--text-1); }
+/* Theme cards preview their high-contrast take with solid edges. */
+.tp[data-hc] .tp__sheet { box-shadow: 0 0 0 1.5px var(--p-text); }
+.tp[data-hc] { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--p-text) 60%, transparent); }
+/* Switching: a band sweeps across the window as the colors change. */
+html[data-hc-sweep] body::after {
+  content: ""; position: fixed; top: 0; bottom: 0; left: -40%; width: 40%; z-index: 100; pointer-events: none;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--text-1) 22%, transparent), transparent);
+}
+html[data-hc-sweep="a"] body::after { animation: hc-sweep-a 600ms cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+html[data-hc-sweep="b"] body::after { animation: hc-sweep-b 600ms cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+html[data-hc-dir="off"][data-hc-sweep] body::after { background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--text-1) 9%, transparent), transparent); }
+@keyframes hc-sweep-a { to { left: 105%; } }
+@keyframes hc-sweep-b { to { left: 105%; } }
+/* In high contrast: solid edges where the app relies on faint fills. */
+html[data-contrast="high"] .sheet { box-shadow: 0 0 0 1.5px var(--line-strong); }
+html[data-contrast="high"] :focus-visible { outline: 3px solid var(--focus-ring) !important; outline-offset: 2px; }
+html[data-contrast="high"] .btn--secondary, html[data-contrast="high"] .chip { box-shadow: inset 0 0 0 1.5px var(--line-strong); }
+html[data-contrast="high"] .row[aria-selected="true"] { box-shadow: inset 0 0 0 2.5px var(--accent) !important; }
+@media (prefers-reduced-motion: reduce) { html[data-hc-sweep] body::after { display: none; } .hc-switch__half, .hc-switch__disc { transition: none; animation: none; } }

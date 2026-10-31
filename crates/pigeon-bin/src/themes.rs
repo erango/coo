@@ -695,9 +695,131 @@ pub fn css() -> String {
     out
 }
 
+// ---------- high contrast ----------
+
+/// The high-contrast take on a resolved mode: the sheet pure white (or
+/// black) under pure black (or white) text, secondary text and every accent
+/// pushed to 7:1, hairlines made solid. The sidebar keeps a trace of the
+/// palette's tint, so each theme still reads as itself.
+pub fn high_contrast(r: &Resolved) -> Resolved {
+    let (sheet, ink) = if r.dark {
+        (Rgb(0.0, 0.0, 0.0), Rgb(255.0, 255.0, 255.0))
+    } else {
+        (Rgb(255.0, 255.0, 255.0), Rgb(0.0, 0.0, 0.0))
+    };
+    let strong = |c: Rgb, min: f32| ensure(c, sheet, ink, min);
+    let accent = strong(r.accent, 7.0);
+    Resolved {
+        dark: r.dark,
+        bg: [sheet, r.bg[1].mix(sheet, 0.55), ink.mix(sheet, if r.dark { 0.84 } else { 0.9 }), sheet],
+        text: [ink, strong(r.text[1], 10.0), strong(r.text[2], 7.0)],
+        accent,
+        on_accent: if contrast(sheet, accent) >= contrast(ink, accent) { sheet } else { ink },
+        success: strong(r.success, 4.5),
+        warning: strong(r.warning, 4.5),
+        error: strong(r.error, 4.5),
+        info: strong(r.info, 7.0),
+        hues: r.hues,
+        hue_text: r.hue_text.map(|h| strong(h, 7.0)),
+    }
+}
+
+/// High contrast's declarations: the palette's tokens from
+/// [`high_contrast`], then solid lines and a firmer focus ring.
+fn hc_declarations(r: &Resolved) -> String {
+    let h = high_contrast(r);
+    let mut s = declarations(&h);
+    let t1 = h.text[0];
+    let _ = writeln!(s, "  --line: {};", t1.rgba(0.45));
+    let _ = writeln!(s, "  --line-strong: {};", t1.rgba(0.75));
+    let _ = writeln!(s, "  --focus-halo: {};", h.accent.rgba(0.35));
+    let _ = writeln!(s, "  --selection: {};", h.accent.rgba(0.16));
+    s
+}
+
+/// Coo's own palette as a [`Resolved`], read from design/tokens.css.
+fn default_resolved(dark: bool) -> Resolved {
+    let tokens = include_str!("../../../design/tokens.css");
+    let block = if dark {
+        tokens.split(":root[data-theme=\"dark\"] {").nth(1)
+    } else {
+        tokens.split(":root[data-theme=\"light\"] {").nth(1)
+    }
+    .and_then(|b| b.split('}').next())
+    .unwrap_or("");
+    let get = |name: &str| -> Rgb {
+        // Lines carry trailing comments, so find the declaration itself.
+        block
+            .find(&format!("--{name}:"))
+            .map(|i| block[i + name.len() + 3..].trim_start())
+            .filter(|v| v.starts_with('#') && v.len() >= 7)
+            .map(|v| parse(&v[..7]))
+            .unwrap_or(if dark { Rgb(255.0, 255.0, 255.0) } else { Rgb(0.0, 0.0, 0.0) })
+    };
+    let hues: [Rgb; 8] = std::array::from_fn(|i| get(&format!("hue-{}", i + 1)));
+    let hue_text: [Rgb; 8] = std::array::from_fn(|i| get(&format!("hue-{}-text", i + 1)));
+    Resolved {
+        dark,
+        bg: [get("bg-0"), get("bg-1"), get("bg-2"), get("bg-3")],
+        text: [get("text-1"), get("text-2"), get("text-3")],
+        accent: get("accent"),
+        on_accent: get("on-accent"),
+        success: get("success"),
+        warning: get("warning"),
+        error: get("error"),
+        info: get("info"),
+        hues,
+        hue_text,
+    }
+}
+
+/// Every palette's high-contrast variant, on `data-contrast="high"`
+/// (out-ranking the palette's own blocks), in the same three cases.
+pub fn hc_css() -> String {
+    let mut out = String::from("/* High contrast (themes.rs). */\n");
+    let all = std::iter::once((DEFAULT, default_resolved(true), default_resolved(false)))
+        .chain(FAMILIES.iter().map(|f| (f.id, resolve_mode(&f.dark, true), resolve_mode(&f.light, false))));
+    for (p, d, l) in all {
+        let (dark, light) = (hc_declarations(&d), hc_declarations(&l));
+        let sel = format!(":root[data-palette=\"{p}\"][data-contrast=\"high\"]");
+        let _ = write!(
+            out,
+            "{sel},\n{sel}[data-theme=\"dark\"] {{\n{dark}}}\n\
+             {sel}[data-theme=\"light\"] {{\n{light}}}\n\
+             @media (prefers-color-scheme: light) {{\n{sel}:not([data-theme=\"dark\"]):not([data-theme=\"light\"]) {{\n{light}}}\n}}\n"
+        );
+    }
+    out
+}
+
+/// A palette's card swatch in high contrast (see [`swatch`]).
+pub fn swatch_hc(id: &str, dark: bool) -> [String; 5] {
+    let r = high_contrast(&resolved(id, dark).unwrap_or_else(|| default_resolved(dark)));
+    [r.bg[0].hex(), r.bg[2].hex(), r.bg[1].hex(), r.text[0].hex(), r.accent.hex()]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn high_contrast_reaches_seven_to_one_everywhere() {
+        for dark in [false, true] {
+            let mut all: Vec<Resolved> =
+                FAMILIES.iter().map(|f| resolve_mode(if dark { &f.dark } else { &f.light }, dark)).collect();
+            all.push(default_resolved(dark));
+            for r in all {
+                let h = high_contrast(&r);
+                assert!(contrast(h.text[0], h.bg[0]) >= 20.0);
+                assert!(contrast(h.text[1], h.bg[0]) >= 7.0);
+                assert!(contrast(h.accent, h.bg[0]) >= 7.0);
+            }
+        }
+        assert!(hc_css().contains("[data-palette=\"pigeon\"][data-contrast=\"high\"]"));
+        // Coo's own palette is read from tokens.css, not a fallback.
+        assert_eq!(default_resolved(true).accent.hex(), "#3CCFAE");
+        assert_eq!(default_resolved(false).bg[1].hex(), "#F5F5F3");
+    }
 
     #[test]
     fn sender_colors_only_matter_off_a_white_sheet() {

@@ -173,9 +173,13 @@ pub fn Tour() -> Element {
                                 opts: vec![("system", "Match macOS"), ("light", "Light"), ("dark", "Dark")],
                                 cur: s.theme.read().as_pref().to_string(),
                                 on_pick: move |v: &'static str| { let mut t = s.theme; t.set(Theme::from_pref(v)); touched("mode"); } }
+                            div { class: "tour-hc",
+                                div { class: "tour-toggle__text", b { "High contrast" } span { class: "tour__hint", "Strongest text and edges, in any theme." } }
+                                super::settings::ContrastSwitch {}
+                            }
                             div { class: "theme-grid tour-themes", role: "radiogroup", "aria-label": "Color theme",
                                 for (id, name) in crate::themes::choices() {
-                                    super::settings::ThemeCard { key: "{id}", id, name, checked: *s.palette.read() == id, dark,
+                                    super::settings::ThemeCard { key: "{id}", id, name, checked: *s.palette.read() == id, dark, hc: *s.high_contrast.read(),
                                         on_pick: move |id: &'static str| { let mut pal = s.palette; pal.set(id.to_string()); touched("theme"); } }
                                 }
                             }

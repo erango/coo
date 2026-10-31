@@ -289,6 +289,8 @@ pub struct AppState {
     pub theme: Signal<Theme>,
     pub list_style: Signal<ListStyle>,
     pub list_avatars: Signal<bool>,
+    /// High contrast on (Settings › Appearance, the welcome tour).
+    pub high_contrast: Signal<bool>,
     /// 3 or 2 lines per message row (Settings › Appearance).
     pub list_lines: Signal<u8>,
     /// Sidebar: accounts with the Folders group open; pinned folders
@@ -419,6 +421,7 @@ impl AppState {
             theme: Signal::new(Theme::from_pref(&crate::prefs::get().theme_mode)),
             list_style: Signal::new(ListStyle::from_pref(&crate::prefs::get().list_style)),
             list_avatars: Signal::new(crate::prefs::get().list_avatars),
+            high_contrast: Signal::new(crate::prefs::get().high_contrast),
             list_lines: Signal::new(if crate::prefs::get().list_lines == 2 { 2 } else { 3 }),
             folders_open: Signal::new(crate::prefs::get().folders_open),
             pinned_folders: Signal::new(crate::prefs::get().pinned_folders),

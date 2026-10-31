@@ -145,6 +145,8 @@ pub struct Prefs {
     pub menu_bar_hint_shown: bool,
     /// The welcome tour was shown (it opens by itself only once).
     pub tour_seen: bool,
+    /// High contrast: the theme at full strength (themes::high_contrast).
+    pub high_contrast: bool,
     /// The list shows conversations (threads) rather than single messages.
     pub threaded: bool,
 }
@@ -203,6 +205,7 @@ impl Default for Prefs {
             relaunch_hidden: false,
             menu_bar_hint_shown: false,
             tour_seen: false,
+            high_contrast: false,
             threaded: true,
             mail_alert: "banner".into(),
             reminders_time_sensitive: true,
