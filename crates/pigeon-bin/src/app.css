@@ -2089,3 +2089,9 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
   .welcome-in { display: none; }
   .app[data-welcome] * { animation: none !important; }
 }
+
+/* Switching theme, mode or palette: every color cross-fades for a moment
+   instead of snapping (bridge.rs sets data-theme-swap around the change). */
+html[data-theme-swap] *, html[data-theme-swap] *::before, html[data-theme-swap] *::after {
+  transition: background-color 380ms ease, color 380ms ease, border-color 380ms ease, fill 380ms ease, stroke 380ms ease, box-shadow 380ms ease, outline-color 380ms ease !important;
+}

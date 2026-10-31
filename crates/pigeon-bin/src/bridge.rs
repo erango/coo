@@ -835,16 +835,27 @@ pub fn insert_html(editor: &str, html: &str) {
 }
 
 pub fn set_theme(theme: &str) {
-    let js = match theme {
-        "dark" | "light" => format!("document.documentElement.dataset.theme = {theme:?}"),
-        _ => "delete document.documentElement.dataset.theme".to_string(),
+    let value = match theme {
+        "dark" | "light" => format!("{theme:?}"),
+        _ => "null".to_string(),
     };
-    document::eval(&js);
+    document::eval(&format!("{SWAP_JS}('theme', {value})"));
 }
 
 pub fn set_palette(palette: &str) {
-    document::eval(&format!("document.documentElement.dataset.palette = {palette:?}"));
+    document::eval(&format!("{SWAP_JS}('palette', {palette:?})"));
 }
+
+/// Set a root `data-*` that changes the colors (theme, palette). A real
+/// change after the first one cross-fades every color for a moment
+/// (app.css `[data-theme-swap]`); the first, at startup, just applies.
+const SWAP_JS: &str = "((key, v) => { const r = document.documentElement; const old = r.dataset[key]; \
+    const settled = r.dataset.colorsSet; r.dataset.colorsSet = '1'; \
+    if ((old ?? null) === v) return; \
+    if (settled && !matchMedia('(prefers-reduced-motion: reduce)').matches) { \
+      r.setAttribute('data-theme-swap', ''); void document.body.offsetHeight; \
+      clearTimeout(window.__cooSwapT); window.__cooSwapT = setTimeout(() => r.removeAttribute('data-theme-swap'), 520); } \
+    if (v === null) delete r.dataset[key]; else r.dataset[key] = v; })";
 
 /// Set a text input's value and caret (a UTF-16 offset) and focus it. The
 /// render that follows sets the same value; put the caret back if it moved.
