@@ -159,6 +159,7 @@ jobs:
       - name: Sparkle appcast
         env:
           SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: |
           DMG="${{ steps.dmg.outputs.dmg }}"
           VER="${{ steps.dmg.outputs.ver }}"
@@ -175,8 +176,10 @@ jobs:
           MIN_OS="$(plutil -extract LSMinimumSystemVersion raw dist/Coo.app/Contents/Info.plist)"
           # Downloads live in the public releases repo (this one is going
           # private); the feed points there.
-          URL="https://github.com/${PUBLIC_REPO}/releases/download/${GITHUB_REF_NAME}/${DMG}"
-          PAGE="https://github.com/${PUBLIC_REPO}/releases/tag/${GITHUB_REF_NAME}"
+          HOST="$PUBLIC_REPO"
+          [ -n "$RELEASES_TOKEN" ] || HOST="$GITHUB_REPOSITORY"
+          URL="https://github.com/${HOST}/releases/download/${GITHUB_REF_NAME}/${DMG}"
+          PAGE="https://github.com/${HOST}/releases/tag/${GITHUB_REF_NAME}"
           # Inline notes (Sparkle renders them in its dialog): the hand-written
           # release-notes/<tag>.md if present, else this release's commit titles.
           PREV="$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
