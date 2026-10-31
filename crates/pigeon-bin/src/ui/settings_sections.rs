@@ -782,7 +782,7 @@ pub fn Shortcuts() -> Element {
                 hint: if style == Style::Gmail {
                     "Single keys, as in Gmail: R reply, A reply all, F forward, E archive."
                 } else {
-                    "⌘ and ⌃ keys, as in Outlook for Mac: ⌘R reply, ⇧⌘R reply all, ⌘J forward, ⌃E archive."
+                    "⌘ and ⌃ keys, as in Outlook for Mac: ⌘R reply, ⇧⌘R reply all, ⌘J forward, ⌘E archive."
                 },
                 div { class: "segmented", role: "radiogroup", "aria-label": "Keyboard shortcut style",
                     for (value, label) in [(Style::Gmail, "Gmail"), (Style::Outlook, "Outlook")] {

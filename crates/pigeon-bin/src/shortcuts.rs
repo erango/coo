@@ -95,7 +95,7 @@ const TABLE: &[Row] = &[
     (Do::Reuse, "Write", "Reuse message", &[], &[]),
     (Do::Send, "Write", "Send", &["meta+Enter"], &["meta+Enter"]),
     (Do::SelectAll, "Organize", "Select every message in the folder (list focused)", &["meta+a"], &["meta+a"]),
-    (Do::Archive, "Organize", "Archive", &["e"], &["ctrl+e"]),
+    (Do::Archive, "Organize", "Archive", &["e"], &["meta+e"]),
     (Do::Delete, "Organize", "Delete", &["#"], &["Backspace", "Delete", "meta+Backspace"]),
     (Do::Move, "Organize", "Move to folder", &["v"], &["meta+shift+m"]),
     (Do::Label, "Organize", "Label (Gmail)", &["l"], &[]),
@@ -398,7 +398,7 @@ mod tests {
         assert_eq!(action(Style::Outlook, "meta+r", false), Some(Do::Reply));
         assert_eq!(action(Style::Gmail, "meta+r", false), None);
         assert_eq!(action(Style::Outlook, "meta+j", false), Some(Do::Forward));
-        assert_eq!(action(Style::Outlook, "ctrl+e", false), Some(Do::Archive));
+        assert_eq!(action(Style::Outlook, "meta+e", false), Some(Do::Archive));
         assert_eq!(action(Style::Gmail, "e", false), Some(Do::Archive));
         assert_eq!(action(Style::Gmail, "c", false), Some(Do::Compose));
         assert_eq!(action(Style::Gmail, "c", true), Some(Do::NewEvent));

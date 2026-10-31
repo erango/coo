@@ -66,7 +66,7 @@ pub const JS: &str = r#"
     // ⌥ changes e.key (⌥F is ƒ): name the physical key.
     if (e.metaKey && e.altKey && !e.ctrlKey && /^Key[A-Z]$/.test(e.code)) key = 'alt+' + e.code.slice(3).toLowerCase();
     if (e.metaKey) key = 'meta+' + key;
-    // ⌃ shortcuts (Outlook's ⌃E archive, ⌃] next) go by the physical key.
+    // ⌃ shortcuts (Outlook's ⌃] next) go by the physical key.
     if (e.ctrlKey && !e.altKey) {
       const base = /^Key[A-Z]$/.test(e.code) ? e.code.slice(3).toLowerCase()
                  : e.code === 'BracketRight' ? ']' : e.code === 'BracketLeft' ? '[' : null;
