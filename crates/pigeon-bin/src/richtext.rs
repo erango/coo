@@ -610,15 +610,15 @@ const JS: &str = r##"
     if (ed) refresh(ed);
   });
 
-  // Pasting a lone URL over selected text links the text instead of
-  // replacing it. Only addresses with a scheme or www., so pasting a file
-  // name or a sentence over a selection still replaces it.
+  // Pasting a lone URL or email address over selected text links the text
+  // instead of replacing it. Only URLs with a scheme or www., so pasting a
+  // file name or a sentence over a selection still replaces it.
   document.addEventListener('paste', (e) => {
     const sel = getSelection();
     const ed = editorOf(caretNode());
     if (!ed || sel.isCollapsed || editorOf(sel.focusNode) !== ed || !sel.toString().trim()) return;
     const v = ((e.clipboardData && e.clipboardData.getData('text/plain')) || '').trim();
-    if (!/^(https?:\/\/|mailto:|www\.)\S+$/i.test(v)) return;
+    if (!/^(https?:\/\/|mailto:|www\.)\S+$/i.test(v) && !/^[^\s@\/]+@[^\s@]+\.[^\s@]+$/.test(v)) return;
     const href = normalizeUrl(v);
     if (!href) return;
     e.preventDefault();
