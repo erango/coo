@@ -2136,3 +2136,13 @@ html[data-contrast="high"] .row[aria-selected="true"] { box-shadow: inset 0 0 0 
 .day-head[aria-current="date"] .day-head__num { background: var(--accent-2); color: var(--on-accent-2); }
 .now-line, .now-line::before { background: var(--accent-2); }
 .nav-item[aria-current="page"] .count { color: var(--accent-2); }
+
+/* Sidebar footer: Mail/Calendar and the gear fold away while Settings is
+   open and come back when it closes (ui/sidebar.rs `.sidebar__away`). */
+.sidebar__away {
+  max-width: 80px; overflow: hidden;
+  transition: opacity 200ms ease, transform 280ms cubic-bezier(0.22, 1, 0.36, 1), max-width 280ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.sidebar__away[data-away] { opacity: 0; transform: scale(0.8) translateY(4px); max-width: 0; pointer-events: none; }
+.sidebar__bar .sidebar__away:not([data-away]) { transition-delay: 60ms; }
+@media (prefers-reduced-motion: reduce) { .sidebar__away { transition: none; } }

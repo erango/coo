@@ -703,8 +703,14 @@ fn SyncFooter() -> Element {
                 }
             }
             div { class: "sidebar__bar",
-                if !settings_shown {
-                    div { class: "sidebar__modes", role: "tablist", "aria-label": "Mail or calendar",
+                // Mail/Calendar and the gear stay mounted while Settings is
+                // open, folded away (app.css `[data-away]`), so they can
+                // animate out and back in.
+                {
+                    let away = settings_shown.then_some("true");
+                    rsx! {
+                    div { class: "sidebar__modes sidebar__away", role: "tablist", "aria-label": "Mail or calendar",
+                        "data-away": away, "aria-hidden": away, inert: away,
                         button { class: "icon-btn", role: "tab", "aria-label": "Mail", title: "Mail",
                             "aria-selected": "{*mode.read() == Mode::Mail}", onclick: move |_| mode.set(Mode::Mail),
                             Icon { name: "mail", class: "icon--sm" }
@@ -713,6 +719,7 @@ fn SyncFooter() -> Element {
                             "aria-selected": "{*mode.read() == Mode::Calendar}", onclick: move |_| mode.set(Mode::Calendar),
                             Icon { name: "cal", class: "icon--sm" }
                         }
+                    }
                     }
                 }
                 span { class: "spacer" }
@@ -723,11 +730,11 @@ fn SyncFooter() -> Element {
                     Icon { name: "sync", class: "icon--sm" }
                 }
                 // Settings has its own Back button at the top while open.
-                if !settings_shown {
-                    button { class: "icon-btn", r#type: "button", "aria-label": "Settings", title: "Settings (⌘,)",
-                        onclick: move |_| settings_open.set(true),
-                        Icon { name: "gear", class: "icon--sm" }
-                    }
+                button { class: "icon-btn sidebar__away", r#type: "button", "aria-label": "Settings", title: "Settings (⌘,)",
+                    "data-away": settings_shown.then_some("true"), "aria-hidden": settings_shown.then_some("true"),
+                    tabindex: if settings_shown { "-1" } else { "0" },
+                    onclick: move |_| settings_open.set(true),
+                    Icon { name: "gear", class: "icon--sm" }
                 }
             }
         }
