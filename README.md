@@ -110,3 +110,10 @@ Keychain (`generate_keys --account coo`); its public half is in `bundle.sh`.
 Local signed build: `PIGEON_SIGN_IDENTITY="Developer ID Application: …"
 PIGEON_PROVISION_PROFILE=… ./scripts/bundle.sh`, then
 `PIGEON_NOTARY_PROFILE=<notarytool profile> ./scripts/notarize.sh dist/Coo.app`.
+
+## Download site
+
+The download site (erango.github.io/coo) lives in the public
+[erango/erango.github.io](https://github.com/erango/erango.github.io) repo,
+under `coo/`. Its Download button reads the latest release from
+[erango/coo-releases](https://github.com/erango/coo-releases).
