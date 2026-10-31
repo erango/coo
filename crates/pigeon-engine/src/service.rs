@@ -434,6 +434,9 @@ pub struct Toast {
     pub action: Option<MailAction>,
     /// A file just saved: the toast offers to show it in Finder.
     pub reveal: Option<std::path::PathBuf>,
+    /// Also a notification banner when Coo isn't in front (an agent's
+    /// problem: the person is in the agent, not in Coo).
+    pub banner: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -1937,10 +1940,51 @@ impl Service {
     }
 }
 
+/// The broker's notices, shown in the app: without them an agent's failure
+/// only reaches the agent, and Coo looks fine. Each kind shows at most once
+/// every few minutes (an agent retries).
+fn agent_notices(svc: std::sync::Weak<Service>) -> crate::broker::Notify {
+    use crate::broker::Notice;
+    const QUIET_MS: i64 = 5 * 60 * 1000;
+    let last: Arc<std::sync::Mutex<std::collections::HashMap<Notice, i64>>> = Default::default();
+    Arc::new(move |notice: Notice| {
+        let Some(svc) = svc.upgrade() else { return };
+        {
+            let mut last = last.lock().unwrap();
+            let now = now_ms();
+            if last.get(&notice).is_some_and(|t| now - t < QUIET_MS) {
+                return;
+            }
+            last.insert(notice.clone(), now);
+        }
+        tokio::spawn(async move {
+            let banner = |message: String| {
+                let id = svc.toast_seq.fetch_add(1, Ordering::Relaxed);
+                svc.send(Delta::Toast(Toast { id, message, error: true, banner: true, ..Default::default() }));
+            };
+            match notice {
+                Notice::Refused => banner(
+                    "An AI agent couldn't connect to Coo, usually because Coo updated after the agent started. \
+                     Restart its connection: in Claude Code run /mcp and reconnect \"coo\"; quit and reopen Claude Desktop."
+                        .into(),
+                ),
+                Notice::SignInRequired(account) => {
+                    let email = account.split_once(':').map_or(account.as_str(), |(_, e)| e).to_string();
+                    svc.set_sync(|s| {
+                        if !s.needs_sign_in.contains(&account) {
+                            s.needs_sign_in.push(account.clone());
+                        }
+                    })
+                    .await;
+                    banner(format!("An AI agent couldn't use {email}: its sign-in expired. Sign in again in Coo."));
+                }
+            }
+        });
+    })
+}
+
 /// Run the engine until the command channel closes.
 pub async fn run(app: Arc<Pigeon>, mut rx: mpsc::UnboundedReceiver<Cmd>, tx: mpsc::UnboundedSender<Delta>) {
-    // Share sign-ins with the `coo` helper (AI agents) while the app runs.
-    crate::broker::start(app.clone());
     let svc = Arc::new(Service {
         app,
         tx,
@@ -1964,6 +2008,9 @@ pub async fn run(app: Arc<Pigeon>, mut rx: mpsc::UnboundedReceiver<Cmd>, tx: mps
         labels_filled: Default::default(),
         signed_in_at: Default::default(),
     });
+    // Share sign-ins with the `coo` helper (AI agents) while the app runs,
+    // and say so here when an agent hits something only the person can fix.
+    crate::broker::start(svc.app.clone(), Some(agent_notices(Arc::downgrade(&svc))));
     // Watermark existing mail so only what arrives from now on notifies.
     svc.check_new_mail().await;
     svc.publish().await;

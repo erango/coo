@@ -836,6 +836,16 @@ fn apply(s: &mut AppState, delta: Delta) {
                 if t.error {
                     s.signing_in.set(false);
                 }
+                if t.banner && !crate::notify::app_is_active() {
+                    crate::notify::post(&crate::notify::Note {
+                        title: "Coo".into(),
+                        body: t.message.clone(),
+                        target: crate::notify::Target::Inbox,
+                        join_url: None,
+                        sound: None,
+                        banner: true,
+                    });
+                }
                 if let Some(u) = t.undo.clone() {
                     let mut stack = s.undo_stack.write();
                     stack.push(u);

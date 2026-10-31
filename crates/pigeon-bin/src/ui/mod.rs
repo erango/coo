@@ -217,6 +217,7 @@ pub fn App() -> Element {
                     cancel_send: None,
                     action: Some(pigeon_engine::MailAction::Archive),
                     reveal: None,
+                    banner: false,
                 }),
                 // milestone:<id> — that milestone's card (screenshots)
                 "milestone" => milestone::show_id(arg),

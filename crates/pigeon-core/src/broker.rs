@@ -119,6 +119,14 @@ pub fn failure_for(e: &Error) -> Response {
     }
 }
 
+/// What an agent hears when its helper isn't accepted. Almost always the
+/// helper started before Coo updated: the running copy no longer matches
+/// the signed one on disk, and only a fresh start fixes that.
+pub const REFUSED: &str = "Coo didn't accept this connection, usually because Coo updated after the agent started it. \
+     Tell the user to restart the agent's connection to Coo: in Claude Code, run /mcp and reconnect \"coo\"; \
+     in Claude Desktop, quit and reopen Claude. If it still fails, set it up again from Coo's menu: \
+     Help › Connect an AI Agent.";
+
 /// The broker couldn't be reached at all (as opposed to answering "no").
 #[derive(Debug)]
 pub struct Unavailable(pub std::io::Error);
@@ -204,6 +212,8 @@ pub fn call(socket: &Path, req: &Request, timeout: Duration) -> std::io::Result<
 /// Server side: what the app answers. Implemented by the engine.
 pub trait Handler: Send + Sync + 'static {
     fn handle(&self, req: Request) -> futures::future::BoxFuture<'_, Response>;
+    /// A program that isn't (or no longer checks out as) Coo's own asked.
+    fn refused(&self) {}
 }
 
 /// Listen until the process exits. Removes a stale socket first.
@@ -243,11 +253,8 @@ async fn serve_one(stream: tokio::net::UnixStream, handler: &dyn Handler) -> std
     let resp = match (allowed, serde_json::from_str::<Request>(&line)) {
         (Err(why), _) => {
             tracing::warn!(reason = %why, "refused a sign-in request from an untrusted program");
-            Response::fail(
-                Failure::Denied,
-                "only Coo's own programs can use your sign-ins. If Coo updated since the agent started, restart \
-                 the agent; otherwise reconnect it from Coo's Help › Connect an AI Agent",
-            )
+            handler.refused();
+            Response::fail(Failure::Denied, REFUSED)
         }
         (Ok(()), Err(e)) => Response::fail(Failure::Failed, format!("bad request: {e}")),
         (Ok(()), Ok(req)) => handler.handle(req).await,

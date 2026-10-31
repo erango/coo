@@ -11,8 +11,20 @@ use pigeon_core::model::ProviderKind;
 
 use crate::Pigeon;
 
+/// Something the person should see in Coo after an agent's request.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Notice {
+    /// A helper was turned away (usually started before Coo updated).
+    Refused,
+    /// An agent needed this account, and its sign-in has expired.
+    SignInRequired(String),
+}
+
+pub type Notify = Arc<dyn Fn(Notice) + Send + Sync>;
+
 struct AppBroker {
     app: Arc<Pigeon>,
+    notify: Option<Notify>,
 }
 
 impl AppBroker {
@@ -30,6 +42,22 @@ impl AppBroker {
     }
 
     async fn answer(&self, req: Request) -> Response {
+        let account = match &req {
+            Request::AccessToken { account } | Request::Secret { account } | Request::Has { account } => {
+                Some(account.clone())
+            }
+            _ => None,
+        };
+        let resp = self.answer_inner(req).await;
+        if resp.failure == Some(Failure::SignInRequired)
+            && let (Some(notify), Some(account)) = (&self.notify, account)
+        {
+            notify(Notice::SignInRequired(account));
+        }
+        resp
+    }
+
+    async fn answer_inner(&self, req: Request) -> Response {
         match req {
             Request::Ping => Response::pong(),
             Request::Has { account } => match self.account(&account) {
@@ -89,11 +117,17 @@ impl Handler for AppBroker {
     fn handle(&self, req: Request) -> BoxFuture<'_, Response> {
         Box::pin(self.answer(req))
     }
+
+    fn refused(&self) {
+        if let Some(notify) = &self.notify {
+            notify(Notice::Refused);
+        }
+    }
 }
 
 /// Start sharing sign-ins with the helper (the app calls this once). Only
 /// for the Keychain: with the file store the helper reads the file itself.
-pub fn start(app: Arc<Pigeon>) {
+pub fn start(app: Arc<Pigeon>, notify: Option<Notify>) {
     if app.tokens.kind() != "keychain" || app.tokens.broker().is_some() {
         return;
     }
@@ -108,7 +142,7 @@ pub fn start(app: Arc<Pigeon>) {
     }
     let socket = broker::socket_path(&app.data_dir);
     tokio::spawn(async move {
-        if let Err(e) = broker::serve(socket, Arc::new(AppBroker { app })).await {
+        if let Err(e) = broker::serve(socket, Arc::new(AppBroker { app, notify })).await {
             tracing::warn!(error = %e, "sign-in broker stopped");
         }
     });
@@ -156,7 +190,7 @@ mod tests {
         app.tokens.set(&google.id, "refresh-token-never-shared").unwrap();
 
         let socket = broker::socket_path(&dir);
-        tokio::spawn(broker::serve(socket.clone(), Arc::new(AppBroker { app: app.clone() })));
+        tokio::spawn(broker::serve(socket.clone(), Arc::new(AppBroker { app: app.clone(), notify: None })));
         for _ in 0..50 {
             if socket.exists() {
                 break;
@@ -184,6 +218,31 @@ mod tests {
         assert_eq!(token.failure, Some(Failure::Denied), "iCloud has no access token");
         assert_eq!(unknown, None);
         std::fs::remove_dir_all(app.data_dir.clone()).ok();
+    }
+
+    /// An agent hitting an expired sign-in is reported to the app, so Coo
+    /// can ask the person to sign in again instead of looking fine.
+    #[tokio::test]
+    async fn expired_sign_ins_are_reported_to_the_app() {
+        let dir = std::env::temp_dir().join(format!("coo-notice-{}", pigeon_core::auth::random_token(4)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let app = Arc::new(Pigeon::open_with(dir.clone(), TokenStore::File(dir.join("tokens.json"))).unwrap());
+        let icloud = Account {
+            id: Account::make_id(ProviderKind::ICloud, "a@icloud.com"),
+            provider: ProviderKind::ICloud,
+            email: "a@icloud.com".into(),
+            display_name: "a".into(),
+        };
+        app.store().upsert_account(&icloud).unwrap();
+        let seen: Arc<std::sync::Mutex<Vec<Notice>>> = Default::default();
+        let sink = seen.clone();
+        let broker = AppBroker { app: app.clone(), notify: Some(Arc::new(move |n| sink.lock().unwrap().push(n))) };
+        // No password stored: the agent is told to sign in again, and so is the app.
+        let r = broker.answer(Request::Secret { account: icloud.id.clone() }).await;
+        assert_eq!(r.failure, Some(Failure::SignInRequired));
+        broker.refused();
+        assert_eq!(*seen.lock().unwrap(), vec![Notice::SignInRequired(icloud.id.clone()), Notice::Refused]);
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]

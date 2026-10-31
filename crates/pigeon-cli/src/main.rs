@@ -340,7 +340,10 @@ fn doctor(app: &Pigeon, exe: &std::path::Path) -> serde_json::Value {
             Err(e) => check(&format!("sign-in {}", a.email), false, e.to_string()),
         }
     }
-    let mut providers: Vec<ProviderKind> = accounts.iter().map(|a| a.provider).collect();
+    // iCloud signs in with an app-specific password: no client id.
+    let mut providers: Vec<ProviderKind> =
+        accounts.iter().map(|a| a.provider).filter(|p| *p != ProviderKind::ICloud).collect();
+    providers.sort_by_key(|p| p.as_str());
     providers.dedup();
     for p in providers {
         let ok = pigeon_core::auth::OAuthApp::from_env(p).is_ok();

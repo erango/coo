@@ -581,7 +581,7 @@ pub fn describe(e: &Error) -> (&'static str, String) {
         Error::SignInRequired(account) => (
             "sign_in_required",
             format!(
-                "The sign-in for {} has expired. Open Coo and sign in again (Settings › Accounts).",
+                "The sign-in for {} has expired, and only the user can renew it. Ask them to do this: Open Coo, click Sign in on the bar above the mail list (or Settings › Accounts), then try again.",
                 account.split_once(':').map_or(account.as_str(), |(_, email)| email)
             ),
         ),
