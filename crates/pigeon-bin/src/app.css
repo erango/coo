@@ -976,14 +976,14 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
   --list-ground: transparent;
   --card: var(--bg-0);
   --card-read: var(--bg-0);
-  --card-unread: color-mix(in srgb, var(--accent) 6%, var(--bg-0));
-  --card-unread-edge: 0 0 0 1px color-mix(in srgb, var(--accent) 18%, var(--bg-0));
+  --card-unread: color-mix(in srgb, var(--accent-2) 6%, var(--bg-0));
+  --card-unread-edge: 0 0 0 1px color-mix(in srgb, var(--accent-2) 18%, var(--bg-0));
   --card-open: color-mix(in srgb, var(--accent) 13%, var(--bg-0));
   --card-open-ring: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 60%, transparent);
   --card-edge: 0 0 0 1px var(--line);
   --card-lift: 0 0 0 1px var(--line-strong);
   --row-read: transparent;
-  --row-unread: color-mix(in srgb, var(--accent) 6%, transparent);
+  --row-unread: color-mix(in srgb, var(--accent-2) 6%, transparent);
 }
 .list[data-style="cards"], .list[data-style="bands"] {
   --card-hover: color-mix(in srgb, var(--text-1) 3%, var(--card));
@@ -999,7 +999,7 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
   transition: box-shadow var(--dur-fast) var(--ease-standard), background-color var(--dur-fast) var(--ease-standard);
 }
 .list[data-style="cards"] .row[data-unread] { background: var(--card-unread); box-shadow: var(--card-unread-edge); }
-.list[data-style="cards"] .row[data-unread] .row__time { color: var(--accent); font-weight: var(--fw-semibold); }
+.list[data-style="cards"] .row[data-unread] .row__time { color: var(--accent-2); font-weight: var(--fw-semibold); }
 .list[data-style="cards"] .row:hover { background: var(--card-hover); box-shadow: var(--card-lift); }
 .list[data-style="cards"] .row[aria-selected="true"] { background: var(--card-open); box-shadow: var(--card-open-ring); }
 .list[data-style="cards"] .row[data-focused] { background: var(--card-selected); box-shadow: inset 0 0 0 1.5px var(--focus-ring); }
@@ -2126,3 +2126,13 @@ html[data-contrast="high"] :focus-visible { outline: 3px solid var(--focus-ring)
 html[data-contrast="high"] .btn--secondary, html[data-contrast="high"] .chip { box-shadow: inset 0 0 0 1.5px var(--line-strong); }
 html[data-contrast="high"] .row[aria-selected="true"] { box-shadow: inset 0 0 0 2.5px var(--accent) !important; }
 @media (prefers-reduced-motion: reduce) { html[data-hc-sweep] body::after { display: none; } .hc-switch__half, .hc-switch__disc { transition: none; animation: none; } }
+
+/* A second accent (themes.rs `accent2`; Coo's own palette has one, so it's
+   the first again): unread marks, today and the "now" line. Buttons,
+   selection, links and focus keep the first. */
+:root { --accent-2: var(--accent); --on-accent-2: var(--on-accent); }
+.mini-month__day[aria-current="date"] > span { background: var(--accent-2); color: var(--on-accent-2); }
+.day-head[aria-current="date"] .day-head__dow { color: var(--accent-2); }
+.day-head[aria-current="date"] .day-head__num { background: var(--accent-2); color: var(--on-accent-2); }
+.now-line, .now-line::before { background: var(--accent-2); }
+.nav-item[aria-current="page"] .count { color: var(--accent-2); }

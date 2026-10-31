@@ -33,6 +33,9 @@ struct ModeSpec {
     bg: [C; 4],
     text: [C; 3],
     accent: C,
+    /// A second accent where the palette has one: unread marks, today and
+    /// the "now" line (the first stays on buttons, selection and links).
+    accent2: Option<C>,
     success: C,
     warning: C,
     error: C,
@@ -64,7 +67,8 @@ pub static FAMILIES: &[Family] = &[
         dark: ModeSpec {
             bg: [Hex("#002b36"), Hex("#073642"), Mix("#073642", "#586e75", 0.18), Mix("#073642", "#586e75", 0.30)],
             text: [Hex("#93a1a1"), Hex("#839496"), Hex("#657b83")],
-            accent: Hex("#2aa198"),
+            accent: Hex("#b58900"),
+            accent2: Some(Hex("#268bd2")),
             success: Hex("#859900"),
             warning: Hex("#b58900"),
             error: Hex("#dc322f"),
@@ -83,7 +87,8 @@ pub static FAMILIES: &[Family] = &[
         light: ModeSpec {
             bg: [Hex("#fdf6e3"), Hex("#eee8d5"), Mix("#eee8d5", "#93a1a1", 0.18), Hex("#fdf6e3")],
             text: [Hex("#586e75"), Hex("#657b83"), Hex("#839496")],
-            accent: Hex("#2aa198"),
+            accent: Hex("#b58900"),
+            accent2: Some(Hex("#268bd2")),
             success: Hex("#859900"),
             warning: Hex("#b58900"),
             error: Hex("#dc322f"),
@@ -113,7 +118,8 @@ pub static FAMILIES: &[Family] = &[
         dark: ModeSpec {
             bg: [Hex("#0f1a17"), Hex("#0b1411"), Hex("#16241f"), Hex("#1e2f29")],
             text: [Hex("#e4f4ed"), Hex("#a9c4b9"), Hex("#7f9a8f")],
-            accent: Hex("#4fdfd0"),
+            accent: Hex("#6ee7a8"),
+            accent2: None,
             success: Hex("#86e08f"),
             warning: Hex("#f2c46d"),
             error: Hex("#ff7f8e"),
@@ -130,10 +136,11 @@ pub static FAMILIES: &[Family] = &[
             ],
         },
         light: ModeSpec {
-            bg: [Hex("#f5fbf8"), Hex("#e9f5ef"), Hex("#dcefe6"), Hex("#ffffff")],
+            bg: [Hex("#f4fcf7"), Hex("#dcf3e6"), Hex("#c9ebd8"), Hex("#ffffff")],
             text: [Hex("#12302a"), Hex("#3b5a50"), Hex("#5b776d")],
             // Spearmint deepened until white labels on it read at AA.
-            accent: Hex("#078463"),
+            accent: Hex("#15803d"),
+            accent2: None,
             success: Hex("#2f8a3a"),
             warning: Hex("#a87400"),
             error: Hex("#c93a55"),
@@ -163,6 +170,7 @@ pub static FAMILIES: &[Family] = &[
             bg: [Hex("#16181a"), Mix("#16181a", "#000000", 0.3), Hex("#1e2124"), Mix("#1e2124", "#3c4048", 0.35)],
             text: [Hex("#ffffff"), Mix("#ffffff", "#7b8496", 0.45), Hex("#7b8496")],
             accent: Hex("#ff5ef1"),
+            accent2: Some(Hex("#5ef1ff")),
             success: Hex("#5eff6c"),
             warning: Hex("#ffbd5e"),
             error: Hex("#ff6e5e"),
@@ -182,6 +190,7 @@ pub static FAMILIES: &[Family] = &[
             bg: [Hex("#ffffff"), Mix("#ffffff", "#eaeaea", 0.5), Hex("#eaeaea"), Hex("#ffffff")],
             text: [Hex("#16181a"), Mix("#16181a", "#7b8496", 0.5), Hex("#7b8496")],
             accent: Hex("#d100bf"),
+            accent2: Some(Hex("#008c99")),
             success: Hex("#008b0c"),
             warning: Hex("#d17c00"),
             error: Hex("#d11500"),
@@ -209,6 +218,7 @@ pub static FAMILIES: &[Family] = &[
             bg: [Hex("#1a1b26"), Hex("#16161e"), Hex("#24283b"), Hex("#292e42")],
             text: [Hex("#c0caf5"), Hex("#a9b1d6"), Hex("#737aa2")],
             accent: Hex("#7aa2f7"),
+            accent2: Some(Hex("#bb9af7")),
             success: Hex("#9ece6a"),
             warning: Hex("#e0af68"),
             error: Hex("#f7768e"),
@@ -228,6 +238,7 @@ pub static FAMILIES: &[Family] = &[
             bg: [Hex("#e1e2e7"), Hex("#d0d5e3"), Hex("#c4c8da"), Hex("#e1e2e7")],
             text: [Hex("#3760bf"), Hex("#6172b0"), Hex("#68709a")],
             accent: Hex("#2e7de9"),
+            accent2: Some(Hex("#9854f1")),
             success: Hex("#587539"),
             warning: Hex("#8c6c3e"),
             error: Hex("#f52a65"),
@@ -253,7 +264,8 @@ pub static FAMILIES: &[Family] = &[
         dark: ModeSpec {
             bg: [Hex("#191724"), Hex("#1f1d2e"), Hex("#26233a"), Mix("#26233a", "#6e6a86", 0.18)],
             text: [Hex("#e0def4"), Hex("#908caa"), Hex("#6e6a86")],
-            accent: Hex("#9ccfd8"),
+            accent: Hex("#ebbcba"),
+            accent2: Some(Hex("#9ccfd8")),
             success: Hex("#9ccfd8"),
             warning: Hex("#f6c177"),
             error: Hex("#eb6f92"),
@@ -273,7 +285,8 @@ pub static FAMILIES: &[Family] = &[
         light: ModeSpec {
             bg: [Hex("#faf4ed"), Hex("#f2e9e1"), Mix("#f2e9e1", "#9893a5", 0.15), Hex("#fffaf3")],
             text: [Hex("#464261"), Hex("#797593"), Hex("#9893a5")],
-            accent: Hex("#286983"),
+            accent: Hex("#b4637a"),
+            accent2: Some(Hex("#286983")),
             success: Hex("#286983"),
             warning: Hex("#ea9d34"),
             error: Hex("#b4637a"),
@@ -300,6 +313,7 @@ pub static FAMILIES: &[Family] = &[
             bg: [Hex("#282A36"), Hex("#21222C"), Mix("#282A36", "#44475A", 0.45), Mix("#282A36", "#44475A", 0.7)],
             text: [Hex("#F8F8F2"), Mix("#6272A4", "#F8F8F2", 0.45), Hex("#6272A4")],
             accent: Hex("#BD93F9"),
+            accent2: Some(Hex("#FF79C6")),
             success: Hex("#50FA7B"),
             warning: Hex("#FFB86C"),
             error: Hex("#FF5555"),
@@ -319,6 +333,7 @@ pub static FAMILIES: &[Family] = &[
             bg: [Hex("#FFFBEB"), Mix("#FFFBEB", "#CFCFDE", 0.3), Mix("#FFFBEB", "#CFCFDE", 0.55), Hex("#FFFBEB")],
             text: [Hex("#1F1F1F"), Hex("#6C664B"), Hex("#6C664B")],
             accent: Hex("#644AC9"),
+            accent2: Some(Hex("#A3144D")),
             success: Hex("#14710A"),
             warning: Hex("#A34D14"),
             error: Hex("#CB3A2A"),
@@ -348,7 +363,8 @@ pub static FAMILIES: &[Family] = &[
         dark: ModeSpec {
             bg: [Hex("#272822"), Mix("#272822", "#000000", 0.22), Hex("#3C3D37"), Hex("#49483E")],
             text: [Hex("#F8F8F2"), Hex("#90908A"), Hex("#75715E")],
-            accent: Hex("#A6E22E"),
+            accent: Hex("#FD971F"),
+            accent2: Some(Hex("#A6E22E")),
             success: Hex("#A6E22E"),
             warning: Hex("#FD971F"),
             error: Hex("#F92672"),
@@ -365,9 +381,10 @@ pub static FAMILIES: &[Family] = &[
             ],
         },
         light: ModeSpec {
-            bg: [Hex("#FAFAF6"), Mix("#FAFAF6", "#75715E", 0.07), Mix("#FAFAF6", "#75715E", 0.14), Hex("#FFFFFF")],
+            bg: [Hex("#FCF8EE"), Mix("#F5ECD7", "#75715E", 0.08), Mix("#F5ECD7", "#75715E", 0.18), Hex("#FFFDF7")],
             text: [Hex("#272822"), Mix("#49483E", "#272822", 0.2), Mix("#75715E", "#272822", 0.25)],
-            accent: Mix("#A6E22E", "#272822", 0.55),
+            accent: Mix("#FD971F", "#272822", 0.3),
+            accent2: Some(Mix("#A6E22E", "#272822", 0.55)),
             success: Mix("#A6E22E", "#272822", 0.55),
             warning: Mix("#FD971F", "#272822", 0.4),
             error: Mix("#F92672", "#272822", 0.2),
@@ -510,6 +527,9 @@ pub struct Resolved {
     pub text: [Rgb; 3],
     pub accent: Rgb,
     pub on_accent: Rgb,
+    /// The second accent (the first again where the palette has one).
+    pub accent2: Rgb,
+    pub on_accent2: Rgb,
     pub success: Rgb,
     pub warning: Rgb,
     pub error: Rgb,
@@ -531,6 +551,10 @@ fn resolve_mode(m: &ModeSpec, dark: bool) -> Resolved {
     let t3 = ensure(raw_text[2], bg[0], extreme, MIN_TEXT_3);
     let fix = |c: C, min: f32| ensure(resolve(c), bg[0], extreme, min);
     let accent = fix(m.accent, MIN_ACCENT);
+    let accent2 = m.accent2.map_or(accent, |c| fix(c, MIN_ACCENT));
+    let on = |c: Rgb| {
+        if contrast(bg[0], c) >= contrast(Rgb(255.0, 255.0, 255.0), c) { bg[0] } else { Rgb(255.0, 255.0, 255.0) }
+    };
     let hues = m.hues.map(resolve);
     let hue_text = hues.map(|h| ensure(h, bg[0], extreme, MIN_HUE_TEXT));
     let on_accent = if contrast(bg[0], accent) >= contrast(Rgb(255.0, 255.0, 255.0), accent) {
@@ -544,6 +568,8 @@ fn resolve_mode(m: &ModeSpec, dark: bool) -> Resolved {
         text: [t1, t2, t3],
         accent,
         on_accent,
+        accent2,
+        on_accent2: on(accent2),
         success: fix(m.success, MIN_ACCENT),
         warning: fix(m.warning, MIN_ACCENT),
         error: fix(m.error, MIN_ACCENT),
@@ -624,7 +650,9 @@ fn declarations(r: &Resolved) -> String {
     w(&mut s, "selection", r.accent.rgba(sel));
     w(&mut s, "focus-ring", r.accent.hex());
     w(&mut s, "focus-halo", r.accent.rgba(halo));
-    w(&mut s, "unread", r.accent.hex());
+    w(&mut s, "accent-2", r.accent2.hex());
+    w(&mut s, "on-accent-2", r.on_accent2.hex());
+    w(&mut s, "unread", r.accent2.hex());
     w(&mut s, "highlight", r.warning.rgba(if r.dark { 0.28 } else { 0.32 }));
     w(&mut s, "success", r.success.hex());
     w(&mut s, "warning", r.warning.hex());
@@ -709,12 +737,16 @@ pub fn high_contrast(r: &Resolved) -> Resolved {
     };
     let strong = |c: Rgb, min: f32| ensure(c, sheet, ink, min);
     let accent = strong(r.accent, 7.0);
+    let accent2 = strong(r.accent2, 7.0);
+    let on = |c: Rgb| if contrast(sheet, c) >= contrast(ink, c) { sheet } else { ink };
     Resolved {
         dark: r.dark,
         bg: [sheet, r.bg[1].mix(sheet, 0.55), ink.mix(sheet, if r.dark { 0.84 } else { 0.9 }), sheet],
         text: [ink, strong(r.text[1], 10.0), strong(r.text[2], 7.0)],
         accent,
-        on_accent: if contrast(sheet, accent) >= contrast(ink, accent) { sheet } else { ink },
+        on_accent: on(accent),
+        accent2,
+        on_accent2: on(accent2),
         success: strong(r.success, 4.5),
         warning: strong(r.warning, 4.5),
         error: strong(r.error, 4.5),
@@ -764,6 +796,8 @@ fn default_resolved(dark: bool) -> Resolved {
         text: [get("text-1"), get("text-2"), get("text-3")],
         accent: get("accent"),
         on_accent: get("on-accent"),
+        accent2: get("accent"),
+        on_accent2: get("on-accent"),
         success: get("success"),
         warning: get("warning"),
         error: get("error"),
