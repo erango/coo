@@ -34,6 +34,7 @@ enum Action {
     AgentSetup,
     ReportBug,
     AddAccount,
+    Tour,
 }
 
 #[derive(Clone, PartialEq)]
@@ -101,6 +102,10 @@ fn build(s: &AppState, query: &str) -> Vec<Item> {
         },
         Item {
             meta: "Feedback, problems".into(), ..item("Actions", "alert", "Report a bug…", "", Action::ReportBug)
+        },
+        Item {
+            meta: "Welcome, setup, help".into(),
+            ..item("Actions", "sun", "Show the welcome tour", "", Action::Tour)
         },
         item("Actions", "lines", "Show threads", "", Action::Threads(true)),
         item("Actions", "list", "Show individual messages", "", Action::Threads(false)),
@@ -211,8 +216,12 @@ fn run(mut s: AppState, action: Action) {
         Action::AgentSetup => s.agent_setup_open.set(true),
         Action::ReportBug => super::report_bug(s),
         Action::AddAccount => super::add_account::open(s, ""),
+        Action::Tour => super::tour::open(s),
         Action::Theme(t) => s.theme.set(t),
-        Action::Threads(t) => s.threaded.set(t),
+        Action::Threads(t) => {
+            s.threaded.set(t);
+            crate::prefs::update(move |p| p.threaded = t);
+        }
         Action::Search(q, scope) => {
             s.mode.set(Mode::Mail);
             s.settings_open.set(false);

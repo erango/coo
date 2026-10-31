@@ -143,6 +143,10 @@ pub struct Prefs {
     pub relaunch_hidden: bool,
     /// The one-time "Coo is still running" hint was shown.
     pub menu_bar_hint_shown: bool,
+    /// The welcome tour was shown (it opens by itself only once).
+    pub tour_seen: bool,
+    /// The list shows conversations (threads) rather than single messages.
+    pub threaded: bool,
 }
 
 impl Default for Prefs {
@@ -198,6 +202,8 @@ impl Default for Prefs {
             close_to_menu_bar: true,
             relaunch_hidden: false,
             menu_bar_hint_shown: false,
+            tour_seen: false,
+            threaded: true,
             mail_alert: "banner".into(),
             reminders_time_sensitive: true,
             sound_theme: crate::sound::DEFAULT.into(),

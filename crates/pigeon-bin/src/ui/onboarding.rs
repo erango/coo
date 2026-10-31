@@ -68,7 +68,7 @@ pub fn Onboarding() -> Element {
                         FlowView { flow, embedded: true }
                         div { style: "display:flex;align-items:center;gap:12px",
                             button { class: "btn btn--primary", r#type: "button", style: "height:40px;padding:0 18px",
-                                onclick: move |_| first_run.set(false), "Continue to Coo" }
+                                onclick: move |_| { first_run.set(false); super::tour::open_first_time(s); }, "Continue to Coo" }
                             span { class: "t-caption", "{done} of {accounts.len()} synced · the rest keeps going in the background" }
                         }
                     }

@@ -579,6 +579,20 @@ pub fn mail_accent(id: &str, dark: bool) -> String {
 /// A palette's surfaces for Settings' theme cards, in one mode: bg-0, bg-2,
 /// bg-3, text and accent (the cards mix the window's ground and sheet from
 /// these the way app.css does).
+/// Whether a message's own colors look different from the theme's: in dark
+/// mode always, in light mode only on a tinted sheet (Solarized's cream, say).
+/// On a white sheet "paper" and "adapted" mail look alike, so the reader
+/// hides its colors button and shows each message its default way.
+pub fn sender_colors_matter(id: &str, dark: bool) -> bool {
+    dark || !near_white(&swatch(id, false)[0])
+}
+
+fn near_white(hex: &str) -> bool {
+    let h = hex.trim_start_matches('#');
+    let c = |i: usize| u8::from_str_radix(h.get(i..i + 2).unwrap_or("00"), 16).unwrap_or(0);
+    h.len() >= 6 && c(0) >= 0xF6 && c(2) >= 0xF6 && c(4) >= 0xF6
+}
+
 pub fn swatch(id: &str, dark: bool) -> [String; 5] {
     match resolved(id, dark) {
         Some(r) => [r.bg[0].hex(), r.bg[2].hex(), r.bg[3].hex(), r.text[0].hex(), r.accent.hex()],
@@ -684,6 +698,13 @@ pub fn css() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sender_colors_only_matter_off_a_white_sheet() {
+        assert!(!sender_colors_matter(DEFAULT, false));
+        assert!(sender_colors_matter(DEFAULT, true));
+        assert!(sender_colors_matter("solarized", false));
+    }
 
     fn all_modes() -> Vec<(&'static str, Resolved)> {
         FAMILIES

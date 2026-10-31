@@ -313,6 +313,10 @@ pub struct AppState {
     pub microsoft_photos: Signal<Vec<String>>,
     /// "Connect an AI agent" popup.
     pub agent_setup_open: Signal<bool>,
+    /// The welcome tour is open (ui/tour.rs).
+    pub tour_open: Signal<bool>,
+    /// The welcome-in fly-over after a finished tour is playing.
+    pub welcome_in: Signal<bool>,
     /// Help › Report a Bug… (ui/bug_report.rs).
     pub bug_report_open: Signal<bool>,
     /// A downloaded update waiting for a restart (its version).
@@ -380,7 +384,7 @@ impl AppState {
             mailbox: Signal::new(
                 parse_mailbox(&crate::prefs::get().last_mailbox).unwrap_or(Mailbox::Unified(FolderRole::Inbox)),
             ),
-            threaded: Signal::new(true),
+            threaded: Signal::new(crate::prefs::get().threaded),
             list: Signal::new(Vec::new()),
             selected: Signal::new(None),
             multi: Signal::new(Vec::new()),
@@ -430,6 +434,8 @@ impl AppState {
             google_contacts: Signal::new(Vec::new()),
             microsoft_photos: Signal::new(Vec::new()),
             agent_setup_open: Signal::new(false),
+            tour_open: Signal::new(false),
+            welcome_in: Signal::new(false),
             bug_report_open: Signal::new(false),
             update_ready: Signal::new(None),
             update_status: Signal::new(crate::updater::Status::Idle),

@@ -62,6 +62,12 @@ pub fn General() -> Element {
                 }
             }
         }
+        Group { title: "Welcome",
+            Row { label: "Welcome tour", hint: "Walk through the setup choices again. Your current settings are already picked.",
+                button { class: "btn btn--secondary btn--sm", r#type: "button",
+                    onclick: move |_| super::tour::open(s), "Show tour" }
+            }
+        }
         Group { title: "Updates",
             if available {
                 Row { label: "Install updates automatically", hint: "Coo downloads new versions in the background and restarts into them when you're not using it.",

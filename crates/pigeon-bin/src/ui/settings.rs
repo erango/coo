@@ -22,12 +22,12 @@ pub const PAGES: &[(&str, &str, &str)] = &[
     (
         "General",
         "gear",
-        "window close menu bar quit startup update updates version check automatic about help report bug",
+        "window close menu bar quit startup update updates version check automatic about help report bug welcome tour setup wizard",
     ),
     (
         "Appearance",
         "sun",
-        "theme themes dark light mode color colour palette text size font zoom list cards bands classic style lines density compact preview avatars hover actions buttons row toolbar sender photos google microsoft outlook contacts gravatar logos",
+        "theme themes dark light mode color colour palette text size font zoom list cards bands classic style threads messages conversations group grouping lines density compact preview avatars hover actions buttons row toolbar sender photos google microsoft outlook contacts gravatar logos",
     ),
     (
         "Accounts & agents",
@@ -280,6 +280,8 @@ fn Appearance() -> Element {
     let style_now = *list_style.read();
     let avatars_on = *list_avatars.read();
     let lines_now = *list_lines.read();
+    let mut threaded = s.threaded;
+    let threaded_now = *threaded.read();
 
     rsx! {
         div { class: "settings__title", "Appearance" }
@@ -329,6 +331,18 @@ fn Appearance() -> Element {
                             div { class: "theme-card__name", "{st.label()}" }
                             div { class: "theme-card__variants", "{st.blurb()}" }
                         }
+                    }
+                }
+            }
+            Row { label: "Group mail", hint: "Threads keep a conversation in one row; Messages lists every email on its own.",
+                div { class: "segmented", role: "radiogroup", "aria-label": "Group mail",
+                    for (on, label) in [(true, "Threads"), (false, "Messages")] {
+                        button { role: "radio", key: "{label}", "aria-selected": "{threaded_now == on}", "aria-checked": "{threaded_now == on}",
+                            onclick: move |_| {
+                                threaded.set(on);
+                                prefs::update(move |p| p.threaded = on);
+                            },
+                            "{label}" }
                     }
                 }
             }
@@ -562,7 +576,7 @@ fn HoverActions() -> Element {
 /// A miniature message list in `style`: placeholder rows of `lines` (with
 /// avatar dots when `avatars`), drawn with the real list colors.
 #[component]
-fn ListStylePreview(style: crate::state::ListStyle, avatars: bool, lines: u8) -> Element {
+pub(crate) fn ListStylePreview(style: crate::state::ListStyle, avatars: bool, lines: u8) -> Element {
     let rows = if lines == 2 { 4 } else { 3 };
     rsx! {
         div { class: "lsp", "data-style": style.as_pref(), "data-avatars": avatars.then_some("true"), "aria-hidden": "true",
@@ -586,7 +600,7 @@ fn ListStylePreview(style: crate::state::ListStyle, avatars: bool, lines: u8) ->
 /// A palette as a tiny window in the mode in use: its sidebar ground, a
 /// sheet with text lines and an accent button (mixed as app.css does).
 #[component]
-fn ThemeCard(
+pub(crate) fn ThemeCard(
     id: &'static str,
     name: &'static str,
     checked: bool,

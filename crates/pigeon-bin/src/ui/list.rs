@@ -113,7 +113,7 @@ fn merged_items(
 #[component]
 pub fn MailList() -> Element {
     let s = use_context::<AppState>();
-    let mut threaded = s.threaded;
+    let threaded = s.threaded;
     let items = s.list.read().clone();
     // Search happens in place: the folder keeps its title.
     let (heading, mut sub) = title(&s, &s.mailbox.read());
@@ -368,10 +368,6 @@ pub fn MailList() -> Element {
                 div { class: "pane-header__titles",
                     h1 { class: "pane-header__title", dir: "auto", title: "{heading}", "{heading}" }
                     span { class: "pane-header__sub", title: "{sub}", "{sub}" }
-                }
-                div { class: "segmented segmented--sm", role: "tablist", "aria-label": "Grouping",
-                    button { role: "tab", "aria-selected": "{*threaded.read()}", onclick: move |_| threaded.set(true), "Threads" }
-                    button { role: "tab", "aria-selected": "{!*threaded.read()}", onclick: move |_| threaded.set(false), "Messages" }
                 }
                 // Search is a quiet button here (and ⌘F); the field opens in
                 // its place. In Trash, Empty sits beside it.

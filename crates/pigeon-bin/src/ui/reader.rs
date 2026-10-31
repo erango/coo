@@ -635,8 +635,8 @@ fn Body(account_id: String, message_id: String, sender: String, body: StoredBody
     let trusted = prefs.remote_images_always || (!sender.is_empty() && prefs.remote_images_senders.contains(&sender));
     let allowed = trusted || remote_ok.read().contains(&message_id);
     let (always_id, always_sender) = (message_id.clone(), sender.clone());
-    let flipped = flip.read().contains(&message_id);
     let dark = s.dark();
+    let flipped = crate::themes::sender_colors_matter(&s.palette.read(), dark) && flip.read().contains(&message_id);
     let attachments: Vec<_> = body.attachments.iter().filter(|a| !a.meta.is_inline).cloned().collect();
     let files: Vec<super::attachments::File> =
         attachments.iter().map(|a| (a.meta.id.clone(), a.meta.name.clone())).collect();
@@ -872,7 +872,7 @@ pub(super) fn ColorsButton(view: ReaderView) -> Element {
             })
             .collect()
     };
-    if htmls.is_empty() {
+    if htmls.is_empty() || !crate::themes::sender_colors_matter(&s.palette.read(), s.dark()) {
         return rsx! {};
     }
     let mut flip = s.render_flip;
