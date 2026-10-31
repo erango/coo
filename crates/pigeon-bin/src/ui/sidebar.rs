@@ -163,7 +163,7 @@ fn MailNav(many: bool) -> Element {
                                     super::account_menu::open_for(s, first, super::account_menu::Target::Trash(all.clone()), p.x, p.y);
                                 }
                             },
-                            onclick: move |e| { e.prevent_default(); mailbox.set(Mailbox::Unified(role)); },
+                            onclick: move |e| { e.prevent_default(); super::search::close(s); mailbox.set(Mailbox::Unified(role)); },
                             Icon { name: icon }
                             span { class: "nav-item__label", "{label}" }
                             super::bird::CountBadge { count }
@@ -505,7 +505,7 @@ fn FolderRow(account_id: String, info: FolderInfo, pinned: bool, child: bool) ->
             "aria-current": if active { "page" } else { "false" },
             "data-pinned": pinned.then_some("true"),
             "data-busy": deleting.then_some("true"),
-            onclick: move |e| { e.prevent_default(); mailbox.set(target.clone()); },
+            onclick: move |e| { e.prevent_default(); super::search::close(s); mailbox.set(target.clone()); },
             Icon { name: icon, class: "icon--sm" }
             span { class: "nav-item__label", dir: "auto", "{label}" }
             if deleting {
@@ -587,6 +587,7 @@ fn show_sign_ins(s: AppState) {
     let ids: Vec<String> = s.accounts.peek().iter().map(|a| a.account.id.clone()).collect();
     let here = super::list::scope_accounts(&mailbox.peek().clone(), &ids);
     if !expired.iter().all(|a| here.contains(a)) {
+        super::search::close(s);
         mailbox.set(Mailbox::Unified(FolderRole::Inbox));
     }
     if let [one] = expired.as_slice()
