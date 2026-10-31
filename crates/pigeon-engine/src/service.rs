@@ -573,6 +573,13 @@ pub enum ServerSearch {
     Done(usize),
 }
 
+/// Whether an action confirms itself with an undo toast. Read state and
+/// flags show on the row itself (and undo by doing them again), so they
+/// stay quiet.
+fn shows_toast(action: &MailAction) -> bool {
+    !matches!(action, MailAction::MarkRead | MailAction::MarkUnread | MailAction::Flag | MailAction::Unflag)
+}
+
 fn local_when(ms: i64) -> String {
     use chrono::TimeZone;
     chrono::Local
@@ -1069,8 +1076,7 @@ impl Service {
                     return Ok(());
                 }
                 let handle = self.app.act(&account, &ids, from.as_deref(), &action)?;
-                let undoable = !matches!(action, MailAction::MarkRead | MailAction::MarkUnread);
-                if undoable {
+                if shows_toast(&action) {
                     self.action_toast(label, Some((account_id, handle)), &action);
                 }
                 self.publish().await;
@@ -1098,8 +1104,7 @@ impl Service {
                     handles.push((account_id, self.app.act(&account, &ids, from.as_deref(), &action)?));
                     touched.push(account);
                 }
-                let undoable = !matches!(action, MailAction::MarkRead | MailAction::MarkUnread);
-                if undoable && !handles.is_empty() {
+                if shows_toast(&action) && !handles.is_empty() {
                     let undo = if handles.len() == 1 {
                         handles.pop()
                     } else {

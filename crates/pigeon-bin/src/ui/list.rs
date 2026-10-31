@@ -689,7 +689,16 @@ pub fn Row(
                             rsx! {
                                 button { class: "icon-btn icon-btn--sm", key: "{id}", "aria-label": "{tip}",
                                     onclick: move |e| { e.stop_propagation(); super::row_actions::run(s, &item, id) },
-                                    Icon { name: action.icon }
+                                    // The flag waves (or lowers) right on the button
+                                    // you clicked: the row's own flag is hidden under
+                                    // these buttons.
+                                    if id == "flag" {
+                                        super::bird::FlagIcon { flagged, class: "", always: true }
+                                    } else if id == "read" {
+                                        super::bird::EnvelopeIcon { open: unread }
+                                    } else {
+                                        Icon { name: action.icon }
+                                    }
                                 }
                             }
                         }

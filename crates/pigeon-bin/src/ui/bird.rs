@@ -145,6 +145,23 @@ pub fn FlagIcon(
     }
 }
 
+/// The Mark read / unread button's envelope: open while the message is
+/// unread (the button reads it), closed once read (the button marks it
+/// unread). On a change the flap folds over instead of the icon swapping
+/// (an app.css transition, so it only moves when the state does).
+#[component]
+pub fn EnvelopeIcon(open: bool) -> Element {
+    rsx! {
+        svg { class: "icon envelope", view_box: "0 0 24 24", "data-open": "{open}", "aria-hidden": "true",
+            fill: "none", stroke: "currentColor", stroke_width: "1.6", stroke_linecap: "round", stroke_linejoin: "round",
+            path { d: "M3 10v9a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1v-9" }
+            path { d: "M3 10l9 6 9-6" }
+            path { class: "envelope__edge", d: "M3 10h18" }
+            path { class: "envelope__flap", d: "M3 10l9-6.5 9 6.5" }
+        }
+    }
+}
+
 /// An unread count. When it drops from something to zero, the old number
 /// pops away and a small feather floats up instead of just vanishing.
 #[component]
