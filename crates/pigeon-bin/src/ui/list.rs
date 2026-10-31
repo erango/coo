@@ -302,13 +302,19 @@ pub fn MailList() -> Element {
     };
 
     let layout = vlist::layout(display.iter().map(|(i, _)| format::group(i.header().received_at, now)), metrics);
+    // A date group whose rows are all leaving collapses with them, instead
+    // of vanishing once they're gone.
+    let live_groups: std::collections::HashSet<&'static str> =
+        display.iter().filter(|(_, ghost)| !*ghost).map(|(i, _)| format::group(i.header().received_at, now)).collect();
     let (start, end, top_pad, bottom_pad) =
         vlist::window(&layout, (*scroll_top.read() - out_h).max(0.0), *viewport.read());
     let rows: Vec<Element> = layout.slots[start..end]
         .iter()
         .enumerate()
         .map(|(n, (slot, _))| match *slot {
-            vlist::Slot::Group(g) => rsx! { div { class: "list-group", key: "g-{g}", "{g}" } },
+            vlist::Slot::Group(g) => rsx! {
+                div { class: "list-group", key: "g-{g}", "data-leaving": (!live_groups.contains(g)).then_some("true"), "{g}" }
+            },
             vlist::Slot::Item(i) => {
                 let (item, ghost) = &display[i];
                 let key = AppState::key(item);
