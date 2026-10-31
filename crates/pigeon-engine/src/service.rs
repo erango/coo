@@ -692,6 +692,10 @@ struct Service {
     opened: AtomicU64,
     /// Gmail labels whose older mail was fetched this session.
     labels_filled: std::sync::Mutex<std::collections::HashSet<String>>,
+    /// When each account last signed in again (epoch ms): a sync that
+    /// started before then may still fail on the old sign-in, and mustn't
+    /// put the account back on the "sign in again" list.
+    signed_in_at: std::sync::Mutex<std::collections::HashMap<String, i64>>,
 }
 
 /// How many newest inbox rows per account are checked for new mail.
@@ -892,6 +896,7 @@ impl Service {
         if self.syncing.swap(true, Ordering::SeqCst) {
             return;
         }
+        let started = now_ms();
         self.set_sync(|s| s.syncing = true).await;
         // Show mail as it lands during a long (first) sync instead of only
         // at the end; a publish costs ~10 ms even at 100k messages.
@@ -953,6 +958,10 @@ impl Service {
         }
         let offline = failures > 0 && failures == network_failures;
         needs_sign_in.dedup();
+        {
+            let fresh = self.signed_in_at.lock().unwrap();
+            needs_sign_in.retain(|id| fresh.get(id).is_none_or(|at| *at < started));
+        }
         self.set_sync(|s| {
             s.syncing = false;
             if errors.is_empty() {
@@ -1160,9 +1169,24 @@ impl Service {
                     }
                 };
                 self.toast(format!("Signed in as {}", account.email), false, None);
+                // Signing in again clears the account's warning at once,
+                // not after the next sync.
+                self.signed_in_at.lock().unwrap().insert(account.id.clone(), now_ms());
+                self.set_sync(|s| s.needs_sign_in.retain(|id| *id != account.id)).await;
                 self.publish().await;
                 self.send(Delta::SignedIn { account_id: account.id.clone() });
-                tokio::spawn(self.clone().sync());
+                // Sync now, or right after the one under way (which began
+                // with the old sign-in).
+                let svc = self.clone();
+                tokio::spawn(async move {
+                    for _ in 0..240 {
+                        if !svc.syncing.load(Ordering::SeqCst) {
+                            break;
+                        }
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                    }
+                    svc.sync().await;
+                });
             }
             Cmd::ZoomConnect => match self.app.zoom_connect(|url| tracing::info!(url, "Zoom sign-in URL")).await {
                 Ok(z) => {
@@ -1259,6 +1283,8 @@ impl Service {
                 }
                 *self.my_addresses.lock().await = None;
                 self.toast(format!("Signed in as {}", account.email), false, None);
+                self.signed_in_at.lock().unwrap().insert(account.id.clone(), now_ms());
+                self.set_sync(|s| s.needs_sign_in.retain(|id| *id != account.id)).await;
                 self.publish().await;
                 self.send(Delta::SignedIn { account_id: account.id.clone() });
                 // The From pickers learn the new account's addresses.
@@ -1936,6 +1962,7 @@ pub async fn run(app: Arc<Pigeon>, mut rx: mpsc::UnboundedReceiver<Cmd>, tx: mps
         read_delay_ms: AtomicU64::new(0),
         opened: AtomicU64::new(0),
         labels_filled: Default::default(),
+        signed_in_at: Default::default(),
     });
     // Watermark existing mail so only what arrives from now on notifies.
     svc.check_new_mail().await;

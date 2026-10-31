@@ -12,7 +12,7 @@ use crate::shortcuts::{Do, hint};
 use crate::state::{AppState, OutState, Outgoing};
 
 /// Accounts a mailbox shows mail from.
-fn scope_accounts(mb: &Mailbox, all: &[String]) -> Vec<String> {
+pub(crate) fn scope_accounts(mb: &Mailbox, all: &[String]) -> Vec<String> {
     match mb {
         Mailbox::Unified(_) => all.to_vec(),
         Mailbox::Folder { account_id, .. } => vec![account_id.clone()],
@@ -395,6 +395,9 @@ pub fn MailList() -> Element {
                     Icon { name: "edit" }
                 }
             }
+            if !expired.is_empty() && searching.is_none() {
+                SignInBar { accounts: expired.clone() }
+            }
             if searching.is_some() {
                 super::search::SearchPane {}
             } else if items.is_empty() && out_display.is_empty() && cold {
@@ -402,10 +405,10 @@ pub fn MailList() -> Element {
                 div { class: "list", role: "listbox", "aria-busy": "true",
                     Empty { syncing: true }
                 }
-            } else if items.is_empty() && out_display.is_empty() && expired.is_empty() {
+            } else if items.is_empty() && out_display.is_empty() {
                 Empty { syncing: fetching_first }
             } else {
-                div { class: "list", role: "listbox", "data-auth": (!expired.is_empty()).then_some("expired"),
+                div { class: "list", role: "listbox",
                     "data-style": style.as_pref(),
                     "data-lines": "{lines}",
                     "data-avatars": avatars.then_some("true"),
@@ -428,9 +431,6 @@ pub fn MailList() -> Element {
                     {rows.into_iter()}
                     div { style: "height:{bottom_pad}px", "aria-hidden": "true" }
                 }
-            }
-            if let Some(acct) = expired.first() {
-                AuthCard { account_id: acct.clone() }
             }
             if offline {
                 div { class: "list-footer",
@@ -796,36 +796,80 @@ fn OutgoingRow(
     }
 }
 
+/// Start signing `account_id` in again: the browser for Google and
+/// Microsoft (the list's sign-in bar shows the wait), the password sheet
+/// for iCloud.
+pub fn sign_in_again(s: AppState, account_id: &str) {
+    let acct = s.accounts.peek().iter().find(|a| a.account.id == account_id).map(|a| a.account.clone());
+    let Some(acct) = acct else { return };
+    if acct.provider == ProviderKind::ICloud {
+        super::add_account::open_icloud(s, &acct.email);
+        return;
+    }
+    let (mut si, mut re) = (s.signing_in, s.reauth);
+    si.set(true);
+    re.set(Some(acct.id.clone()));
+    send_cmd(Cmd::Login { provider: acct.provider, login_hint: Some(acct.email.clone()) });
+}
+
+/// Accounts whose sign-in expired, as a bar above the list: one line each
+/// with its own Sign in button. It never covers the mail, so a code the
+/// browser asks for can be read here while that account waits; the line
+/// it's for says so meanwhile.
 #[component]
-fn AuthCard(account_id: String) -> Element {
+fn SignInBar(accounts: Vec<String>) -> Element {
     let s = use_context::<AppState>();
-    let acct = s.accounts.read().iter().find(|a| a.account.id == account_id).map(|a| a.account.clone());
-    let Some(acct) = acct else { return rsx! {} };
-    let provider = acct.provider;
-    let label = match provider {
-        ProviderKind::Microsoft => "Microsoft 365",
-        ProviderKind::Google => "Google",
-        ProviderKind::ICloud => "iCloud",
-    };
-    let email = acct.email.clone();
+    let waiting = s.reauth.read().clone();
+    let all = s.accounts.read().clone();
+    let rows: Vec<_> =
+        accounts.iter().filter_map(|id| all.iter().find(|a| a.account.id == *id).map(|a| a.account.clone())).collect();
     rsx! {
-        div { class: "auth-card", role: "alertdialog",
-            div { class: "auth-card__icon", Icon { name: "lock" } }
-            div { class: "auth-card__title", "Sign in to {acct.email} again" }
-            div { class: "auth-card__body",
-                "Your {label} sign-in expired. Mail stays on this Mac; new mail and your changes wait until you sign in."
-            }
-            button { class: "btn btn--primary", r#type: "button",
-                onclick: move |_| {
-                    if provider == ProviderKind::ICloud {
-                        super::add_account::open_icloud(s, &email);
-                    } else {
-                        let mut si = s.signing_in;
-                        si.set(true);
-                        send_cmd(Cmd::Login { provider, login_hint: Some(email.clone()) });
+        div { class: "signin-bar", role: "region", "aria-label": "Accounts to sign in again",
+            for acct in rows {
+                {
+                    let id = acct.id.clone();
+                    let busy = waiting.as_deref() == Some(id.as_str());
+                    let icon: &'static str = if busy { "browser" } else { "lock" };
+                    let label = s.account_label(&acct.id, &acct.email);
+                    let provider = match acct.provider {
+                        ProviderKind::Microsoft => "Microsoft",
+                        ProviderKind::Google => "Google",
+                        ProviderKind::ICloud => "iCloud",
+                    };
+                    rsx! {
+                        div { class: "signin-bar__row", key: "{id}", "data-waiting": busy.then_some("true"),
+                            span { class: "signin-bar__icon",
+                                Icon { name: icon, class: "icon--sm" }
+                            }
+                            div { class: "signin-bar__text",
+                                if busy {
+                                    span { class: "signin-bar__title", "Finish signing in in your browser" }
+                                    span { class: "signin-bar__sub", dir: "auto",
+                                        "{label} · Need an emailed code? Your other accounts keep syncing here." }
+                                } else {
+                                    span { class: "signin-bar__title", dir: "auto", "Sign in to {label} again" }
+                                    span { class: "signin-bar__sub", "{provider} sign-in expired. Mail stays here; new mail waits for you." }
+                                }
+                            }
+                            if busy {
+                                button { class: "btn btn--secondary btn--sm", r#type: "button",
+                                    onclick: move |_| {
+                                        let (mut si, mut re) = (s.signing_in, s.reauth);
+                                        si.set(false);
+                                        re.set(None);
+                                    },
+                                    "Cancel"
+                                }
+                            } else {
+                                button { class: "btn btn--primary btn--sm", r#type: "button",
+                                    disabled: waiting.is_some(),
+                                    onclick: move |_| sign_in_again(s, &id),
+                                    "Sign in"
+                                }
+                            }
+                        }
                     }
-                },
-                "Sign in again"
+                }
             }
         }
     }

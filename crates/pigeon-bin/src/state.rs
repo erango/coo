@@ -322,6 +322,9 @@ pub struct AppState {
     pub update_dialog: Signal<bool>,
     pub os_dark: Signal<bool>,
     pub signing_in: Signal<bool>,
+    /// The account being signed in again from the list's sign-in bar
+    /// (waiting on the browser).
+    pub reauth: Signal<Option<String>>,
     /// Accounts open in the sidebar (prefs `accounts_open`).
     pub accounts_open: Signal<Vec<String>>,
     /// Account nicknames (Settings › Accounts), by account id.
@@ -433,6 +436,7 @@ impl AppState {
             update_dialog: Signal::new(false),
             os_dark: Signal::new(true),
             signing_in: Signal::new(false),
+            reauth: Signal::new(None),
             accounts_open: Signal::new(crate::prefs::get().accounts_open),
             nicknames: Signal::new(crate::prefs::get().account_nicknames),
             default_account: Signal::new(crate::prefs::get().default_from_account),
@@ -646,9 +650,13 @@ fn debug_patch(s: &AppState, delta: Delta) -> Delta {
     }
     let Ok(want) = std::env::var("PIGEON_DEBUG_OPEN") else { return delta };
     match (want.as_str(), delta) {
-        ("auth-expired", Delta::Sync(mut st)) => {
-            st.needs_sign_in = s.accounts.peek().iter().take(1).map(|a| a.account.id.clone()).collect();
+        ("auth-expired" | "auth-waiting", Delta::Sync(mut st)) => {
+            st.needs_sign_in = s.accounts.peek().iter().take(2).map(|a| a.account.id.clone()).collect();
             st.error = None;
+            if want == "auth-waiting" && s.reauth.peek().is_none() {
+                let mut re = s.reauth;
+                re.set(st.needs_sign_in.first().cloned());
+            }
             Delta::Sync(st)
         }
         ("offline", Delta::Sync(mut st)) => {
@@ -744,6 +752,7 @@ fn apply(s: &mut AppState, delta: Delta) {
             }
             Delta::LoginFailed { provider, error } => {
                 s.signing_in.set(false);
+                s.reauth.set(None);
                 s.login_error.set(Some((provider, error)));
             }
             Delta::Zoom(z) => s.zoom.set(z),
@@ -759,7 +768,11 @@ fn apply(s: &mut AppState, delta: Delta) {
             }
             // Avatars without a photo ask again (found ones are cached on disk).
             Delta::ContactPhotosChanged => s.photos.write().retain(|_, uri| uri.is_some()),
-            Delta::SignedIn { .. } => {
+            Delta::SignedIn { account_id } => {
+                if s.reauth.peek().as_deref() == Some(account_id.as_str()) {
+                    s.reauth.set(None);
+                    s.signing_in.set(false);
+                }
                 let n = *s.signed_in.peek();
                 s.signed_in.set(n + 1);
             }

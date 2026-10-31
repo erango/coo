@@ -1881,3 +1881,25 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
   background: color-mix(in srgb, var(--bg-0) 16%, transparent); color: color-mix(in srgb, var(--bg-0) 85%, transparent);
 }
 @media (prefers-reduced-motion: reduce) { .coo-tip { transition: none; transform: none; } }
+
+/* Accounts to sign in again (list.rs SignInBar): a bar above the list,
+   one line per account, that never covers the mail. The line waiting on
+   the browser turns to the accent with a slow pulse. */
+.signin-bar {
+  flex: none; max-height: 40%; overflow-y: auto; margin: 0 12px 8px; border-radius: 10px;
+  display: flex; flex-direction: column;
+  background: color-mix(in srgb, var(--warning) 8%, var(--bg-0));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warning) 26%, transparent);
+}
+.signin-bar__row { display: flex; align-items: center; gap: 10px; min-height: 52px; box-sizing: border-box; padding: 8px 10px 8px 12px; }
+.signin-bar__row + .signin-bar__row { box-shadow: inset 0 1px 0 color-mix(in srgb, var(--warning) 20%, transparent); }
+.signin-bar__icon {
+  flex: none; width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center;
+  background: var(--warning-soft); color: var(--warning);
+}
+.signin-bar__row[data-waiting] .signin-bar__icon { background: var(--accent-soft); color: var(--accent); animation: signin-wait 1.6s ease-in-out infinite; }
+@keyframes signin-wait { 50% { transform: scale(0.9); opacity: 0.7; } }
+@media (prefers-reduced-motion: reduce) { .signin-bar__row[data-waiting] .signin-bar__icon { animation: none; } }
+.signin-bar__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.signin-bar__title { font-size: var(--fs-ui); font-weight: var(--fw-semibold); color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.signin-bar__sub { font-size: var(--fs-caption); line-height: 16px; color: var(--text-2); }

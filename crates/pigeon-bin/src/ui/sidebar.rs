@@ -576,14 +576,48 @@ fn NextUp() -> Element {
     }
 }
 
+/// The status line's "Sign in again": back to mail where the sign-in bar
+/// lists every account (the unified inbox when this folder's account isn't
+/// one of them), and with just one, its sign-in starts right away.
+fn show_sign_ins(s: AppState) {
+    let expired = s.sync.peek().needs_sign_in.clone();
+    let (mut mode, mut settings, mut mailbox) = (s.mode, s.settings_open, s.mailbox);
+    mode.set(Mode::Mail);
+    settings.set(false);
+    let ids: Vec<String> = s.accounts.peek().iter().map(|a| a.account.id.clone()).collect();
+    let here = super::list::scope_accounts(&mailbox.peek().clone(), &ids);
+    if !expired.iter().all(|a| here.contains(a)) {
+        mailbox.set(Mailbox::Unified(FolderRole::Inbox));
+    }
+    if let [one] = expired.as_slice()
+        && s.reauth.peek().is_none()
+    {
+        super::list::sign_in_again(s, one);
+    }
+}
+
 #[component]
 fn SyncFooter() -> Element {
     let s = use_context::<AppState>();
     let st = s.sync.read().clone();
-    let (state, icon, text) = if !st.needs_sign_in.is_empty() {
-        let who: Vec<&str> =
-            st.needs_sign_in.iter().map(|id| id.split_once(':').map_or(id.as_str(), |(_, e)| e)).collect();
-        ("auth", "lock", format!("Sign in again · {}", who.join(", ")))
+    // Sign-ins: one account is named; several are counted, all named in
+    // the tooltip.
+    let who: Vec<String> = st
+        .needs_sign_in
+        .iter()
+        .map(|id| {
+            let email = id.split_once(':').map_or(id.as_str(), |(_, e)| e);
+            s.account_label(id, email)
+        })
+        .collect();
+    let mut auth_tip = None;
+    let (state, icon, text) = if !who.is_empty() {
+        if who.len() == 1 {
+            ("auth", "lock", format!("Sign in again · {}", who[0]))
+        } else {
+            auth_tip = Some(format!("Sign in again: {}", who.join(", ")));
+            ("auth", "lock", format!("{} accounts need to sign in", who.len()))
+        }
     } else if st.syncing && (*s.sync_asked.read() || st.last_ok.is_none()) {
         // Background syncs run all the time: only one you asked for (or the
         // very first) shows; otherwise the "Synced" time just moves.
@@ -657,9 +691,10 @@ fn SyncFooter() -> Element {
                             span { "Update ready · Restart" }
                         }
                     } else {
-                        button { class: "sync-status", r#type: "button", "data-state": "{kind}", title: "{text}",
+                        button { class: "sync-status", r#type: "button", "data-state": "{kind}",
+                            title: if kind == "auth" { auth_tip.clone().unwrap_or(text.clone()) } else { text.clone() },
                             disabled: kind == "syncing",
-                            onclick: move |_| super::sync_now(s),
+                            onclick: move |_| if kind == "auth" { show_sign_ins(s) } else { super::sync_now(s) },
                             Icon { name: icon, class: "icon--sm" }
                             span { class: "sync-status__text", "{text}" }
                         }
