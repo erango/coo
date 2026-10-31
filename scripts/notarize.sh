@@ -47,5 +47,9 @@ for i in 1 2 3 4 5; do
   [ "$i" = 5 ] && exit 1
   echo "stapling failed (attempt $i), retrying…"; sleep $((i * 10))
 done
-xcrun stapler validate "$TARGET"
+for i in 1 2 3 4 5; do
+  xcrun stapler validate "$TARGET" && break
+  [ "$i" = 5 ] && exit 1
+  echo "validating failed (attempt $i), retrying…"; sleep $((i * 10))
+done
 echo "==> notarized + stapled: $TARGET"
