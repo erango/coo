@@ -1764,6 +1764,23 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
   :root:not([data-theme="dark"]):not([data-theme="light"]) .reader-toolbar[data-scrolled] { box-shadow: 0 1px 0 var(--line), 0 6px 14px -8px rgba(15, 17, 20, 0.18); }
 }
 @media (prefers-reduced-motion: reduce) { .reader-toolbar { transition: none; } }
+
+/* Calendar sidebar: a long list of calendars scrolls between the month
+   and the footer, with the reader toolbar's soft shadow on whichever edge
+   has something hidden past it (bridge.rs sets data-scrolled/data-more). */
+.sidebar .cal-list { min-height: 0; overflow-y: auto; padding-bottom: 12px; }
+.sidebar .cal-list > * { flex-shrink: 0; }
+.sidebar:has(.cal-list) .mini-month, .sidebar:has(.cal-list) .sidebar__footer {
+  position: relative; z-index: 1; transition: box-shadow 150ms ease-out;
+}
+.sidebar .mini-month { padding-bottom: 10px; }
+.sidebar .cal-list { padding-top: 10px; }
+.sidebar:has(.cal-list[data-scrolled]) .mini-month { box-shadow: 0 1px 0 var(--line), 0 8px 16px -8px var(--scroll-shade); }
+.sidebar:has(.cal-list[data-more]) .sidebar__footer { box-shadow: inset 0 1px 0 var(--line), 0 -8px 16px -8px var(--scroll-shade); }
+:root { --scroll-shade: rgba(0, 0, 0, 0.55); }
+:root[data-theme="light"] { --scroll-shade: rgba(15, 17, 20, 0.18); }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]):not([data-theme="light"]) { --scroll-shade: rgba(15, 17, 20, 0.18); } }
+@media (prefers-reduced-motion: reduce) { .sidebar .mini-month, .sidebar .sidebar__footer { transition: none; } }
 /* One button for the senders' own colors, pressed while they show. */
 .reader-colors[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
 /* Sort: a quiet icon button (was a text toggle). */

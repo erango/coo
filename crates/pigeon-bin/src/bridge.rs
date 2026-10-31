@@ -596,10 +596,21 @@ pub const JS: &str = r#"
       if (bar) bar.toggleAttribute('data-scrolled', el.scrollTop > 0);
       return;
     }
+    if (el.classList.contains('cal-list')) { calEdges(el); return; }
     if (!el.classList.contains('settings')) return;
     const head = el.querySelector('.settings__crumbs');
     if (head) head.toggleAttribute('data-scrolled', el.scrollTop > 0);
   }, true);
+
+  // ---- Calendar sidebar: the calendars list scrolls between the month and
+  // the footer; data-scrolled shades the month's edge once it's scrolled,
+  // data-more the footer's while anything is still below. Re-checked as
+  // the window or the list changes size. ----
+  const calEdges = (el) => {
+    el.toggleAttribute('data-scrolled', el.scrollTop > 0);
+    el.toggleAttribute('data-more', el.scrollTop + el.clientHeight < el.scrollHeight - 1);
+  };
+  setInterval(() => { const el = document.querySelector('.sidebar .cal-list'); if (el) calEdges(el); }, 400);
 
   // ---- Window: drag by the title strips, double-click to zoom ----
   // The titlebar is transparent with content under it, and WKWebView ignores
