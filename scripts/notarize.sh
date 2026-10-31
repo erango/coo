@@ -40,6 +40,12 @@ if [ "$STATUS" != "Accepted" ]; then
   exit 1
 fi
 
-xcrun stapler staple "$TARGET"
+# Fetching the ticket from Apple's CDN sometimes drops the connection
+# ("network connection was lost", error 68); retry.
+for i in 1 2 3 4 5; do
+  xcrun stapler staple "$TARGET" && break
+  [ "$i" = 5 ] && exit 1
+  echo "stapling failed (attempt $i), retrying…"; sleep $((i * 10))
+done
 xcrun stapler validate "$TARGET"
 echo "==> notarized + stapled: $TARGET"
