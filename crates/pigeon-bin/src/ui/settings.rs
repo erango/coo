@@ -27,7 +27,7 @@ pub const PAGES: &[(&str, &str, &str)] = &[
     (
         "Appearance",
         "sun",
-        "theme themes dark light mode high contrast accessibility color colour palette text size font zoom list cards bands classic style threads messages conversations group grouping lines density compact preview avatars hover actions buttons row toolbar sender photos google microsoft outlook contacts gravatar logos daily hello greeting good morning pigeon",
+        "theme themes dark light mode high contrast accessibility color colour palette text size font zoom list cards bands classic style threads messages conversations group grouping switch toggle lines density compact preview avatars hover actions buttons row toolbar sender photos google microsoft outlook contacts gravatar logos daily hello greeting good morning pigeon",
     ),
     (
         "Accounts & agents",
@@ -353,6 +353,7 @@ fn Appearance() -> Element {
                     }
                 }
             }
+            GroupingSwitch {}
             Row { label: "Lines per message", hint: "Two puts the preview after the subject, so more messages fit.",
                 div { class: "segmented", role: "radiogroup", "aria-label": "Lines per message",
                     for (n, label) in [(3u8, "3 lines"), (2u8, "2 lines")] {
@@ -380,6 +381,25 @@ fn Appearance() -> Element {
             GoogleContactPhotos {}
             MicrosoftContactPhotos {}
             GravatarPhotos {}
+        }
+    }
+}
+
+/// The Threads | Messages switch in the list's header, off by default: most
+/// people pick one way and keep it.
+#[component]
+fn GroupingSwitch() -> Element {
+    let mut on = use_context::<AppState>().grouping_switch;
+    rsx! {
+        Row { label: "Switch in the list",
+            hint: "Puts Threads | Messages above the list, for flipping back and forth: read a busy conversation as one row, then see every email on its own to catch one you missed or act on a single message.",
+            input { class: "switch", r#type: "checkbox", checked: *on.read(), "aria-label": "Threads and Messages switch in the list",
+                onchange: move |_| {
+                    let now = !*on.peek();
+                    on.set(now);
+                    prefs::update(move |x| x.grouping_switch = now);
+                }
+            }
         }
     }
 }
@@ -825,6 +845,11 @@ fn AccountRow(
                     placeholder: "Add a nickname", "aria-label": "Nickname for {a.email}", title: "Nickname shown in the sidebar and elsewhere",
                     spellcheck: "false", maxlength: "40",
                     onchange: move |e| s.set_nickname(&id3, &e.value()),
+                    // Enter finishes the name (leaving the field saves it).
+                    onkeydown: move |e| if e.key() == Key::Enter {
+                        e.prevent_default();
+                        document::eval("document.activeElement && document.activeElement.blur()");
+                    },
                 }
                 span { class: "account-row__addr", "{a.email} · {provider}" }
             }

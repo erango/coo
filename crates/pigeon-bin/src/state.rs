@@ -234,6 +234,8 @@ pub struct AppState {
     pub accounts: Signal<Vec<AccountNav>>,
     pub mailbox: Signal<Mailbox>,
     pub threaded: Signal<bool>,
+    /// Settings › Appearance › "Switch in the list".
+    pub grouping_switch: Signal<bool>,
     pub list: Signal<Vec<ListItem>>,
     /// `account|id` of the selected row (thread id or message id).
     pub selected: Signal<Option<String>>,
@@ -389,6 +391,7 @@ impl AppState {
                 parse_mailbox(&crate::prefs::get().last_mailbox).unwrap_or(Mailbox::Unified(FolderRole::Inbox)),
             ),
             threaded: Signal::new(crate::prefs::get().threaded),
+            grouping_switch: Signal::new(crate::prefs::get().grouping_switch),
             list: Signal::new(Vec::new()),
             selected: Signal::new(None),
             multi: Signal::new(Vec::new()),

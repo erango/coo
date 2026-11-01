@@ -149,6 +149,9 @@ pub struct Prefs {
     pub high_contrast: bool,
     /// The list shows conversations (threads) rather than single messages.
     pub threaded: bool,
+    /// The Threads | Messages switch in the list's header (off: the choice
+    /// lives in Settings only).
+    pub grouping_switch: bool,
     /// The daily hello (greeting.rs): the pigeon greets you the first time
     /// Coo comes to the front each day.
     pub greeting: bool,
@@ -214,6 +217,7 @@ impl Default for Prefs {
             tour_seen: false,
             high_contrast: false,
             threaded: true,
+            grouping_switch: false,
             greeting: true,
             greeted_day: String::new(),
             active_day: String::new(),
