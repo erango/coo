@@ -201,8 +201,12 @@ fn SubjectLine(subject: String) -> Element {
 pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Element {
     let s = use_context::<AppState>();
     // The newest message is always open, plus the one the user picked.
+    // The newest is checked at render, not only seeded: the thread can open
+    // before its messages arrive (or gain a newer one), and the seed would
+    // then miss it and show every message collapsed.
     let latest_id = latest_message_id(&view.messages).unwrap_or_default();
-    let mut expanded = use_signal(|| HashSet::from([view.focus.clone(), latest_id.clone()]));
+    let mut expanded = use_signal(|| HashSet::from([view.focus.clone()]));
+    let is_open = |id: &str| id == latest_id || expanded.read().contains(id);
     let hue = s.hue(&view.account_id);
     let account_email = s
         .accounts
@@ -231,8 +235,7 @@ pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Elem
     let ordered: Vec<MessageHeader> =
         if *newest_first.read() { view.messages.iter().rev().cloned().collect() } else { view.messages.clone() };
     let terms = search_terms(&s);
-    let open_ids: Vec<String> =
-        view.messages.iter().filter(|m| expanded.read().contains(&m.id)).map(|m| m.id.clone()).collect();
+    let open_ids: Vec<String> = view.messages.iter().filter(|m| is_open(&m.id)).map(|m| m.id.clone()).collect();
     let matches = match_count(&s, &view.account_id, &open_ids, &terms);
     let finding = !windowed && s.find.read().is_some();
     // The reply being written here: the main window's, or this message
@@ -302,7 +305,7 @@ pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Elem
             }
             div { class: "thread",
                 for m in ordered.iter() {
-                    if count == 1 || expanded.read().contains(&m.id) {
+                    if count == 1 || is_open(&m.id) {
                         Message { key: "{m.id}", account_id: view.account_id.clone(), header: m.clone(), windowed }
                     } else {
                         {
