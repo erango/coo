@@ -148,6 +148,11 @@ pub enum Cmd {
         account_id: String,
         message_id: String,
     },
+    /// Fetch one message's body again (the reader's Try again).
+    LoadBody {
+        account_id: String,
+        message_id: String,
+    },
     /// Mark an opened conversation read only after it stayed open this long
     /// (ms; 0: as soon as it opens).
     SetReadDelay {
@@ -510,6 +515,12 @@ pub enum Delta {
         body: StoredBody,
         /// Set when the message is a meeting invite.
         invite: Option<Box<InviteView>>,
+    },
+    /// A body couldn't be fetched; `gone` = the server no longer has it.
+    BodyFailed {
+        account_id: String,
+        message_id: String,
+        gone: bool,
     },
     Toast(Toast),
     Sync(SyncState),
@@ -995,7 +1006,23 @@ impl Service {
                         invite,
                     })
                 }
-                Err(e) => self.fail("Could not load message", &e),
+                // Gone from the server (moved or deleted elsewhere, or a stale
+                // search hit): drop the local copy so it leaves the list, and
+                // tell the reader instead of leaving it on "Loading…".
+                Err(e) if e.status() == Some(404) => {
+                    tracing::warn!(error = %e, "message is no longer on the server");
+                    let _ = self
+                        .app
+                        .store()
+                        .apply_found(&account.id, &[pigeon_core::model::MailChange::Delete { id: id.clone() }]);
+                    self.send(Delta::BodyFailed { account_id: account.id.clone(), message_id: id, gone: true });
+                    self.publish().await;
+                }
+                Err(e) => {
+                    let (kind, status) = (e.kind(), e.status().unwrap_or(0));
+                    tracing::error!(error = %e, kind, status, "Could not load message");
+                    self.send(Delta::BodyFailed { account_id: account.id.clone(), message_id: id, gone: false });
+                }
             }
         }
     }
@@ -1062,6 +1089,10 @@ impl Service {
                     v.limit = LIST_MAX;
                 }
                 self.publish().await;
+            }
+            Cmd::LoadBody { account_id, message_id } => {
+                let account = self.app.account(&account_id)?;
+                tokio::spawn(self.clone().open_bodies(account, vec![message_id]));
             }
             Cmd::OpenThread { account_id, thread_id } => {
                 let account = self.app.account(&account_id)?;

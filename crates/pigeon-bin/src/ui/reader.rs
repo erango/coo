@@ -442,7 +442,25 @@ fn Message(account_id: String, header: MessageHeader, #[props(default)] windowed
                 super::invite::InviteCard { account_id: account_id.clone(), invite: inv, view }
             }
             match body {
-                None => rsx! { div { class: "plain-body t-3", "Loading…" } },
+                None => match s.body_failed.read().get(&key).copied() {
+                    Some(true) => rsx! { div { class: "plain-body t-3", "This message is no longer on the server: it was moved or deleted somewhere else." } },
+                    Some(false) => {
+                        let (a, m) = key.clone();
+                        rsx! {
+                            div { class: "plain-body t-3", "Coo couldn't load this message. "
+                                button { class: "link-btn", r#type: "button",
+                                    onclick: move |_| {
+                                        let mut f = s.body_failed;
+                                        f.write().remove(&(a.clone(), m.clone()));
+                                        send_cmd(Cmd::LoadBody { account_id: a.clone(), message_id: m.clone() });
+                                    },
+                                    "Try again"
+                                }
+                            }
+                        }
+                    }
+                    None => rsx! { div { class: "plain-body t-3", "Loading…" } },
+                },
                 Some(b) => rsx! { Body { account_id: account_id.clone(), message_id: header.id.clone(),
                     sender: header.from.as_ref().map(|a| a.email.to_lowercase()).unwrap_or_default(), body: b } },
             }

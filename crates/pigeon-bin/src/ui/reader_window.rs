@@ -165,7 +165,10 @@ fn create(s: AppState, main: DesktopContext, item: ListItem, reply: Option<Draft
         // Keep the app's menu bar (None leaves the existing NSApp menu alone).
         .with_menu(None)
         .with_close_behaviour(WindowCloseBehaviour::WindowCloses)
-        .with_background_color((17, 18, 21, 255));
+        .with_background_color((17, 18, 21, 255))
+        // Release builds default to no right-click menu at all; bridge.rs keeps
+        // it to text, editors, links and images (trimmed by ctxmenu.rs).
+        .with_disable_context_menu(false);
     let dom = VirtualDom::new_with_props(ReaderWindow, ReaderWindowProps { app: s, item, frame, reply });
     // Created on the event loop's next turn; nothing to wait for.
     let _ = main.new_window(dom, cfg);

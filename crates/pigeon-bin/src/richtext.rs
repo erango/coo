@@ -428,13 +428,17 @@ const JS: &str = r##"
   // What goes out: the composer's default spacing stamped on each block
   // that doesn't set its own, so the recipient sees what was written.
   const DEFAULT_LINE = '1.4', DEFAULT_GAP = '6px';
+  // `id` may also be the editor element. Odd pasted blocks never stop the
+  // export: a block that can't take the spacing goes out as it is.
   window.__pigeonExport = (id) => {
-    const ed = document.getElementById(id); if (!ed) return null;
+    const ed = typeof id === 'string' ? document.getElementById(id) : id; if (!ed) return null;
     const c = ed.cloneNode(true);
     for (const b of c.children) {
-      if (b.hasAttribute('data-coo-signature')) continue;
-      if (!b.style.lineHeight) b.style.lineHeight = DEFAULT_LINE;
-      if (!b.style.marginBottom) { b.style.marginTop = b.style.marginTop || '0px'; b.style.marginBottom = DEFAULT_GAP; }
+      try {
+        if (b.hasAttribute('data-coo-signature') || !b.style) continue;
+        if (!b.style.lineHeight) b.style.lineHeight = DEFAULT_LINE;
+        if (!b.style.marginBottom) { b.style.marginTop = b.style.marginTop || '0px'; b.style.marginBottom = DEFAULT_GAP; }
+      } catch (_) {}
     }
     return c.innerHTML;
   };

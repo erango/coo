@@ -824,14 +824,30 @@ pub async fn quote_html(editor: &str) -> Option<String> {
 /// paragraph), or None when it couldn't be read (no such editor in this
 /// window, or the script failed). Sending must not treat that as "".
 pub async fn try_editor_export(id: &str) -> Option<String> {
-    let js = format!("return window.__pigeonExport ? window.__pigeonExport({id:?}) : null;");
-    match document::eval(&js).join::<Option<String>>().await {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::warn!(error = %e, "could not read the composer editor");
-            None
+    // The plain HTML if the export itself fails.
+    let js = format!(
+        "const ed = document.getElementById({id:?});
+         if (!ed) return null;
+         try {{ if (window.__pigeonExport) return window.__pigeonExport(ed); }} catch (_) {{}}
+         return ed.innerHTML;"
+    );
+    // An eval's answer now and then goes missing ("eval has already ran"):
+    // ask again before giving up.
+    let mut last = None;
+    for _ in 0..3 {
+        match document::eval(&js).join::<Option<String>>().await {
+            Ok(Some(v)) => return Some(v),
+            Ok(None) => {
+                tracing::error!("composer editor not found at send");
+                return None;
+            }
+            Err(e) => last = Some(e),
         }
     }
+    if let Some(e) = last {
+        tracing::error!(error = %e, "could not read the composer editor");
+    }
+    None
 }
 
 pub async fn editor_html(id: &str) -> String {

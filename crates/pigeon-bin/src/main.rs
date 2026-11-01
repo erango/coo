@@ -156,7 +156,10 @@ fn main() {
                 // A real menu bar: without the Edit menu macOS doesn't route
                 // copy/paste/undo to the web view, and ⌘Q does nothing.
                 .with_menu(menu::build())
-                .with_background_color((17, 18, 21, 255)),
+                .with_background_color((17, 18, 21, 255))
+                // Release builds default to no right-click menu at all; bridge.rs keeps
+                // it to text, editors, links and images (trimmed by ctxmenu.rs).
+                .with_disable_context_menu(false),
         )
         .launch(ui::App);
 }

@@ -247,6 +247,8 @@ pub struct AppState {
     pub anchor: Signal<Option<String>>,
     pub reader: Signal<Option<ReaderView>>,
     pub bodies: Signal<HashMap<(String, String), StoredBody>>,
+    /// Bodies that couldn't be fetched: true = no longer on the server.
+    pub body_failed: Signal<HashMap<(String, String), bool>>,
     /// Invites in loaded bodies, resolved to local events.
     pub invites: Signal<HashMap<(String, String), InviteView>>,
     /// RSVPs sent this session (`account|event_id`), shown before the next sync.
@@ -395,6 +397,7 @@ impl AppState {
             contacts: Signal::new((0, Vec::new())),
             reader: Signal::new(None),
             bodies: Signal::new(HashMap::new()),
+            body_failed: Signal::new(HashMap::new()),
             invites: Signal::new(HashMap::new()),
             rsvp_sent: Signal::new(HashMap::new()),
             remote_ok: Signal::new(HashSet::new()),
@@ -830,7 +833,11 @@ fn apply(s: &mut AppState, delta: Delta) {
                     Some(v) => s.invites.write().insert(key.clone(), *v),
                     None => s.invites.write().remove(&key),
                 };
+                s.body_failed.write().remove(&key);
                 s.bodies.write().insert(key, body);
+            }
+            Delta::BodyFailed { account_id, message_id, gone } => {
+                s.body_failed.write().insert((account_id, message_id), gone);
             }
             Delta::Toast(t) => {
                 if t.error {

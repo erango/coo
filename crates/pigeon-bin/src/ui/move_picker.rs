@@ -119,6 +119,7 @@ pub fn MovePickerView() -> Element {
     let mut query = use_signal(String::new);
     let mut cursor = use_signal(|| 0usize);
     let Some(p) = picker.read().clone() else { return rsx! {} };
+    let (label_mode, picked_item) = (p.label, p.item.clone());
     let account_id = p.item.account_id().to_string();
     let folders =
         s.accounts.read().iter().find(|a| a.account.id == account_id).map(|a| a.folders.clone()).unwrap_or_default();
@@ -151,7 +152,20 @@ pub fn MovePickerView() -> Element {
             act(s, &item, action)
         }
     };
-    let title = if p.label { "Label as…" } else { "Move to…" };
+    let title = if label_mode { "Label as…" } else { "Move to…" };
+    // Label mode: a name no label has yet can be created (and applied).
+    let new_name = q.trim().to_string();
+    let can_create = label_mode
+        && !new_name.is_empty()
+        && !folders.iter().any(|f| f.folder.kind == FolderKind::Label && f.folder.name.eq_ignore_ascii_case(&new_name));
+    let create = {
+        let (item, account_id, name) = (picked_item, account_id.clone(), new_name.clone());
+        move || {
+            let mut pk = picker;
+            pk.set(None);
+            create_and_apply(s, item.clone(), account_id.clone(), name.clone());
+        }
+    };
 
     rsx! {
         div { class: "move-scrim", onclick: move |_| picker.set(None),
@@ -161,17 +175,24 @@ pub fn MovePickerView() -> Element {
                     placeholder: if p.label { "Find a label" } else { "Find a folder" },
                     oninput: move |e| { query.set(e.value()); cursor.set(0); },
                     onkeydown: {
-                        let pick = pick.clone();
+                        let (pick, create) = (pick.clone(), create.clone());
                         move |e: KeyboardEvent| match e.key() {
                             Key::ArrowDown => { e.prevent_default(); cursor.set((at + 1).min(n.saturating_sub(1))); }
                             Key::ArrowUp => { e.prevent_default(); cursor.set(at.saturating_sub(1)); }
-                            Key::Enter => { e.prevent_default(); if let Some(id) = &chosen { pick(id.clone()); } }
+                            Key::Enter => {
+                                e.prevent_default();
+                                match &chosen {
+                                    Some(id) => pick(id.clone()),
+                                    None if can_create => create(),
+                                    None => {}
+                                }
+                            }
                             _ => {}
                         }
                     },
                 }
                 div { class: "move-picker__list",
-                    if order.is_empty() { div { class: "menu__label", "No matching folders" } }
+                    if order.is_empty() && !can_create { div { class: "menu__label", if p.label { "No matching labels" } else { "No matching folders" } } }
                     for (k, &i) in order.iter().enumerate().take(40) {
                         {
                             let f = cands[i];
@@ -198,10 +219,50 @@ pub fn MovePickerView() -> Element {
                             }
                         }
                     }
+                    if can_create {
+                        div { class: "menu-item", "data-active": "{order.is_empty()}",
+                            onclick: {
+                                let create = create.clone();
+                                move |_| create()
+                            },
+                            Icon { name: "plus" }
+                            span { dir: "auto", "Create label “{new_name}”" }
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+/// Create a Gmail label, then apply it to `item` once it shows up in the
+/// account's labels (the next publish after the server made it).
+fn create_and_apply(s: AppState, item: ListItem, account_id: String, name: String) {
+    crate::send_cmd(pigeon_engine::service::Cmd::CreateLabel { account_id: account_id.clone(), name: name.clone() });
+    dioxus::core::spawn_forever(async move {
+        // Nested names ("Parent/Child") show as their last part.
+        let leaf = name.rsplit_once('/').map_or(name.as_str(), |(_, l)| l).to_string();
+        for _ in 0..60 {
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            let id = s.accounts.peek().iter().find(|a| a.account.id == account_id).and_then(|a| {
+                a.folders
+                    .iter()
+                    .find(|f| f.folder.kind == FolderKind::Label && f.folder.role.is_none() && f.folder.name == leaf)
+                    .map(|f| f.folder.id.clone())
+            });
+            if let Some(id) = id {
+                remember(&account_id, &id);
+                let many = super::multi::items(&s);
+                let action = MailAction::AddLabel(id);
+                if many.iter().any(|i| AppState::key(i) == AppState::key(&item)) {
+                    super::multi::act_many(s, &many, action)
+                } else {
+                    act(s, &item, action)
+                }
+                return;
+            }
+        }
+    });
 }
 
 #[cfg(test)]
