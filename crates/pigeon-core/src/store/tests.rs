@@ -603,6 +603,12 @@ fn contact_suggestions_rank_sent_recent_and_skip_me() {
     assert_eq!(emails("levi"), ["david@y.com"]);
     assert!(emails("avid").is_empty(), "prefix match only");
     assert_eq!(s.suggest_contacts("d", &mine, 2, now).unwrap().len(), 2);
+
+    // A message with no sender (a draft, say) still counts its recipients
+    // instead of failing the whole lookup.
+    let draft = MessageHeader { from: None, ..sent("6", vec![Address::new(None, "dora@w.com")], vec![], 97 * day) };
+    s.apply_mail(&ms.id, "f", &[MailChange::Upsert(draft)], "2").unwrap();
+    assert!(s.suggest_contacts("dor", &mine, 10, now).unwrap().iter().any(|a| a.email == "dora@w.com"));
 }
 
 #[test]

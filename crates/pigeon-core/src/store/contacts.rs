@@ -42,11 +42,11 @@ impl Store {
                  FROM messages m WHERE m.from_addr IS NOT NULL
                UNION ALL
                  SELECT lower(json_extract(j.value, '$.email')), json_extract(j.value, '$.name'), m.received_at,
-                        lower(m.from_addr) IN (SELECT email FROM mine)
+                        coalesce(lower(m.from_addr) IN (SELECT email FROM mine), 0)
                  FROM messages m, json_each(m.to_json) j
                UNION ALL
                  SELECT lower(json_extract(j.value, '$.email')), json_extract(j.value, '$.name'), m.received_at,
-                        lower(m.from_addr) IN (SELECT email FROM mine)
+                        coalesce(lower(m.from_addr) IN (SELECT email FROM mine), 0)
                  FROM messages m, json_each(m.cc_json) j
              )
              SELECT email, name, at, sent FROM cand
