@@ -83,7 +83,10 @@ pub fn Tour() -> Element {
         if welcome {
             let mut w = s.welcome_in;
             w.set(true);
-            spawn(async move {
+            // Not `spawn`: closing the tour unmounts this component, which
+            // would cancel the timer and leave the welcome-in styles on for
+            // good (every list remount then replayed the rows' drop-in).
+            dioxus::core::spawn_forever(async move {
                 tokio::time::sleep(std::time::Duration::from_millis(WELCOME_MS)).await;
                 w.set(false);
             });
