@@ -727,6 +727,9 @@ impl Pigeon {
     /// Threading is kept by passing the thread to the send call.
     pub async fn send(&self, draft: &Draft) -> Result<String> {
         // Wait out a server save in flight, so its copy is known (and removed).
+        if draft.to.is_empty() && draft.cc.is_empty() && draft.bcc.is_empty() {
+            return Err(Error::Other("no recipients".into()));
+        }
         let lock = self.draft_lock(&draft.id);
         let _held = lock.lock().await;
         let (message_id, mime) = self.draft_mime(draft).await?;

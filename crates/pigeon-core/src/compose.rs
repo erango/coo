@@ -437,9 +437,8 @@ pub fn build_mime(draft: &Draft, attachments: &[Vec<u8>], now_secs: i64) -> Resu
     use mail_builder::MessageBuilder;
     use mail_builder::headers::address::Address as MbAddress;
 
-    if draft.to.is_empty() && draft.cc.is_empty() && draft.bcc.is_empty() {
-        return Err(Error::Other("no recipients".into()));
-    }
+    // No recipients is fine here: a draft is often saved before it has any
+    // (sending checks for them).
     if attachments.len() != draft.attachments.len() {
         return Err(Error::Other("attachment bytes missing".into()));
     }
@@ -961,9 +960,10 @@ mod tests {
     }
 
     #[test]
-    fn mime_requires_recipients_and_bytes() {
+    fn mime_requires_bytes_not_recipients() {
         let mut d = Draft::new(sender("a", "me@x.com"), 0);
-        assert!(build_mime(&d, &[], 0).is_err());
+        // A draft saved before it has recipients.
+        assert!(build_mime(&d, &[], 0).is_ok());
         d.to.push(Address::new(None, "you@y.com"));
         d.attachments.push(DraftAttachment {
             name: "a.txt".into(),
