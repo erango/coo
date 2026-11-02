@@ -639,6 +639,24 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 }
 .update-pill:hover { background: color-mix(in oklab, var(--accent-soft) 70%, var(--accent)); color: var(--accent); }
 .update-pill:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Every ~10 s a soft ripple in the pill's color spreads out from its icon
+   and fades: noticeable at a glance, never in the way. Inside the pill (the
+   footer clips anything outside it), behind the text. */
+.update-pill { position: relative; overflow: hidden; isolation: isolate; }
+.update-pill::after {
+  content: ""; position: absolute; left: 15px; top: 50%; width: 24px; height: 24px; margin: -12px 0 0 -12px;
+  border-radius: 50%; opacity: 0; z-index: -1; pointer-events: none;
+  /* A soft ring, not a disc: it reads as a wave passing through. */
+  background: radial-gradient(circle closest-side, transparent 55%, var(--accent) 80%, transparent 100%);
+  animation: coo-update-ripple 10s cubic-bezier(0.2, 0.6, 0.35, 1) 3s infinite;
+}
+@keyframes coo-update-ripple {
+  0% { transform: scale(0); opacity: 0; }
+  3% { opacity: 0.45; }
+  18% { transform: scale(20); opacity: 0; }
+  100% { transform: scale(20); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .update-pill::after { animation: none; } }
 
 /* Settings takes over the sidebar: a raised Back button where search and
    Inbox sit, then the "Settings" heading, Find a setting and the page list.
