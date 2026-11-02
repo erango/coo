@@ -97,7 +97,8 @@ impl Pigeon {
         Self::open_with(data_dir, tokens)
     }
 
-    fn open_with(data_dir: PathBuf, tokens: TokenStore) -> Result<Self> {
+    /// A given data folder and token store (tests use scratch ones).
+    pub fn open_with(data_dir: PathBuf, tokens: TokenStore) -> Result<Self> {
         let store = Store::open(data_dir.join("pigeon.db"))?;
         Ok(Pigeon {
             store: Arc::new(Mutex::new(store)),

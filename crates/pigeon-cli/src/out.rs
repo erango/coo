@@ -270,6 +270,10 @@ pub struct DraftOut {
     pub crosses_accounts: bool,
     /// Set once sent.
     pub message_id: Option<String>,
+    /// An unsent draft is in the account's Drafts folder on the server
+    /// (false: kept in Coo only, `note` says why).
+    pub in_server_drafts: bool,
+    pub note: Option<String>,
 }
 
 impl DraftOut {
@@ -283,6 +287,8 @@ impl DraftOut {
             subject: d.subject.clone(),
             crosses_accounts: d.crosses_accounts(),
             message_id,
+            in_server_drafts: false,
+            note: None,
         }
     }
 }

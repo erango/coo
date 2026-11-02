@@ -183,6 +183,10 @@ enum Cmd {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Send a saved draft (its draft_id, or the message id of a draft in Drafts).
+    DraftSend { draft_id: String },
+    /// Delete a saved draft, here and in the account's Drafts folder.
+    DraftDelete { draft_id: String },
     /// Create an event (invites are sent to attendees).
     EventCreate {
         account: String,
@@ -639,6 +643,11 @@ async fn run(cli: Cli) -> pigeon_core::Result<()> {
                 body: &body,
             };
             emit(json, &ops::reply(&app, w, r, dry_run).await?, print_draft);
+        }
+        Cmd::DraftSend { draft_id } => emit(json, &ops::send_draft(&app, w, &draft_id).await?, print_draft),
+        Cmd::DraftDelete { draft_id } => {
+            let d = ops::delete_draft(&app, w, &draft_id).await?;
+            emit(json, &d, |d| println!("deleted draft {} ({})", d.draft_id, d.subject));
         }
         Cmd::EventCreate {
             account,

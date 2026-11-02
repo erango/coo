@@ -211,6 +211,26 @@ fn tools() -> Vec<Tool> {
             write: true,
         },
         Tool {
+            name: "send_draft",
+            description: "Send a saved draft as it is: one reply/send_email saved, or one in an account's Drafts \
+                folder. Only after the user agrees.",
+            schema: s(
+                json!({"draft_id": str_("draft_id from reply/send_email, or the message id of a draft in Drafts.")}),
+                &["draft_id"],
+            ),
+            write: true,
+        },
+        Tool {
+            name: "delete_draft",
+            description: "Delete a saved draft, in Coo and in the account's Drafts folder, when the user no longer \
+                wants it. It can't be undone.",
+            schema: s(
+                json!({"draft_id": str_("draft_id from reply/send_email, or the message id of a draft in Drafts.")}),
+                &["draft_id"],
+            ),
+            write: true,
+        },
+        Tool {
             name: "rsvp",
             description: "Answer a meeting invitation; the organizer is notified. Only after the user decides. Ids \
                 come from list_events.",
@@ -365,6 +385,8 @@ async fn call(app: &Pigeon, w: Writes, name: &str, a: &Value) -> pigeon_core::Re
             };
             j(&ops::send(app, w, m, !flag(a, "send", false)).await?)
         }
+        "send_draft" => j(&ops::send_draft(app, w, need(a, "draft_id")?).await?),
+        "delete_draft" => j(&ops::delete_draft(app, w, need(a, "draft_id")?).await?),
         "rsvp" => {
             ops::rsvp(
                 app,

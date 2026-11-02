@@ -448,10 +448,61 @@ pub async fn send(app: &Pigeon, w: Writes, m: NewMail<'_>, dry_run: bool) -> Res
     }
     if dry_run {
         app.save_draft(&mut d)?;
-        return Ok(DraftOut::new(&d, None));
+        return Ok(to_drafts(app, &d).await);
     }
     let id = app.send(&d).await?;
     Ok(DraftOut::new(&d, Some(id)))
+}
+
+/// An unsent draft, also put in its account's Drafts folder (saving only to
+/// Coo's local store left agents' drafts invisible in Gmail and Outlook).
+/// A draft sends nothing, so it doesn't need --yes or --allow-write; only
+/// PIGEON_AGENT_READONLY keeps it out of the mailbox.
+async fn to_drafts(app: &Pigeon, d: &Draft) -> DraftOut {
+    let mut out = DraftOut::new(d, None);
+    if readonly_env() {
+        out.note = Some("kept in Coo only, not in the mailbox's Drafts: PIGEON_AGENT_READONLY is set".into());
+        return out;
+    }
+    match app.sync_draft(&d.id).await {
+        Ok(Some(_)) => out.in_server_drafts = true,
+        Ok(None) => out.note = Some("kept in Coo only: the draft was gone before it could be saved".into()),
+        Err(e) => out.note = Some(format!("kept in Coo only, the server didn't take it: {e}")),
+    }
+    out
+}
+
+/// A saved draft by Coo's `draft_id` (from send/reply) or by the message id
+/// of a draft in an account's Drafts folder (from search or list).
+async fn find_draft(app: &Pigeon, id: &str) -> Result<Draft> {
+    if let Some(d) = app.store().draft(id)? {
+        return Ok(d);
+    }
+    if let Some(d) = app.store().drafts()?.into_iter().find(|d| d.server.as_ref().is_some_and(|s| s.id == id)) {
+        return Ok(d);
+    }
+    for a in app.accounts()? {
+        if app.store().message(&a.id, id)?.is_some_and(|m| m.is_draft) {
+            return app.edit_draft(&a, id).await;
+        }
+    }
+    Err(Error::Other(format!("draft {id} not found (use draft_id from send/reply, or a Drafts message id)")))
+}
+
+/// Send a saved draft as it is.
+pub async fn send_draft(app: &Pigeon, w: Writes, id: &str) -> Result<DraftOut> {
+    w.check()?;
+    let d = find_draft(app, id).await?;
+    let sent = app.send(&d).await?;
+    Ok(DraftOut::new(&d, Some(sent)))
+}
+
+/// Delete a saved draft, here and in the account's Drafts folder.
+pub async fn delete_draft(app: &Pigeon, w: Writes, id: &str) -> Result<DraftOut> {
+    w.check()?;
+    let d = find_draft(app, id).await?;
+    app.discard_draft(&d.id).await?;
+    Ok(DraftOut::new(&d, None))
 }
 
 pub struct Reply<'a> {
@@ -483,7 +534,7 @@ pub async fn reply(app: &Pigeon, w: Writes, r: Reply<'_>, dry_run: bool) -> Resu
     }
     app.save_draft(&mut d)?;
     if dry_run {
-        return Ok(DraftOut::new(&d, None));
+        return Ok(to_drafts(app, &d).await);
     }
     let id = app.send(&d).await?;
     Ok(DraftOut::new(&d, Some(id)))
@@ -621,6 +672,33 @@ fn provider_message(body: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A draft is found by its id or its server copy's id; deleting needs
+    /// writes allowed and removes it (no server copy: no network).
+    #[tokio::test]
+    async fn saved_drafts_are_found_and_deleted() {
+        let dir = std::env::temp_dir().join(format!("coo-drafts-{}", pigeon_core::auth::random_token(4)));
+        std::fs::create_dir_all(&dir).unwrap();
+        let app = Pigeon::open_with(dir.clone(), pigeon_core::tokens::TokenStore::File(dir.join("t.json"))).unwrap();
+        let account = Account {
+            id: Account::make_id(ProviderKind::Google, "me@x.com"),
+            provider: ProviderKind::Google,
+            email: "me@x.com".into(),
+            display_name: "Me".into(),
+        };
+        app.store().upsert_account(&account).unwrap();
+        let from = Sender { account_id: account.id.clone(), address: Address::new(None, "me@x.com") };
+        let mut d = Draft::new(from, 1);
+        app.save_draft(&mut d).unwrap();
+        assert_eq!(find_draft(&app, &d.id).await.unwrap().id, d.id);
+        assert!(find_draft(&app, "nope").await.is_err());
+        let ro = Writes { allowed: false, reason: "x" };
+        assert!(delete_draft(&app, ro, &d.id).await.is_err());
+        assert!(app.store().draft(&d.id).unwrap().is_some());
+        delete_draft(&app, Writes { allowed: true, reason: "" }, &d.id).await.unwrap();
+        assert!(app.store().draft(&d.id).unwrap().is_none());
+        std::fs::remove_dir_all(dir).ok();
+    }
 
     fn now() -> chrono::DateTime<Local> {
         Local.with_ymd_and_hms(2026, 10, 23, 15, 30, 0).unwrap()
