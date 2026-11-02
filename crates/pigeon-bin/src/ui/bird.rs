@@ -109,7 +109,8 @@ const POP_MS: u64 = 900;
 /// The flag icon, which waves once when the message gets flagged and
 /// lowers itself when unflagged (only on the change, never for a flag that
 /// was already up when it appeared). Renders nothing while unflagged,
-/// unless `always` (a toolbar button's icon).
+/// unless `always` (a toolbar button's icon). A flag that's up is filled, in
+/// the flag color, wherever it shows (a thin red outline was easy to miss).
 #[component]
 pub fn FlagIcon(
     flagged: bool,
@@ -139,8 +140,18 @@ pub fn FlagIcon(
         return rsx! {};
     }
     rsx! {
-        span { class: "flag-wave", "data-flag": a,
-            Icon { name: "flag", class: class }
+        span { class: "flag-wave", "data-flag": a, "data-up": flagged.then_some("true"),
+            if flagged {
+                // The icon set's flag is an outline (its fill is set on the
+                // symbol, out of CSS's reach): the same shape, filled.
+                svg { class: "icon {class}", "aria-hidden": "true", view_box: "0 0 24 24", fill: "none", stroke: "currentColor",
+                    stroke_width: "1.6", stroke_linecap: "round", stroke_linejoin: "round",
+                    path { d: "M5 21V4" }
+                    path { d: "M5 4h12l-2.5 4L17 12H5z", fill: "currentColor" }
+                }
+            } else {
+                Icon { name: "flag", class: class }
+            }
         }
     }
 }

@@ -1625,6 +1625,8 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 
 /* Flag flutter: a flag set waves once; one taken down lowers. */
 .flag-wave { display: inline-flex; }
+/* A flag that's up: the flag color everywhere, toolbar buttons included. */
+.flag-wave[data-up] { color: var(--warning); }
 .flag-wave[data-flag="up"] > .icon { transform-origin: 15% 95%; animation: flag-up 700ms cubic-bezier(0.22, 1, 0.36, 1); }
 .flag-wave[data-flag="down"] > .icon { transform-origin: 15% 95%; animation: flag-down 450ms cubic-bezier(0.4, 0, 1, 1) both; }
 @keyframes flag-up {
