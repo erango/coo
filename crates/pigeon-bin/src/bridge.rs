@@ -737,6 +737,11 @@ pub const JS: &str = r#"
             const fix = d.createElement('style');
             fix.textContent = 'body[contenteditable] :is(p,div,span,font,li,td,a,b,i,u){line-height:normal!important}';
             d.head.appendChild(fix);
+            // An editor like the composer's: the formatting toolbar, its
+            // shortcuts and autoformat work here too (richtext.rs).
+            d.body.setAttribute('data-editor', 'quote');
+            d.body.dataset.bar = f.dataset.editFor;
+            if (window.__pigeonRichHook) window.__pigeonRichHook(d);
             new MutationObserver(() => {
               f.dataset.dirty = '1';
               clearTimeout(f._pgSave);

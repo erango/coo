@@ -443,18 +443,19 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .composer-quote:has(.mail-frame--edit):focus-within { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent); }
 .mail-frame--edit { display: block; }
 /* Formatting toolbar over the editor (richtext.rs runs it). */
-.fmt-bar { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 3px 20px; box-shadow: inset 0 -1px 0 var(--line); }
+.fmt-bar { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 20px; box-shadow: inset 0 -1px 0 var(--line); }
+/* Buttons come in groups (history, text, color, paragraph, insert, clear),
+   each a soft tray, so the row reads as a few clusters, not one long line. */
+.fmt-bar__group { display: flex; align-items: center; gap: 1px; padding: 1px; border-radius: 8px; background: color-mix(in srgb, var(--text-1) 4%, transparent); }
 .fmt-bar .icon-btn { width: 28px; height: 28px; }
-.inline-reply .fmt-bar { padding: 3px 10px; gap: 0; }
+.inline-reply .fmt-bar { padding: 4px 10px; gap: 4px; }
 /* The reply is narrower: 26 px buttons (the 18 px icons still sit on whole
    pixels) and no undo/redo buttons (⌘Z / ⇧⌘Z), so it fits on one row. */
 .inline-reply .fmt-bar .icon-btn { width: 26px; height: 26px; }
-.inline-reply .fmt-bar [data-fmt="undo"], .inline-reply .fmt-bar [data-fmt="redo"],
-.inline-reply .fmt-bar .fmt-bar__sep:first-of-type { display: none; }
+.inline-reply .fmt-bar [data-group="History"] { display: none; }
 .fmt-bar .icon-btn { color: var(--text-2); }
 .fmt-bar .icon { display: block; }
 .fmt-bar .icon-btn[aria-pressed="true"] { background: var(--selection); color: var(--accent); }
-.fmt-bar__sep { width: 1px; height: 16px; margin: 0 4px; background: var(--line-strong); }
 .fmt-pop { position: fixed; z-index: 70; min-width: 0; animation: pg-pop-in var(--dur-base) var(--ease-standard); }
 .fmt-para { width: 300px; padding-bottom: 6px; }
 .fmt-para__row { display: flex; gap: 4px; padding: 0 8px 4px; }

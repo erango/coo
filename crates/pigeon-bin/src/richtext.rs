@@ -134,9 +134,23 @@ const JS: &str = r##"
   const INLINE_CODE = new RegExp(__INLINE_CODE_RE__), FENCE = new RegExp(__CODE_FENCE_RE__);
   const CODE_STYLE = __CODE_STYLE__, PRE_STYLE = __PRE_STYLE__;
   const EMOTICONS = __EMOTICONS__, EMOTICON_ENDS = new Set(__EMOTICON_ENDS__);
+  // The document being edited: the app's own, or the frame of a quoted
+  // original edited in place (its body is an editor too, run by this same
+  // script through __pigeonRichHook). Every entry point sets it.
+  let D = document;
+  const DOC_LISTENERS = [];
+  const listen = (doc, type, fn, cap) => doc.addEventListener(type, (e) => { D = doc; fn(e); }, cap);
+  const onDoc = (type, fn, cap) => { DOC_LISTENERS.push([type, fn, cap]); listen(document, type, fn, cap); };
+  window.__pigeonRichHook = (doc) => {
+    if (doc._pgRich) return;
+    doc._pgRich = true;
+    for (const [type, fn, cap] of DOC_LISTENERS) listen(doc, type, fn, cap);
+    doc.addEventListener('mousedown', () => closePop(), true);
+  };
   const editorOf = (n) => { const el = n && (n.nodeType === 1 ? n : n.parentElement); return el && el.closest ? el.closest('[data-editor]') : null; };
-  const barFor = (ed) => ed && ed.id ? document.querySelector('.fmt-bar[data-for="' + ed.id + '"]') : null;
-  const caretNode = () => { const s = getSelection(); return s.rangeCount ? s.anchorNode : null; };
+  // A quote's frame names its composer's toolbar in data-bar.
+  const barFor = (ed) => { const id = ed && (ed.dataset.bar || ed.id); return id ? document.querySelector('.fmt-bar[data-for="' + id + '"]') : null; };
+  const caretNode = () => { const s = D.getSelection(); return s.rangeCount ? s.anchorNode : null; };
   // Nearest element matching `sel` around the caret, inside the editor.
   const around = (ed, sel) => {
     const n = caretNode(); const el = n && (n.nodeType === 1 ? n : n.parentElement);
@@ -166,20 +180,23 @@ const JS: &str = r##"
     return m ? (m[0] >= '\u0590' ? 'rtl' : 'ltr') : null;
   };
   const exec = (cmd, value, css) => {
-    document.execCommand('styleWithCSS', false, !!css);
-    return document.execCommand(cmd, false, value ?? null);
+    D.execCommand('styleWithCSS', false, !!css);
+    return D.execCommand(cmd, false, value ?? null);
   };
-  const state = (c) => { try { return document.queryCommandState(c); } catch (_) { return false; } };
+  const state = (c) => { try { return D.queryCommandState(c); } catch (_) { return false; } };
 
   // Run a command in an editor that may not have focus (toolbar clicks
   // from the To field): put the caret back where the user left it.
   function focusEditor(ed) {
-    if (editorOf(caretNode()) === ed && document.activeElement === ed) return;
+    D = ed.ownerDocument;
+    if (editorOf(caretNode()) === ed && D.activeElement === ed) return;
+    // A quote being edited lives in its own frame: focus that first.
+    if (D !== document && D.defaultView) D.defaultView.focus();
     ed.focus();
-    const sel = getSelection();
+    const sel = D.getSelection();
     const r = ed._pgRange;
     if (r && ed.contains(r.startContainer)) { sel.removeAllRanges(); sel.addRange(r); }
-    else { const end = document.createRange(); end.selectNodeContents(ed); end.collapse(false); sel.removeAllRanges(); sel.addRange(end); }
+    else { const end = D.createRange(); end.selectNodeContents(ed); end.collapse(false); sel.removeAllRanges(); sel.addRange(end); }
   }
 
   // Indents are blockquotes with a start margin; WebKit always puts it on
@@ -216,7 +233,7 @@ const JS: &str = r##"
   // in through the DOM (Backspace or ⌘Z right after still takes it back).
   const changed = (ed) => ed.dispatchEvent(new Event('input', { bubbles: true }));
   function makeCode(t) {
-    const c = document.createElement('code');
+    const c = D.createElement('code');
     c.setAttribute('dir', 'ltr'); c.setAttribute('style', CODE_STYLE); c.textContent = t;
     return c;
   }
@@ -224,20 +241,20 @@ const JS: &str = r##"
   // A zero-width space after the code keeps what's typed next out of it.
   function placeCode(ed, r, c, select) {
     r.deleteContents(); r.insertNode(c);
-    const z = document.createTextNode('\u200b'); c.after(z);
-    const after = document.createRange();
+    const z = D.createTextNode('\u200b'); c.after(z);
+    const after = D.createRange();
     if (select) after.selectNodeContents(c); else { after.setStart(z, 1); after.collapse(true); }
-    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(after);
+    const sel = D.getSelection(); sel.removeAllRanges(); sel.addRange(after);
     changed(ed);
   }
   const stylePre = (p) => { if (p) { p.setAttribute('dir', 'ltr'); p.setAttribute('style', PRE_STYLE); } };
   function toggleCode(ed) {
-    const sel = getSelection();
+    const sel = D.getSelection();
     const c = around(ed, 'code');
     if (c) {
-      const t = document.createTextNode(c.textContent);
+      const t = D.createTextNode(c.textContent);
       c.replaceWith(t);
-      const r = document.createRange(); r.selectNodeContents(t); sel.removeAllRanges(); sel.addRange(r);
+      const r = D.createRange(); r.selectNodeContents(t); sel.removeAllRanges(); sel.addRange(r);
       changed(ed);
       return;
     }
@@ -246,8 +263,8 @@ const JS: &str = r##"
   // A block's lines as plain blocks again (a <pre> keeps them as "\n").
   function unPre(ed, pre) {
     const blocks = pre.textContent.replace(/\n$/, '').split('\n').map((l) => {
-      const d = document.createElement('div'); d.setAttribute('dir', 'auto');
-      if (l) d.textContent = l; else d.appendChild(document.createElement('br'));
+      const d = D.createElement('div'); d.setAttribute('dir', 'auto');
+      if (l) d.textContent = l; else d.appendChild(D.createElement('br'));
       return d;
     });
     pre.replaceWith(...blocks);
@@ -255,8 +272,8 @@ const JS: &str = r##"
     ed.dispatchEvent(new Event('input', { bubbles: true }));
   }
   function caretAt(node, start) {
-    const r = document.createRange(); r.selectNodeContents(node); r.collapse(!!start);
-    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    const r = D.createRange(); r.selectNodeContents(node); r.collapse(!!start);
+    const sel = D.getSelection(); sel.removeAllRanges(); sel.addRange(r);
   }
   function toggleCodeBlock(ed) {
     const pre = around(ed, 'pre');
@@ -266,14 +283,14 @@ const JS: &str = r##"
   }
   // Leave a code block: a plain line after it, caret there.
   function leavePre(ed, pre) {
-    const d = document.createElement('div'); d.setAttribute('dir', 'auto'); d.appendChild(document.createElement('br'));
+    const d = D.createElement('div'); d.setAttribute('dir', 'auto'); d.appendChild(D.createElement('br'));
     pre.after(d); caretAt(d, true);
     ed.dispatchEvent(new Event('input', { bubbles: true }));
   }
   // The range of characters [from, to) of `root`'s text.
   function textRange(root, from, to) {
-    const r = document.createRange();
-    const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const r = D.createRange();
+    const w = D.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     let n, at = 0, started = false;
     while ((n = w.nextNode())) {
       const end = at + n.data.length;
@@ -288,7 +305,7 @@ const JS: &str = r##"
   // (small, medium, large…). "Normal" is medium: the recipient's own size.
   const SIZES = [['Small', '2'], ['Normal', '3'], ['Large', '4'], ['Larger', '5'], ['Huge', '6']];
   function stepSize(dir) {
-    const cur = parseInt(document.queryCommandValue('fontSize'), 10) || 3;
+    const cur = parseInt(D.queryCommandValue('fontSize'), 10) || 3;
     exec('fontSize', String(Math.min(6, Math.max(1, cur + dir))), true);
   }
 
@@ -309,6 +326,7 @@ const JS: &str = r##"
       case 'link': return linkPop(ed, btn);
       case 'size': case 'color': case 'highlight': case 'align': return menuPop(ed, cmd, btn);
       case 'quote': toggleQuote(ed); break;
+      case 'dirLtr': case 'dirRtl': setDir(ed, cmd === 'dirRtl' ? 'rtl' : 'ltr'); break;
       case 'code': toggleCode(ed); break;
       case 'codeBlock': toggleCodeBlock(ed); break;
       case 'emoji': return emojiPop(ed, btn);
@@ -352,7 +370,7 @@ const JS: &str = r##"
     const el = document.createElement('div');
     const again = (c, v) => () => run(ed, c, v);
     if (kind === 'size') {
-      const cur = document.queryCommandValue('fontSize');
+      const cur = D.queryCommandValue('fontSize');
       for (const [label, v] of SIZES) el.appendChild(item('<span class="fmt-size" data-size="' + v + '">' + label + '</span>', again('fontSize', v),
         (b) => b.setAttribute('data-active', String(cur === v))));
     } else if (kind === 'align') {
@@ -381,22 +399,36 @@ const JS: &str = r##"
   const LETTER = [['-0.02em', 'Tight'], ['', 'Normal'], ['0.04em', 'Wide'], ['0.08em', 'Wider']];
   const DIRS = [['auto', 'Auto'], ['rtl', 'Right to left'], ['ltr', 'Left to right']];
   // Top-level blocks the selection touches (list items, inside lists).
+  // Wrappers (an Outlook quote is one big div of paragraphs) are looked into.
+  const LIST = /^(UL|OL)$/;
   function selBlocks(ed) {
     const r = caretRange(); const out = [];
-    if (r) for (const c of ed.children) {
-      if (!r.intersectsNode(c) || c.hasAttribute('data-coo-signature')) continue;
-      if (c.tagName === 'UL' || c.tagName === 'OL') { for (const li of c.querySelectorAll('li')) if (r.intersectsNode(li)) out.push(li); }
-      else out.push(c);
-    }
+    const collect = (parent) => {
+      for (const c of parent.children) {
+        if (!r.intersectsNode(c) || c.hasAttribute('data-coo-signature')) continue;
+        if (LIST.test(c.tagName)) { for (const li of c.querySelectorAll('li')) if (r.intersectsNode(li)) out.push(li); }
+        else if ([...c.children].some((k) => BLOCK.test(k.tagName) || LIST.test(k.tagName))) collect(c);
+        else out.push(c);
+      }
+    };
+    if (r) collect(ed);
     if (!out.length) { const b = blockAt(ed, caretNode()); if (b) out.push(b); }
     return out;
   }
+  // Force the selected paragraphs right to left or left to right; the same
+  // button again gives them back their own direction.
+  function setDir(ed, v) {
+    const blocks = selBlocks(ed);
+    const off = blocks.length > 0 && blocks.every((b) => b.getAttribute('dir') === v);
+    for (const b of blocks) { b.setAttribute('dir', off ? 'auto' : v); delete b.dataset.dirGuess; }
+    fixIndents(ed); changed(ed);
+  }
   function paraPop(ed, btn) {
-    const sel = getSelection();
+    const sel = D.getSelection();
     const range = sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
     const blocks = selBlocks(ed), first = blocks[0];
     const el = document.createElement('div'); el.className = 'fmt-para';
-    const back = () => { ed.focus(); if (range) { sel.removeAllRanges(); sel.addRange(range); } };
+    const back = () => { D = ed.ownerDocument; ed.focus(); if (range) { sel.removeAllRanges(); sel.addRange(range); } };
     const section = (title, opts, current, pick) => {
       const h = document.createElement('div'); h.className = 'menu__label'; h.textContent = title; el.appendChild(h);
       const row = document.createElement('div'); row.className = 'fmt-para__row'; el.appendChild(row);
@@ -443,7 +475,7 @@ const JS: &str = r##"
     return c.innerHTML;
   };
   function linkPop(ed, btn) {
-    const sel = getSelection();
+    const sel = D.getSelection();
     const range = sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
     const a = around(ed, 'a[href]');
     const el = document.createElement('div');
@@ -458,17 +490,17 @@ const JS: &str = r##"
     const url = field('Address: https://… or name@example.com', a ? a.getAttribute('href') : '');
     const row = document.createElement('div'); row.className = 'fmt-link__row';
     const mk = (label, cls, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn btn--sm ' + cls; b.textContent = label; b.addEventListener('click', fn); row.appendChild(b); return b; };
-    const back = () => { closePop(); ed.focus(); if (range) { sel.removeAllRanges(); sel.addRange(range); } };
+    const back = () => { closePop(); D = ed.ownerDocument; ed.focus(); if (range) { sel.removeAllRanges(); sel.addRange(range); } };
     const apply = () => {
       const href = normalizeUrl(url.value);
       if (!href) { url.setAttribute('aria-invalid', 'true'); url.focus(); return; }
       back();
-      if (a) { const r = document.createRange(); r.selectNodeContents(a); sel.removeAllRanges(); sel.addRange(r); exec('createLink', href); }
+      if (a) { const r = D.createRange(); r.selectNodeContents(a); sel.removeAllRanges(); sel.addRange(r); exec('createLink', href); }
       else if (range && range.collapsed) exec('insertHTML', '<a href="' + esc(href) + '">' + esc((text && text.value.trim()) || url.value.trim()) + '</a>');
       else exec('createLink', href);
       refresh(ed);
     };
-    if (a) mk('Remove link', 'btn--ghost', () => { back(); const r = document.createRange(); r.selectNodeContents(a); sel.removeAllRanges(); sel.addRange(r); exec('unlink'); refresh(ed); });
+    if (a) mk('Remove link', 'btn--ghost', () => { back(); const r = D.createRange(); r.selectNodeContents(a); sel.removeAllRanges(); sel.addRange(r); exec('unlink'); refresh(ed); });
     const sp = document.createElement('span'); sp.className = 'spacer'; row.appendChild(sp);
     mk(a ? 'Update' : 'Add link', 'btn--primary', apply);
     el.appendChild(row);
@@ -495,7 +527,7 @@ const JS: &str = r##"
   }
   const NAMES = new Map(EMOJI.flatMap(([, l]) => l));
   function emojiPop(ed, btn) {
-    const sel = getSelection();
+    const sel = D.getSelection();
     const range = sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
     const el = document.createElement('div'); el.className = 'fmt-emoji';
     const q = document.createElement('input');
@@ -505,7 +537,7 @@ const JS: &str = r##"
     const grid = document.createElement('div'); grid.className = 'fmt-emoji__grid'; grid.setAttribute('role', 'grid');
     el.append(q, tabs, grid);
     const insert = (e) => {
-      closePop(); ed.focus();
+      closePop(); D = ed.ownerDocument; ed.focus();
       if (range) { sel.removeAllRanges(); sel.addRange(range); }
       exec('insertText', e); used(e);
     };
@@ -575,7 +607,9 @@ const JS: &str = r##"
   document.addEventListener('click', (e) => {
     const btn = e.target.closest && e.target.closest('.fmt-bar [data-fmt]');
     if (!btn) return;
-    const ed = document.getElementById(btn.closest('.fmt-bar').dataset.for);
+    const bar = btn.closest('.fmt-bar');
+    const last = bar._ed, live = last && last.isContentEditable && last.ownerDocument.defaultView;
+    const ed = live ? last : document.getElementById(bar.dataset.for);
     if (pop && pop._for === btn) { closePop(); return; }
     run(ed, btn.dataset.fmt, null, btn);
     if (pop) pop._for = btn;
@@ -598,27 +632,32 @@ const JS: &str = r##"
       if (['bold', 'italic', 'underline', 'strikeThrough', 'insertUnorderedList', 'insertOrderedList'].includes(c)) on = state(c);
       else if (c === 'link') on = !!around(ed, 'a[href]');
       else if (c === 'quote') on = !!around(ed, 'blockquote[data-coo-quote]');
+      else if (c === 'dirLtr' || c === 'dirRtl') { const bl = blockAt(ed, caretNode()); on = !!bl && bl.getAttribute('dir') === (c === 'dirRtl' ? 'rtl' : 'ltr'); }
       if (on !== null) b.setAttribute('aria-pressed', String(on));
     }
     const al = bar.querySelector('[data-fmt="align"] use');
     if (al) al.setAttribute('href', '#i-' + ALIGN_ICON[alignOf(ed)]);
     const swatch = (c, v) => { const b = bar.querySelector('[data-fmt="' + c + '"]'); if (b) b.style.setProperty('--fmt-swatch', v); };
-    const fg = document.queryCommandValue('foreColor'), bg = document.queryCommandValue('hiliteColor');
+    const fg = D.queryCommandValue('foreColor'), bg = D.queryCommandValue('hiliteColor');
     const n = caretNode(); const el = n && (n.nodeType === 1 ? n : n.parentElement);
     const own = el && el.closest('[style*="color"]');
     swatch('color', own && ed.contains(own) && own !== ed && fg ? fg : 'currentColor');
     swatch('highlight', bg && !/^(transparent|rgba\(0, 0, 0, 0\))$/.test(bg) ? bg : 'currentColor');
   }
-  document.addEventListener('selectionchange', () => {
+  onDoc('selectionchange', () => {
     const ed = editorOf(caretNode());
-    if (ed) refresh(ed);
+    if (!ed) return;
+    // The toolbar works on whichever editor had the caret last.
+    const bar = barFor(ed); if (bar) bar._ed = ed;
+    if (D !== document) { const s = D.getSelection(); if (s.rangeCount) ed._pgRange = s.getRangeAt(0).cloneRange(); }
+    refresh(ed);
   });
 
   // Pasting a lone URL or email address over selected text links the text
   // instead of replacing it. Only URLs with a scheme or www., so pasting a
   // file name or a sentence over a selection still replaces it.
-  document.addEventListener('paste', (e) => {
-    const sel = getSelection();
+  onDoc('paste', (e) => {
+    const sel = D.getSelection();
     const ed = editorOf(caretNode());
     if (!ed || sel.isCollapsed || editorOf(sel.focusNode) !== ed || !sel.toString().trim()) return;
     const v = ((e.clipboardData && e.clipboardData.getData('text/plain')) || '').trim();
@@ -636,11 +675,11 @@ const JS: &str = r##"
   let auto = null;
   const listCmd = (li) => li.parentElement && li.parentElement.tagName === 'OL' ? 'insertOrderedList' : 'insertUnorderedList';
   const nested = (li) => { const p = li.parentElement && li.parentElement.parentElement; return !!p && /^(LI|OL|UL)$/.test(p.tagName); };
-  const caretRange = () => { const s = getSelection(); return s.rangeCount ? s.getRangeAt(0) : null; };
+  const caretRange = () => { const s = D.getSelection(); return s.rangeCount ? s.getRangeAt(0) : null; };
   // Text between the start of `block` and the caret (null when there's a
   // line break or an image in between).
   function before(block, r) {
-    const pre = document.createRange();
+    const pre = D.createRange();
     pre.setStart(block, 0); pre.setEnd(r.startContainer, r.startOffset);
     const f = pre.cloneContents();
     if (f.querySelector && f.querySelector('br,img')) return null;
@@ -654,8 +693,8 @@ const JS: &str = r##"
     const m = typed !== null && AUTO_LIST.exec(typed);
     if (!m) return false;
     const dir = block.getAttribute('dir');
-    const sel = getSelection();
-    const pre = document.createRange(); pre.setStart(block, 0); pre.setEnd(r.startContainer, r.startOffset);
+    const sel = D.getSelection();
+    const pre = D.createRange(); pre.setStart(block, 0); pre.setEnd(r.startContainer, r.startOffset);
     sel.removeAllRanges(); sel.addRange(pre);
     exec('delete');
     exec(m[1] ? 'insertUnorderedList' : 'insertOrderedList');
@@ -684,8 +723,8 @@ const JS: &str = r##"
       if (!typed.endsWith(t)) continue;
       const rest = typed.slice(0, typed.length - t.length);
       if (rest !== '' && !/\s$/.test(rest)) continue;
-      const x = document.createRange(); x.setStart(n, rest.length); x.setEnd(n, r.startOffset);
-      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(x);
+      const x = D.createRange(); x.setStart(n, rest.length); x.setEnd(n, r.startOffset);
+      const sel = D.getSelection(); sel.removeAllRanges(); sel.addRange(x);
       exec('insertText', emoji);
       auto = { kind: 'emoticon', text: t, emoji, key };
       return true;
@@ -698,7 +737,7 @@ const JS: &str = r##"
     if (n.nodeType !== 3) return false;
     const m = INLINE_CODE.exec(n.data.slice(0, r.startOffset));
     if (!m) return false;
-    const x = document.createRange(); x.setStart(n, m.index + m[1].length); x.setEnd(n, r.startOffset);
+    const x = D.createRange(); x.setStart(n, m.index + m[1].length); x.setEnd(n, r.startOffset);
     const c = makeCode(m[2]);
     placeCode(ed, x, c);
     auto = { kind: 'code', el: c, text: '`' + m[2] + '`' };
@@ -710,8 +749,8 @@ const JS: &str = r##"
     if (!block || block.tagName === 'LI' || block.closest('li')) return false;
     const typed = before(block, r);
     if (typed === null || typed !== block.textContent || !FENCE.test(typed)) return false;
-    const x = document.createRange(); x.selectNodeContents(block);
-    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(x);
+    const x = D.createRange(); x.selectNodeContents(block);
+    const sel = D.getSelection(); sel.removeAllRanges(); sel.addRange(x);
     exec('delete');
     exec('formatBlock', 'pre');
     stylePre(around(ed, 'pre'));
@@ -723,12 +762,12 @@ const JS: &str = r##"
     if (e.key === 'Tab') { e.preventDefault(); exec('insertText', '\t'); return; }
     if (e.key !== 'Enter' || !r.collapsed) return;
     e.preventDefault();
-    const head = (() => { const x = document.createRange(); x.selectNodeContents(pre); x.setEnd(r.startContainer, r.startOffset); return x.toString(); })();
-    const tail = (() => { const x = document.createRange(); x.selectNodeContents(pre); x.setStart(r.startContainer, r.startOffset); return x.toString(); })();
+    const head = (() => { const x = D.createRange(); x.selectNodeContents(pre); x.setEnd(r.startContainer, r.startOffset); return x.toString(); })();
+    const tail = (() => { const x = D.createRange(); x.selectNodeContents(pre); x.setStart(r.startContainer, r.startOffset); return x.toString(); })();
     const line = head.slice(head.lastIndexOf('\n') + 1);
     if (/^\n?$/.test(tail) && (line.trim() === '```' || (line === '' && head.endsWith('\n')))) {
       const cut = textRange(pre, head.length - line.length - 1, pre.textContent.length);
-      if (cut) { const sel = getSelection(); sel.removeAllRanges(); sel.addRange(cut); exec('delete'); }
+      if (cut) { const sel = D.getSelection(); sel.removeAllRanges(); sel.addRange(cut); exec('delete'); }
       leavePre(ed, pre);
       return;
     }
@@ -736,16 +775,16 @@ const JS: &str = r##"
     exec('insertLineBreak');
   }
   function undoAuto(ed, w) {
-    const sel = getSelection();
+    const sel = D.getSelection();
     if (w.kind === 'code') {
       // Through the DOM like the conversion (insertText would keep the
       // code's look on the backticks).
       if (!w.el.isConnected) return false;
       const z = w.el.nextSibling;
       if (z && z.nodeType === 3 && z.data.startsWith('\u200b')) z.deleteData(0, 1);
-      const t = document.createTextNode(w.text);
+      const t = D.createTextNode(w.text);
       w.el.replaceWith(t);
-      const x = document.createRange(); x.setStart(t, t.length); x.collapse(true);
+      const x = D.createRange(); x.setStart(t, t.length); x.collapse(true);
       sel.removeAllRanges(); sel.addRange(x);
       changed(ed);
       return true;
@@ -758,12 +797,12 @@ const JS: &str = r##"
     const last = w.key === 'Enter' ? '' : typed.slice(-1);
     if (w.key !== 'Enter' && !(last === w.key || (w.key === ' ' && last === '\u00a0'))) return false;
     if (!typed.slice(0, typed.length - last.length).endsWith(w.emoji)) return false;
-    const x = document.createRange(); x.setStart(n, r.startOffset - last.length - w.emoji.length); x.setEnd(n, r.startOffset);
+    const x = D.createRange(); x.setStart(n, r.startOffset - last.length - w.emoji.length); x.setEnd(n, r.startOffset);
     sel.removeAllRanges(); sel.addRange(x);
     exec('insertText', w.text + (last ? w.key : ''));
     return true;
   }
-  document.addEventListener('keydown', (e) => {
+  onDoc('keydown', (e) => {
     const ed = e.target.closest && e.target.closest('[data-editor]');
     if (!ed) return;
     if (e.isComposing) return;
@@ -823,12 +862,12 @@ const JS: &str = r##"
       fixIndents(ed); refresh(ed);
     }
   }, true);
-  document.addEventListener('mousedown', () => { auto = null; }, true);
+  onDoc('mousedown', () => { auto = null; }, true);
   // List items get their own direction, so a Hebrew item in an English
   // list (or the other way round) reads right. The list itself (bullet
   // side, indent) follows its first item: dir="auto" on it would skip
   // items that have a dir of their own and always come out LTR.
-  document.addEventListener('input', (e) => {
+  onDoc('input', (e) => {
     const ed = e.target.closest && e.target.closest('[data-editor]');
     if (!ed) return;
     for (const li of ed.querySelectorAll('li:not([dir])')) li.setAttribute('dir', 'auto');
@@ -862,8 +901,8 @@ const JS: &str = r##"
       '<ol dir="ltr"><li dir="auto">Move the <i>pricing</i> slide up</li><li dir="auto">Add the <a href="https://example.com">Q3 numbers</a></li></ol>' +
       '<ul dir="rtl"><li dir="auto">שלום, נדבר מחר</li></ul>' +
       '<blockquote data-coo-quote="" dir="auto" style="margin:0 0 0 0;margin-left:.8ex;border-left:2px solid #ccc;padding-left:1ex;color:#555">Ship it.</blockquote>';
-    const t = ed.querySelector('b').firstChild; const r = document.createRange(); r.setStart(t, 3); r.collapse(true);
-    ed.focus(); getSelection().removeAllRanges(); getSelection().addRange(r); refresh(ed);
+    const t = ed.querySelector('b').firstChild; const r = D.createRange(); r.setStart(t, 3); r.collapse(true);
+    ed.focus(); D.getSelection().removeAllRanges(); D.getSelection().addRange(r); refresh(ed);
   };
 })();
 "##;
