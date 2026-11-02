@@ -313,6 +313,11 @@ pub enum Cmd {
         /// Told whether every message was saved (a Finder drop waits on it).
         done: Option<std::sync::mpsc::SyncSender<bool>>,
     },
+    /// Fetch an account's folders and labels from its server now (the
+    /// "Label as…" / "Move to…" picker opening), not at the next sync.
+    RefreshFolders {
+        account_id: String,
+    },
     /// Gmail: a new label ("Parent/Child" nests it).
     CreateLabel {
         account_id: String,
@@ -1547,6 +1552,15 @@ impl Service {
                     self.saved_toast(msg, last);
                 }
                 reply.1 = saved == messages.len();
+            }
+            Cmd::RefreshFolders { account_id } => {
+                let account = self.app.account(&account_id)?;
+                // Quietly: the picker already shows what was synced.
+                match self.app.refresh_folders(&account).await {
+                    Ok(true) => self.publish().await,
+                    Ok(false) => {}
+                    Err(e) => tracing::warn!(error = %e, "could not refresh folders"),
+                }
             }
             Cmd::CreateLabel { account_id, name } => {
                 let account = self.app.account(&account_id)?;

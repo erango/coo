@@ -567,6 +567,24 @@ impl Pigeon {
         }
     }
 
+    /// Fetch the account's folders (labels) from its server and store them.
+    /// Returns whether they changed.
+    pub async fn refresh_folders(&self, account: &Account) -> Result<bool> {
+        use pigeon_core::provider::MailProvider;
+        let folders = match &*self.backend(account)? {
+            Backend::Microsoft(p) => p.folders().await?,
+            Backend::Google(p) => p.folders().await?,
+            Backend::ICloud(p) => p.mail.folders().await?,
+        };
+        let mut store = self.store();
+        let before: Vec<_> = store.folders(&account.id)?.into_iter().map(|f| f.folder).collect();
+        if before == folders {
+            return Ok(false);
+        }
+        store.replace_folders(&account.id, &folders)?;
+        Ok(true)
+    }
+
     /// Create a Gmail label and refresh the account's labels.
     pub async fn create_label(&self, account: &Account, name: &str) -> Result<()> {
         let Backend::Google(p) = &*self.backend(account)? else {

@@ -29,6 +29,9 @@ pub fn open_for(s: AppState, item: ListItem, label: bool) {
     if label && provider != Some(ProviderKind::Google) {
         return open_for(s, item, false);
     }
+    // Labels made or deleted elsewhere (Gmail on the web) show without
+    // waiting for the next sync.
+    crate::send_cmd(pigeon_engine::service::Cmd::RefreshFolders { account_id: item.account_id().to_string() });
     let mut p = s.move_picker;
     p.set(Some(MovePicker { item, label }));
     crate::bridge::focus("move-input");
