@@ -105,7 +105,8 @@ pub struct Prefs {
     /// Conversation order in the reader: newest message on top.
     pub thread_newest_first: bool,
     /// How quoted history looks in a message: "cards" (stacked, a shade
-    /// deeper per level) or "rail" (one thin rail per level).
+    /// deeper per level), "rail" (one thin rail per level) or "plain" (not
+    /// folded or styled: the message as sent, one flow of text).
     pub quote_style: String,
     /// Open messages with their quoted history unfolded (for people whose
     /// correspondents answer inline, inside the quote).

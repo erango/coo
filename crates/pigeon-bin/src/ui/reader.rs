@@ -677,12 +677,22 @@ fn Body(account_id: String, message_id: String, sender: String, body: StoredBody
         mailframe::Shown::Empty => rsx! { div { class: "plain-body" } },
         mailframe::Shown::Html(html) => {
             let adapted = mailframe::is_complex(html) == flipped;
-            let mut folded = folded_html(&message_id, html);
+            // "Plain": the message as sent, one flow of text (a selection
+            // can run from the reply into the quote).
+            let plain = prefs.quote_style == "plain";
+            let mut folded = if plain { None } else { folded_html(&message_id, html) };
             if prefs.quotes_open {
                 folded = folded.map(|h| h.replace("<details class=\"coo-quoted", "<details open class=\"coo-quoted"));
             }
             let (marked, _) = mailframe::highlight_html(folded.as_deref().unwrap_or(html), &terms);
-            let doc = mailframe::srcdoc(&marked, &s.palette.read(), dark, adapted, allowed, &prefs.quote_style);
+            let doc = mailframe::srcdoc(
+                &marked,
+                &s.palette.read(),
+                dark,
+                adapted,
+                allowed,
+                if plain { "" } else { &prefs.quote_style },
+            );
             rsx! {
                 div { class: "mail-body", "data-render": if adapted { "adapted" } else { "paper" },
                     iframe { class: "mail-frame", "data-render": if adapted { "adapted" } else { "paper" },
@@ -694,7 +704,7 @@ fn Body(account_id: String, message_id: String, sender: String, body: StoredBody
         }
         mailframe::Shown::Text(text) => {
             // A ">"-quoted history folds the way HTML quotes do.
-            let split = pigeon_core::quotes::split_text(text);
+            let split = if prefs.quote_style == "plain" { None } else { pigeon_core::quotes::split_text(text) };
             let main = split.as_ref().map_or(text, |(m, _)| m.as_str());
             let quote = split.as_ref().map(|(_, q)| q.clone());
             let runs: Vec<(String, bool)> =

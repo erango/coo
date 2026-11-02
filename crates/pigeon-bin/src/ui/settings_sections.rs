@@ -175,9 +175,9 @@ pub fn Reading() -> Element {
             }
         }
         Group { title: "Quoted text",
-            Row { label: "Earlier messages in a reply", hint: "Cards: each one a shade deeper; Rail: a thin line per level.",
+            Row { label: "Earlier messages in a reply", hint: "Cards: each one a shade deeper; Rail: a thin line per level; Plain: the message as sent, one stretch of text you can select across.",
                 div { class: "segmented", role: "radiogroup", "aria-label": "How quoted earlier messages look",
-                    for (value, label) in [("cards", "Cards"), ("rail", "Rail")] {
+                    for (value, label) in [("cards", "Cards"), ("rail", "Rail"), ("plain", "Plain")] {
                         button { role: "radio", key: "{value}", "aria-checked": "{quotes_now == value}", "aria-selected": "{quotes_now == value}",
                             onclick: move |_| {
                                 prefs::update(move |p| p.quote_style = value.to_string());
@@ -188,13 +188,16 @@ pub fn Reading() -> Element {
                     }
                 }
             }
-            Row { label: "Show quoted text unfolded",
-                hint: "Some people answer right inside the quote, between your lines. Unfolded, their words don't hide behind the ••• pill.",
-                input { class: "switch", r#type: "checkbox", checked: *quotes_open.read(), "aria-label": "Show quoted text unfolded",
-                    onchange: move |_| {
-                        let now = !*quotes_open.peek();
-                        quotes_open.set(now);
-                        prefs::update(move |p| p.quotes_open = now);
+            // Plain quotes never fold.
+            if quotes_now != "plain" {
+                Row { label: "Show quoted text unfolded",
+                    hint: "Some people answer right inside the quote, between your lines. Unfolded, their words don't hide behind the ••• pill.",
+                    input { class: "switch", r#type: "checkbox", checked: *quotes_open.read(), "aria-label": "Show quoted text unfolded",
+                        onchange: move |_| {
+                            let now = !*quotes_open.peek();
+                            quotes_open.set(now);
+                            prefs::update(move |p| p.quotes_open = now);
+                        }
                     }
                 }
             }
