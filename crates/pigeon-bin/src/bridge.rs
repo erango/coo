@@ -728,6 +728,15 @@ pub const JS: &str = r#"
           // runs no script), so an observer watches for edits instead.
           if (f.dataset.editFor) {
             d.body.contentEditable = 'true';
+            // Old Outlook pins line heights ("exactly 12pt") and paints
+            // blocks white, in fonts a Mac doesn't have (Calibri, Tahoma).
+            // The stand-in fonts overflow those lines, so the next block's
+            // background covered parts of the text being typed, differently
+            // after every repaint (a selection uncovered it). While editing,
+            // lines take their natural height.
+            const fix = d.createElement('style');
+            fix.textContent = 'body[contenteditable] :is(p,div,span,font,li,td,a,b,i,u){line-height:normal!important}';
+            d.head.appendChild(fix);
             new MutationObserver(() => {
               f.dataset.dirty = '1';
               clearTimeout(f._pgSave);
