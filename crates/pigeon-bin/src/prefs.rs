@@ -107,6 +107,9 @@ pub struct Prefs {
     /// How quoted history looks in a message: "cards" (stacked, a shade
     /// deeper per level) or "rail" (one thin rail per level).
     pub quote_style: String,
+    /// Open messages with their quoted history unfolded (for people whose
+    /// correspondents answer inline, inside the quote).
+    pub quotes_open: bool,
     /// Where replies open: "inline" (below the conversation) or "window".
     pub reply_mode: String,
     /// Show sender photos from Gravatar (sends a hash of each address).
@@ -199,6 +202,7 @@ impl Default for Prefs {
             sidebar_width: 0,
             thread_newest_first: true,
             quote_style: "cards".into(),
+            quotes_open: false,
             reply_mode: "inline".into(),
             photos_gravatar: false,
             photos_google: true,

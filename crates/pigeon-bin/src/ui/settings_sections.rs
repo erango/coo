@@ -119,6 +119,7 @@ pub fn Reading() -> Element {
     let read_now = *read_after.read();
     let mut quotes = use_signal(|| prefs::get().quote_style);
     let quotes_now = quotes.read().clone();
+    let mut quotes_open = use_signal(|| prefs::get().quotes_open);
     rsx! {
         div { class: "settings__title", "Reading" }
         Group { title: "Opening messages",
@@ -174,7 +175,7 @@ pub fn Reading() -> Element {
             }
         }
         Group { title: "Quoted text",
-            Row { label: "Earlier messages in a reply", hint: "Folded away until you open them. Cards: each one a shade deeper; Rail: a thin line per level.",
+            Row { label: "Earlier messages in a reply", hint: "Cards: each one a shade deeper; Rail: a thin line per level.",
                 div { class: "segmented", role: "radiogroup", "aria-label": "How quoted earlier messages look",
                     for (value, label) in [("cards", "Cards"), ("rail", "Rail")] {
                         button { role: "radio", key: "{value}", "aria-checked": "{quotes_now == value}", "aria-selected": "{quotes_now == value}",
@@ -184,6 +185,16 @@ pub fn Reading() -> Element {
                             },
                             "{label}"
                         }
+                    }
+                }
+            }
+            Row { label: "Show quoted text unfolded",
+                hint: "Some people answer right inside the quote, between your lines. Unfolded, their words don't hide behind the ••• pill.",
+                input { class: "switch", r#type: "checkbox", checked: *quotes_open.read(), "aria-label": "Show quoted text unfolded",
+                    onchange: move |_| {
+                        let now = !*quotes_open.peek();
+                        quotes_open.set(now);
+                        prefs::update(move |p| p.quotes_open = now);
                     }
                 }
             }

@@ -677,7 +677,10 @@ fn Body(account_id: String, message_id: String, sender: String, body: StoredBody
         mailframe::Shown::Empty => rsx! { div { class: "plain-body" } },
         mailframe::Shown::Html(html) => {
             let adapted = mailframe::is_complex(html) == flipped;
-            let folded = folded_html(&message_id, html);
+            let mut folded = folded_html(&message_id, html);
+            if prefs.quotes_open {
+                folded = folded.map(|h| h.replace("<details class=\"coo-quoted", "<details open class=\"coo-quoted"));
+            }
             let (marked, _) = mailframe::highlight_html(folded.as_deref().unwrap_or(html), &terms);
             let doc = mailframe::srcdoc(&marked, &s.palette.read(), dark, adapted, allowed, &prefs.quote_style);
             rsx! {
@@ -705,7 +708,7 @@ fn Body(account_id: String, message_id: String, sender: String, body: StoredBody
                         }
                     }
                     if let Some(q) = quote {
-                        TextQuoted { quote: q }
+                        TextQuoted { quote: q, open: prefs.quotes_open }
                     }
                 }
             }
@@ -828,7 +831,7 @@ fn folded_html(message_id: &str, html: &str) -> Option<String> {
 /// A plain-text message's quoted history, folded behind the same pill as
 /// HTML quotes (app.css styles it with the frame's look).
 #[component]
-fn TextQuoted(quote: pigeon_core::quotes::TextQuote) -> Element {
+fn TextQuoted(quote: pigeon_core::quotes::TextQuote, open: bool) -> Element {
     let total = quote.depth();
     let more = match (total, quote.who.is_some()) {
         (1, false) => "Quoted text".to_string(),
@@ -836,19 +839,19 @@ fn TextQuoted(quote: pigeon_core::quotes::TextQuote) -> Element {
         (n, _) => format!("Quoted: {n} earlier messages"),
     };
     rsx! {
-        details { class: "coo-quoted",
+        details { class: "coo-quoted", open,
             summary { class: "coo-quoted__pill",
                 span { class: "coo-quoted__dots", "aria-hidden": "true" }
                 span { class: "coo-quoted__more", "{more}" }
                 span { class: "coo-quoted__less", "Hide quoted text" }
             }
-            TextQuoteLevel { quote, level: 1 }
+            TextQuoteLevel { quote, level: 1, open }
         }
     }
 }
 
 #[component]
-fn TextQuoteLevel(quote: pigeon_core::quotes::TextQuote, level: usize) -> Element {
+fn TextQuoteLevel(quote: pigeon_core::quotes::TextQuote, level: usize, open: bool) -> Element {
     let inner = quote.inner.as_deref().cloned();
     let text = quote.lines.join("\n");
     let deeper = inner.as_ref().map_or(0, |q| q.depth());
@@ -864,16 +867,16 @@ fn TextQuoteLevel(quote: pigeon_core::quotes::TextQuote, level: usize) -> Elemen
             div { class: "coo-q__body", dir: "auto", "{text}" }
             if let Some(q) = inner {
                 if level >= 2 {
-                    details { class: "coo-quoted coo-quoted--deeper",
+                    details { class: "coo-quoted coo-quoted--deeper", open,
                         summary { class: "coo-quoted__pill",
                             span { class: "coo-quoted__dots", "aria-hidden": "true" }
                             span { class: "coo-quoted__more", if deeper == 1 { "1 more quoted message" } else { "{deeper} more quoted messages" } }
                             span { class: "coo-quoted__less", "Hide" }
                         }
-                        TextQuoteLevel { quote: q, level: level + 1 }
+                        TextQuoteLevel { quote: q, level: level + 1, open }
                     }
                 } else {
-                    TextQuoteLevel { quote: q, level: level + 1 }
+                    TextQuoteLevel { quote: q, level: level + 1, open }
                 }
             }
         }
