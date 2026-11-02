@@ -2233,3 +2233,7 @@ html[data-contrast="high"] .greet-art .greet-ground { fill: color-mix(in srgb, v
 html[data-contrast="high"] .greet-art :is(path, rect, circle, ellipse)[fill]:not([fill="none"]):not([stroke]):not(.greet-sky):not(.greet-ground) { stroke: var(--text-1); stroke-width: 0.6; }
 html[data-contrast="high"] .greet-art text { fill: var(--text-1); }
 html[data-contrast="high"] .greet-card { box-shadow: 0 0 0 1.5px var(--line-strong); }
+/* Reconnect your AI agent: one step per agent set up here. */
+.agent-reconnect { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; padding: 0; list-style: none; }
+.agent-reconnect li { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border-radius: 8px; background: var(--bg-1); box-shadow: inset 0 0 0 1px var(--line); }
+.agent-reconnect__who { display: flex; align-items: center; gap: 6px; color: var(--text-1); }

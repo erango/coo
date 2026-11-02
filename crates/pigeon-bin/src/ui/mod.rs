@@ -166,6 +166,10 @@ pub fn App() -> Element {
                         ));
                     }
                 }
+                "agent-reconnect" => {
+                    let mut o = s.agent_reconnect;
+                    o.set(true);
+                }
                 "palette" => {
                     let mut p = s.palette_open;
                     p.set(true);
@@ -701,6 +705,7 @@ pub fn App() -> Element {
         div { style: "display:none", dangerous_inner_html: APP_ICONS }
         {body}
         if *s.agent_setup_open.read() { agent_setup::AgentSetup {} }
+        if *s.agent_reconnect.read() && !*s.agent_setup_open.read() { agent_setup::AgentReconnect {} }
         if *s.tour_open.read() { tour::Tour {} }
         if *s.welcome_in.read() { tour::WelcomeIn {} }
         if *s.update_dialog.read() { update_dialog::UpdateDialog {} }
@@ -1513,6 +1518,10 @@ pub fn run(s: AppState, what: Do) {
             }
             if *s.agent_setup_open.read() {
                 let mut o = s.agent_setup_open;
+                return o.set(false);
+            }
+            if *s.agent_reconnect.read() {
+                let mut o = s.agent_reconnect;
                 return o.set(false);
             }
             if *s.update_dialog.read() {

@@ -174,6 +174,65 @@ pub(crate) fn chip_class(status: Status, wants_write: bool) -> &'static str {
 /// dialog clears it once open).
 pub static PICK: GlobalSignal<Option<Agent>> = Signal::global(|| None);
 
+/// What to do in `agent` so its Coo connection starts over.
+fn reconnect_steps(agent: Agent) -> &'static str {
+    match agent {
+        Agent::CodeTerminal | Agent::CodeDesktop => {
+            "In the Claude Code session, type /mcp, choose \u{201c}coo\u{201d}, then Reconnect. A new session works too."
+        }
+        Agent::ClaudeDesktop => "Quit Claude (\u{2318}Q) and open it again; it reconnects on start.",
+        Agent::Other => "Restart the agent, or reconnect its \u{201c}coo\u{201d} MCP server in its settings.",
+    }
+}
+
+/// "Reconnect your AI agent": an agent's connection predates this Coo
+/// (usually an update since it started) and was turned away. Steps for
+/// each agent set up here (all of them when none is found).
+#[component]
+pub fn AgentReconnect() -> Element {
+    let s = use_context::<AppState>();
+    let mut open = s.agent_reconnect;
+    let entries = use_hook(agent_setup::existing_entries);
+    let mut shown: Vec<Agent> = Agent::ALL.into_iter().filter(|a| Status::of(*a, &entries).is_connected()).collect();
+    if shown.is_empty() {
+        shown = Agent::ALL.to_vec();
+    }
+    rsx! {
+        div { class: "agent-setup-scrim", onclick: move |_| open.set(false),
+            div { class: "dialog agent-setup agent-setup--narrow", role: "dialog", "aria-label": "Reconnect your AI agent",
+                onclick: move |e| e.stop_propagation(),
+                div { class: "dialog__title", "Reconnect your AI agent" }
+                div { class: "dialog__body",
+                    p { "An agent tried to use Coo with a connection from before Coo updated, so Coo turned it away. Your mail is fine; the agent just needs a fresh connection." }
+                    ol { class: "agent-reconnect",
+                        for agent in shown {
+                            li { key: "{agent.label()}",
+                                span { class: "agent-reconnect__who",
+                                    Icon { name: agent_icon(agent), class: "icon--sm" }
+                                    strong { "{agent.label()}" }
+                                }
+                                span { class: "agent-reconnect__how", "{reconnect_steps(agent)}" }
+                            }
+                        }
+                    }
+                    p { "Then ask the agent again." }
+                }
+                div { class: "dialog__actions",
+                    button { class: "btn btn--secondary", r#type: "button",
+                        onclick: move |_| {
+                            open.set(false);
+                            let mut o = s.agent_setup_open;
+                            o.set(true);
+                        },
+                        "Agent settings"
+                    }
+                    button { class: "btn btn--primary", r#type: "button", onclick: move |_| open.set(false), "Done" }
+                }
+            }
+        }
+    }
+}
+
 #[component]
 pub fn AgentSetup() -> Element {
     let s = use_context::<AppState>();

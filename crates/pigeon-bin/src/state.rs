@@ -319,6 +319,8 @@ pub struct AppState {
     pub microsoft_photos: Signal<Vec<String>>,
     /// "Connect an AI agent" popup.
     pub agent_setup_open: Signal<bool>,
+    /// "Reconnect your AI agent" (an agent's helper was turned away).
+    pub agent_reconnect: Signal<bool>,
     /// The welcome tour is open (ui/tour.rs).
     pub tour_open: Signal<bool>,
     /// The welcome-in fly-over after a finished tour is playing.
@@ -443,6 +445,7 @@ impl AppState {
             google_contacts: Signal::new(Vec::new()),
             microsoft_photos: Signal::new(Vec::new()),
             agent_setup_open: Signal::new(false),
+            agent_reconnect: Signal::new(false),
             tour_open: Signal::new(false),
             welcome_in: Signal::new(false),
             bug_report_open: Signal::new(false),
@@ -838,6 +841,21 @@ fn apply(s: &mut AppState, delta: Delta) {
                 };
                 s.body_failed.write().remove(&key);
                 s.bodies.write().insert(key, body);
+            }
+            Delta::AgentReconnect => {
+                // The person is in the agent, not in Coo: a banner brings
+                // them here, where the steps wait.
+                if !crate::notify::app_is_active() {
+                    crate::notify::post(&crate::notify::Note {
+                        title: "Reconnect your AI agent".into(),
+                        body: "It couldn't reach Coo after the update. Open Coo to see how.".into(),
+                        target: crate::notify::Target::Inbox,
+                        join_url: None,
+                        sound: None,
+                        banner: true,
+                    });
+                }
+                s.agent_reconnect.set(true);
             }
             Delta::BodyFailed { account_id, message_id, gone } => {
                 s.body_failed.write().insert((account_id, message_id), gone);

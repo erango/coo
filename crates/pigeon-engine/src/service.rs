@@ -517,6 +517,9 @@ pub enum Delta {
         invite: Option<Box<InviteView>>,
     },
     /// A body couldn't be fetched; `gone` = the server no longer has it.
+    /// An agent's helper was turned away (it predates this Coo): the app
+    /// shows how to reconnect it.
+    AgentReconnect,
     BodyFailed {
         account_id: String,
         message_id: String,
@@ -1994,11 +1997,7 @@ fn agent_notices(svc: std::sync::Weak<Service>) -> crate::broker::Notify {
                 svc.send(Delta::Toast(Toast { id, message, error: true, banner: true, ..Default::default() }));
             };
             match notice {
-                Notice::Refused => banner(
-                    "An AI agent couldn't connect to Coo, usually because Coo updated after the agent started. \
-                     Restart its connection: in Claude Code run /mcp and reconnect \"coo\"; quit and reopen Claude Desktop."
-                        .into(),
-                ),
+                Notice::Refused => svc.send(Delta::AgentReconnect),
                 Notice::SignInRequired(account) => {
                     let email = account.split_once(':').map_or(account.as_str(), |(_, e)| e).to_string();
                     svc.set_sync(|s| {
