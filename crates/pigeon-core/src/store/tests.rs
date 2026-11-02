@@ -173,6 +173,26 @@ fn threads_group_and_count() {
     assert_eq!((t.message_count, t.unread_count), (3, 1));
     assert_eq!(t.participants.len(), 2);
     assert_eq!(threads[1].thread_id, "u");
+    assert!(!t.has_draft && !threads[1].has_draft);
+
+    // A reply being written in Coo marks its thread; so does a draft in the
+    // mailbox's Drafts (here in thread "u").
+    let from = crate::compose::Sender { account_id: ms.id.clone(), address: Address::new(None, "me@work.com") };
+    let mut d = crate::compose::Draft::new(from, 5);
+    d.reply = Some(crate::compose::ReplyContext {
+        kind: crate::compose::ReplyKind::Reply,
+        account_id: ms.id.clone(),
+        message_id: "a2".into(),
+        thread_id: "t".into(),
+        internet_message_id: None,
+        references: vec![],
+    });
+    s.save_draft(&d).unwrap();
+    let mut server_draft = msg("b2", "u", 260, &["proj"]);
+    server_draft.is_draft = true;
+    s.apply_mail(&ms.id, "f", &[MailChange::Upsert(server_draft)], "2").unwrap();
+    let threads = s.list_threads(&ListQuery::unified(FolderRole::Inbox, 10)).unwrap();
+    assert!(threads.iter().all(|t| t.has_draft));
 
     let all = s.thread_messages(&ms.id, "t").unwrap();
     assert_eq!(all.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["a1", "a3", "a2"]);

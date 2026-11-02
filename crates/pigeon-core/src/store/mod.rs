@@ -301,6 +301,8 @@ impl Store {
         }
 
         let folder_of = |account: &str| views.iter().find(|(a, _)| a == account).map(|(_, f)| f.clone());
+        let local_drafts: std::collections::HashSet<(String, String)> =
+            self.drafts()?.into_iter().filter_map(|d| d.reply.map(|r| (r.account_id, r.thread_id))).collect();
         let sql = format!(
             "SELECT {MSG_COLS}, EXISTS(SELECT 1 FROM message_folders mf
                  WHERE mf.message_pk = m.pk AND mf.folder_id = ?3)
@@ -317,7 +319,9 @@ impl Store {
             let mut participants: Vec<String> = Vec::new();
             let mut unread_count = 0;
             let mut latest = None;
+            let mut has_draft = local_drafts.contains(&(account.clone(), thread.clone()));
             for (h, in_view) in msgs {
+                has_draft |= h.is_draft;
                 if !in_view || h.received_at >= before {
                     continue;
                 }
@@ -339,6 +343,7 @@ impl Store {
                 message_count,
                 unread_count,
                 participants,
+                has_draft,
             });
         }
         Ok(out)

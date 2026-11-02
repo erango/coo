@@ -69,6 +69,9 @@ input.input--bare { border: 0; outline: none; }
    (filled = unread, ring = read) instead of a separate unread dot. */
 .row[data-unread]::before { display: none; }
 .row .row__line > .dot { width: 8px; height: 8px; }
+/* "Draft" after the names: a draft waits in this conversation (as a draft
+   row's own name reads, in the warning color). */
+.row__draft { flex: none; font-size: var(--fs-sender); line-height: var(--lh-sender); font-weight: var(--fw-semibold); color: var(--warning); }
 /* Read = hollow ring. A real border in whole device pixels (an inset
    box-shadow of 1.5px aliased into a lopsided ring on 1x/2x screens). */
 .row:not([data-unread]) .row__line > .dot {

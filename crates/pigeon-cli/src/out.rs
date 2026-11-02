@@ -122,6 +122,7 @@ pub struct ThreadOut {
     pub participants: Vec<String>,
     pub message_count: u32,
     pub unread_count: u32,
+    pub has_draft: bool,
     pub latest: MessageOut,
 }
 
@@ -134,6 +135,7 @@ impl From<&ThreadRow> for ThreadOut {
             participants: t.participants.clone(),
             message_count: t.message_count,
             unread_count: t.unread_count,
+            has_draft: t.has_draft,
             latest: MessageOut::new(&t.account_id, &t.latest),
         }
     }

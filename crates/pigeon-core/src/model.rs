@@ -238,6 +238,9 @@ pub struct ThreadRow {
     pub unread_count: u32,
     /// Distinct sender display names within the listed folder.
     pub participants: Vec<String>,
+    /// A draft belongs to the thread: one in the mailbox's Drafts, or a
+    /// reply being written in Coo.
+    pub has_draft: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

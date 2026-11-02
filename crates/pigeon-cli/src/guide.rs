@@ -53,7 +53,7 @@ const SHAPES: &str = "\
 JSON shapes (fields; times RFC 3339 local):
   account:  id provider email name
   message:  account id thread_id subject from{name,email} to[] cc[] snippet received_at unread flagged has_attachments draft
-  thread:   account thread_id subject participants[] message_count unread_count latest{message}
+  thread:   account thread_id subject participants[] message_count unread_count has_draft latest{message}
   full message (get / thread items): message fields + text truncated attachments[{id,name,content_type,size,inline}] in_reply_to references[]
   event:    account calendar_id id title start end all_day location organizer attendees[{email,name,response,optional}] my_response online_url cancelled
   act/undo: undo_handle sent deferred rejected[] needs_sign_in

@@ -587,14 +587,17 @@ pub fn Row(
     let selected = open || s.multi.read().contains(&key);
     let hue = s.hue(item.account_id());
     let h = item.header().clone();
-    let (who, count, unread) = match &item {
+    let (who, count, unread, has_draft) = match &item {
         ListItem::Thread(t) => {
             let who = if t.participants.is_empty() { "(unknown)".to_string() } else { t.participants.join(", ") };
-            (who, (t.message_count > 1).then_some(t.message_count), t.unread_count > 0)
+            (who, (t.message_count > 1).then_some(t.message_count), t.unread_count > 0, t.has_draft)
         }
-        ListItem::Message(m) => {
-            (m.header.from.as_ref().map(|a| a.display().to_string()).unwrap_or_default(), None, !m.header.is_read)
-        }
+        ListItem::Message(m) => (
+            m.header.from.as_ref().map(|a| a.display().to_string()).unwrap_or_default(),
+            None,
+            !m.header.is_read,
+            false,
+        ),
     };
     let who = if h.is_draft { "Draft".to_string() } else { who };
     let letter = s
@@ -682,6 +685,9 @@ pub fn Row(
                     },
                     None => rsx! { span { class: "row__who", dir: "auto", "{who}" } },
                 }
+                // A draft waits in this conversation (the row of a draft itself
+                // already reads "Draft").
+                if has_draft && !h.is_draft { span { class: "row__draft", "Draft" } }
                 if let Some(n) = count { span { class: "row__count", "{n}" } }
                 span { class: "row__meta",
                     super::bird::FlagIcon { flagged }
