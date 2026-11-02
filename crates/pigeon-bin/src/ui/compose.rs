@@ -335,6 +335,16 @@ pub fn autosave(slot: ComposeSlot, editor: &str) {
 /// Close the composer, saving what's in the editor (here and, after a
 /// moment, on the server).
 pub fn save_and_close(slot: ComposeSlot) {
+    close_with(slot, false)
+}
+
+/// `save_and_close`, asking first whenever there's something to keep (even
+/// when drafts save as you write): an inline reply's ✕.
+fn close_asking(slot: ComposeSlot) {
+    close_with(slot, true)
+}
+
+fn close_with(slot: ComposeSlot, always_ask: bool) {
     let Some(draft) = slot.draft.read().clone() else { return };
     spawn(async move {
         let d = with_editor_content(draft).await;
@@ -342,7 +352,7 @@ pub fn save_and_close(slot: ComposeSlot) {
         // Nothing written: drop it instead of leaving an empty draft behind;
         // opened and left as it was: no new version.
         match closing(&d, &d.body_html.clone()) {
-            Close::Save if asks() => match ask_to_save().await {
+            Close::Save if always_ask || asks() => match ask_to_save().await {
                 Some(true) => {
                     state.set(None);
                     send_cmd(Cmd::SaveDraft(d));
@@ -453,12 +463,19 @@ fn pop_out(s: AppState, slot: ComposeSlot) {
     });
 }
 
-/// Throw the draft away, including its server copy.
-fn discard(slot: ComposeSlot) {
-    let Some(draft) = slot.draft.read().clone() else { return };
-    let mut state = slot.draft;
-    state.set(None);
-    send_cmd(Cmd::DiscardDraft { draft_id: draft.id });
+/// Leaving a conversation with a reply open: the reply waits there for
+/// when you come back, and is kept in Drafts meanwhile (from its last
+/// autosaved state, as the editor may already be gone).
+fn keep_on_leave(slot: ComposeSlot) {
+    let Some(d) = slot.draft.peek().clone() else { return };
+    if *slot.sending.peek() {
+        return;
+    }
+    let nothing_written = pigeon_core::text::html_to_text(&d.body_html).trim().is_empty() && d.attachments.is_empty();
+    let changed = OPENED.with(|o| o.borrow().get(&d.id).is_none_or(|(f, typed)| *typed || *f != fields(&d)));
+    if changed && !nothing_written && !is_blank(&d, &d.body_html) {
+        send_cmd(Cmd::SaveDraft(d));
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -1012,6 +1029,7 @@ pub fn InlineReply(draft: Draft) -> Element {
             );
         }
     });
+    use_drop(move || keep_on_leave(slot));
     let current = state.read().clone().unwrap_or(draft.clone());
     let hint = cross_hint(&s, &current);
     let dragging = use_signal(|| false);
@@ -1047,8 +1065,8 @@ pub fn InlineReply(draft: Draft) -> Element {
                     onclick: move |_| pop_out(s, slot),
                     Icon { name: "popout" }
                 }
-                button { class: "icon-btn icon-btn--sm", "aria-label": "Discard draft",
-                    onclick: move |_| discard(slot),
+                button { class: "icon-btn icon-btn--sm", "aria-label": "Close reply", title: "Close reply",
+                    onclick: move |_| close_asking(slot),
                     Icon { name: "x" }
                 }
             }
