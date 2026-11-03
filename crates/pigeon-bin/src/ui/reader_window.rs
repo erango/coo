@@ -292,6 +292,7 @@ fn ReaderWindow(props: ReaderWindowProps) -> Element {
         notice: Signal::new(None),
         windowed: true,
     });
+    super::compose::use_close_when_done(slot);
     let first = props.item.clone();
     let key = AppState::key(&first);
     let want = use_context_provider(|| Signal::new(Want::of(&first)));

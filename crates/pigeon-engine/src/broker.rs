@@ -18,6 +18,8 @@ pub enum Notice {
     Refused,
     /// An agent needed this account, and its sign-in has expired.
     SignInRequired(String),
+    /// A helper's request was taken (a restarted helper got through).
+    Served,
 }
 
 pub type Notify = Arc<dyn Fn(Notice) + Send + Sync>;
@@ -49,6 +51,9 @@ impl AppBroker {
             _ => None,
         };
         let resp = self.answer_inner(req).await;
+        if let Some(notify) = &self.notify {
+            notify(Notice::Served);
+        }
         if resp.failure == Some(Failure::SignInRequired)
             && let (Some(notify), Some(account)) = (&self.notify, account)
         {
@@ -237,11 +242,15 @@ mod tests {
         let seen: Arc<std::sync::Mutex<Vec<Notice>>> = Default::default();
         let sink = seen.clone();
         let broker = AppBroker { app: app.clone(), notify: Some(Arc::new(move |n| sink.lock().unwrap().push(n))) };
-        // No password stored: the agent is told to sign in again, and so is the app.
+        // No password stored: the agent is told to sign in again, and so is
+        // the app (the request still got through: Served).
         let r = broker.answer(Request::Secret { account: icloud.id.clone() }).await;
         assert_eq!(r.failure, Some(Failure::SignInRequired));
         broker.refused();
-        assert_eq!(*seen.lock().unwrap(), vec![Notice::SignInRequired(icloud.id.clone()), Notice::Refused]);
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![Notice::Served, Notice::SignInRequired(icloud.id.clone()), Notice::Refused]
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 

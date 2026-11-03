@@ -439,6 +439,14 @@ fn drafts_roundtrip_and_follow_account_deletion() {
     assert_eq!(s.drafts().unwrap(), vec![d.clone()]);
     s.delete_draft(&d.id).unwrap();
     assert!(s.drafts().unwrap().is_empty());
+
+    // Sent or discarded (maybe by an agent): an editor still holding it
+    // can't bring it back.
+    assert!(s.draft_done(&d.id).unwrap());
+    assert!(!s.save_draft(&d).unwrap());
+    assert!(s.drafts().unwrap().is_empty());
+    assert_eq!(s.drafts_done_since(0).unwrap(), vec![d.id.clone()]);
+    assert!(s.drafts_done_since(now_ms() + 1000).unwrap().is_empty());
 }
 
 #[test]
@@ -936,4 +944,20 @@ fn folder_message_ids_lists_a_folder() {
     let (s, g) = gmail_with_labels();
     assert_eq!(s.folder_message_ids(&g.id, "INBOX").unwrap(), ["a"]);
     assert!(s.folder_message_ids(&g.id, "TRASH").unwrap().is_empty());
+}
+
+#[test]
+fn data_version_changes_only_for_another_connections_writes() {
+    let dir = std::env::temp_dir().join(format!("pigeon-store-{}", crate::auth::random_token(6)));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("db.sqlite");
+    let app = Store::open(&path).unwrap();
+    let agent = Store::open(&path).unwrap();
+    let before = app.data_version().unwrap();
+    app.upsert_account(&account(ProviderKind::Google, "me@gmail.com")).unwrap();
+    assert_eq!(app.data_version().unwrap(), before, "own writes don't count");
+    agent.upsert_account(&account(ProviderKind::Microsoft, "me@work.com")).unwrap();
+    assert_ne!(app.data_version().unwrap(), before, "the helper's write is seen");
+    drop((app, agent));
+    let _ = std::fs::remove_dir_all(&dir);
 }

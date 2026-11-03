@@ -3,7 +3,7 @@
 //! the UI thread never touches SQL or the network.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::time::Duration;
 
 use base64::Engine as _;
@@ -27,6 +27,11 @@ const LIST_MAX: u32 = 20_000;
 const NEXT_UP_HOURS: i64 = 12;
 const SEARCH_LIMIT: u32 = 200;
 const SYNC_PROGRESS_EVERY: Duration = Duration::from_millis(1500);
+/// How often the store is checked for another process's writes (an AI
+/// agent using the `coo` helper), and how long after one the servers are
+/// asked for what it sent or changed.
+const STORE_WATCH_EVERY: Duration = Duration::from_secs(1);
+const AFTER_AGENT_SYNC: Duration = Duration::from_secs(2);
 
 /// A password that never shows up in `Debug` output (commands get logged).
 #[derive(Clone)]
@@ -513,6 +518,12 @@ pub enum Delta {
         items: Vec<ListItem>,
     },
     Reader(ReaderView),
+    /// The open conversation changed underneath (a reply landed, an agent
+    /// acted on it): apply only if that conversation is still the one shown.
+    ReaderRefresh(ReaderView),
+    /// Drafts sent or discarded elsewhere (an agent): editors still open
+    /// on them close without saving.
+    DraftsDone(Vec<String>),
     /// Body with inline images resolved to data URLs.
     Body {
         account_id: String,
@@ -718,6 +729,17 @@ struct Service {
     /// started before then may still fail on the old sign-in, and mustn't
     /// put the account back on the "sign in again" list.
     signed_in_at: std::sync::Mutex<std::collections::HashMap<String, i64>>,
+    /// The conversation last opened, as last sent to the UI.
+    reading: std::sync::Mutex<Option<ReaderView>>,
+    /// The store's `data_version` last seen, and whether a check is running
+    /// (see `watch_store`).
+    store_version: AtomicI64,
+    store_checked_at: AtomicI64,
+    watching: AtomicBool,
+    /// A sync after an agent's change is waiting (one at a time).
+    agent_sync: AtomicBool,
+    /// This service, for work `&self` methods hand off to a task.
+    me: std::sync::OnceLock<std::sync::Weak<Service>>,
 }
 
 /// How many newest inbox rows per account are checked for new mail.
@@ -818,6 +840,7 @@ impl Service {
     async fn publish_inner(&self) -> Result<()> {
         let started = std::time::Instant::now();
         let r = self.publish_snapshot().await;
+        self.refresh_reader();
         tracing::debug!(ms = started.elapsed().as_secs_f64() * 1000.0, "publish");
         r
     }
@@ -1443,8 +1466,12 @@ impl Service {
                 self.send(Delta::Draft(draft));
             }
             Cmd::SaveDraft(mut draft) => {
-                self.app.save_draft(&mut draft)?;
-                self.schedule_draft_sync(draft.id);
+                if self.app.save_draft(&mut draft)? {
+                    self.schedule_draft_sync(draft.id);
+                } else {
+                    // Sent or discarded elsewhere (an agent): close its editor.
+                    self.send(Delta::DraftsDone(vec![draft.id]));
+                }
             }
             Cmd::DiscardDraft { draft_id } => {
                 self.draft_gen.lock().unwrap_or_else(|p| p.into_inner()).remove(&draft_id);
@@ -1844,12 +1871,78 @@ impl Service {
             }
             draft.scheduled_at = None;
             draft.undo_window = false;
-            if self.app.save_draft(&mut draft).is_ok() {
+            if matches!(self.app.save_draft(&mut draft), Ok(true)) {
                 self.clone().send_now(draft.clone()).await;
             }
             self.in_flight.lock().await.remove(&draft.id);
             self.publish().await;
         }
+    }
+
+    /// Re-read the open conversation; when it changed (a reply arrived, an
+    /// agent sent or acted), show it again and load the new bodies.
+    fn refresh_reader(&self) {
+        let Some(was) = self.reading.lock().unwrap_or_else(|p| p.into_inner()).clone() else { return };
+        let messages = {
+            let store = self.app.store();
+            if was.single {
+                store.message(&was.account_id, &was.focus).ok().flatten().into_iter().collect()
+            } else {
+                store.thread_messages(&was.account_id, &was.thread_id).unwrap_or_default()
+            }
+        };
+        if messages.is_empty() || messages == was.messages {
+            return;
+        }
+        let fresh: Vec<String> =
+            messages.iter().filter(|m| !was.messages.iter().any(|o| o.id == m.id)).map(|m| m.id.clone()).collect();
+        let view = ReaderView { messages, ..was };
+        {
+            let mut reading = self.reading.lock().unwrap_or_else(|p| p.into_inner());
+            // Another conversation opened meanwhile.
+            if reading.as_ref().is_none_or(|r| r.account_id != view.account_id || r.thread_id != view.thread_id) {
+                return;
+            }
+            *reading = Some(view.clone());
+        }
+        let account_id = view.account_id.clone();
+        self.send(Delta::ReaderRefresh(view));
+        if !fresh.is_empty()
+            && let Some(svc) = self.me.get().and_then(std::sync::Weak::upgrade)
+            && let Ok(account) = self.app.account(&account_id)
+        {
+            tokio::spawn(svc.open_bodies(account, fresh.into_iter().rev().collect()));
+        }
+    }
+
+    /// Another process (an agent's `coo` helper) wrote to the store: show
+    /// it now, then fetch from the servers what it sent or changed there
+    /// (a sent reply only reaches the store with a sync).
+    async fn watch_store(self: Arc<Self>) {
+        if self.watching.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let checked = now_ms();
+        let version = self.app.store().data_version().unwrap_or(0);
+        let changed = self.store_version.swap(version, Ordering::Relaxed) != version;
+        if changed {
+            let since = self.store_checked_at.swap(checked, Ordering::Relaxed);
+            if let Ok(done) = self.app.store().drafts_done_since(since - 1000)
+                && !done.is_empty()
+            {
+                self.send(Delta::DraftsDone(done));
+            }
+            self.publish().await;
+            if !self.agent_sync.swap(true, Ordering::SeqCst) {
+                let svc = self.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(AFTER_AGENT_SYNC).await;
+                    svc.agent_sync.store(false, Ordering::SeqCst);
+                    svc.sync().await;
+                });
+            }
+        }
+        self.watching.store(false, Ordering::SeqCst);
     }
 
     async fn open(
@@ -1862,7 +1955,9 @@ impl Service {
     ) -> Result<()> {
         let unread: Vec<String> = messages.iter().filter(|m| !m.is_read).map(|m| m.id.clone()).collect();
         let ids: Vec<String> = messages.iter().map(|m| m.id.clone()).collect();
-        self.send(Delta::Reader(ReaderView { account_id: account.id.clone(), thread_id, messages, focus, single }));
+        let view = ReaderView { account_id: account.id.clone(), thread_id, messages, focus, single };
+        *self.reading.lock().unwrap_or_else(|p| p.into_inner()) = Some(view.clone());
+        self.send(Delta::Reader(view));
         let opening = self.opened.fetch_add(1, Ordering::Relaxed) + 1;
         if !unread.is_empty() {
             let delay = self.read_delay_ms.load(Ordering::Relaxed);
@@ -1994,9 +2089,18 @@ impl Service {
 fn agent_notices(svc: std::sync::Weak<Service>) -> crate::broker::Notify {
     use crate::broker::Notice;
     const QUIET_MS: i64 = 5 * 60 * 1000;
+    // A refused helper usually restarts itself from the updated Coo and
+    // gets through; the steps show only when nothing does by then.
+    const RECOVER_MS: u64 = 6000;
     let last: Arc<std::sync::Mutex<std::collections::HashMap<Notice, i64>>> = Default::default();
+    let served = Arc::new(AtomicI64::new(0));
     Arc::new(move |notice: Notice| {
         let Some(svc) = svc.upgrade() else { return };
+        if notice == Notice::Served {
+            served.store(now_ms(), Ordering::Relaxed);
+            return;
+        }
+        let served = served.clone();
         {
             let mut last = last.lock().unwrap();
             let now = now_ms();
@@ -2011,7 +2115,14 @@ fn agent_notices(svc: std::sync::Weak<Service>) -> crate::broker::Notify {
                 svc.send(Delta::Toast(Toast { id, message, error: true, banner: true, ..Default::default() }));
             };
             match notice {
-                Notice::Refused => svc.send(Delta::AgentReconnect),
+                Notice::Refused => {
+                    let refused_at = now_ms();
+                    tokio::time::sleep(Duration::from_millis(RECOVER_MS)).await;
+                    if served.load(Ordering::Relaxed) <= refused_at {
+                        svc.send(Delta::AgentReconnect);
+                    }
+                }
+                Notice::Served => {}
                 Notice::SignInRequired(account) => {
                     let email = account.split_once(':').map_or(account.as_str(), |(_, e)| e).to_string();
                     svc.set_sync(|s| {
@@ -2051,7 +2162,15 @@ pub async fn run(app: Arc<Pigeon>, mut rx: mpsc::UnboundedReceiver<Cmd>, tx: mps
         opened: AtomicU64::new(0),
         labels_filled: Default::default(),
         signed_in_at: Default::default(),
+        reading: Default::default(),
+        store_version: AtomicI64::new(0),
+        store_checked_at: AtomicI64::new(now_ms()),
+        watching: AtomicBool::new(false),
+        agent_sync: AtomicBool::new(false),
+        me: Default::default(),
     });
+    let _ = svc.me.set(Arc::downgrade(&svc));
+    svc.store_version.store(svc.app.store().data_version().unwrap_or(0), Ordering::Relaxed);
     // Share sign-ins with the `coo` helper (AI agents) while the app runs,
     // and say so here when an agent hits something only the person can fix.
     crate::broker::start(svc.app.clone(), Some(agent_notices(Arc::downgrade(&svc))));
@@ -2062,6 +2181,8 @@ pub async fn run(app: Arc<Pigeon>, mut rx: mpsc::UnboundedReceiver<Cmd>, tx: mps
     // Scheduled sends (send later, undo window); also catches ones that came
     // due while the app was closed.
     let mut due = tokio::time::interval(Duration::from_secs(1));
+    // Changes an agent's `coo` helper writes to the store.
+    let mut watch = tokio::time::interval(STORE_WATCH_EVERY);
     loop {
         tokio::select! {
             cmd = rx.recv() => match cmd {
@@ -2079,6 +2200,7 @@ pub async fn run(app: Arc<Pigeon>, mut rx: mpsc::UnboundedReceiver<Cmd>, tx: mps
                 });
             }
             _ = due.tick() => { tokio::spawn(svc.clone().send_due()); }
+            _ = watch.tick() => { tokio::spawn(svc.clone().watch_store()); }
         }
     }
 }

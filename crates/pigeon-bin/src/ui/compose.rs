@@ -963,6 +963,24 @@ fn fields(d: &Draft) -> String {
     serde_json::to_string(&(&d.from, &d.to, &d.cc, &d.bcc, &d.subject, &d.attachments)).unwrap_or_default()
 }
 
+/// The draft is done with elsewhere (an agent sent it): nothing to save.
+pub fn forget(draft_id: &str) {
+    OPENED.with(|o| o.borrow_mut().remove(draft_id));
+}
+
+/// Close this slot's draft once it's sent or discarded elsewhere (an agent
+/// sent it while it was open here), without saving it back.
+pub fn use_close_when_done(slot: ComposeSlot) {
+    let s = use_context::<AppState>();
+    let mut draft = slot.draft;
+    use_effect(move || {
+        let done = s.drafts_done.read();
+        if draft.peek().as_ref().is_some_and(|d| done.contains(&d.id)) {
+            draft.set(None);
+        }
+    });
+}
+
 fn remember_opened(d: &Draft) {
     OPENED.with(|o| {
         o.borrow_mut().entry(d.id.clone()).or_insert_with(|| (fields(d), false));

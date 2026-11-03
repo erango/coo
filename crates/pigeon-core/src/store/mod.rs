@@ -34,6 +34,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("012_send_addresses.sql"),
     include_str!("013_main_address.sql"),
     include_str!("014_contact_photos.sql"),
+    include_str!("015_draft_tombstones.sql"),
 ];
 
 /// Which folder a list query reads.
@@ -509,7 +510,13 @@ impl Store {
 
     // ---- drafts ----
 
-    pub fn save_draft(&self, draft: &crate::compose::Draft) -> Result<()> {
+    /// Save `draft`, unless it was already sent or discarded (here or by an
+    /// agent): an editor still open on it then saves nothing. Returns
+    /// whether it was saved.
+    pub fn save_draft(&self, draft: &crate::compose::Draft) -> Result<bool> {
+        if self.draft_done(&draft.id)? {
+            return Ok(false);
+        }
         self.conn.execute(
             "INSERT OR REPLACE INTO drafts (id, account_id, json, updated_at, server_account, server_id)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -522,7 +529,24 @@ impl Store {
                 draft.server.as_ref().map(|s| s.id.as_str())
             ],
         )?;
-        Ok(())
+        Ok(true)
+    }
+
+    /// Whether the draft was sent or discarded.
+    pub fn draft_done(&self, id: &str) -> Result<bool> {
+        Ok(self
+            .conn
+            .prepare_cached("SELECT 1 FROM draft_tombstones WHERE id = ?1")?
+            .query_row([id], |_| Ok(()))
+            .optional()?
+            .is_some())
+    }
+
+    /// Drafts sent or discarded at or after `since` (epoch ms).
+    pub fn drafts_done_since(&self, since: i64) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare_cached("SELECT id FROM draft_tombstones WHERE at >= ?1")?;
+        let ids = stmt.query_map([since], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+        Ok(ids)
     }
 
     pub fn draft(&self, id: &str) -> Result<Option<crate::compose::Draft>> {
@@ -544,8 +568,14 @@ impl Store {
         Ok(out)
     }
 
+    /// The draft is done with (sent or discarded): gone, and never saved
+    /// again under its id.
     pub fn delete_draft(&self, id: &str) -> Result<()> {
+        const KEEP_MS: i64 = 30 * 24 * 3_600_000;
+        let now = crate::now_ms();
         self.conn.execute("DELETE FROM drafts WHERE id = ?1", [id])?;
+        self.conn.execute("INSERT OR REPLACE INTO draft_tombstones (id, at) VALUES (?1, ?2)", params![id, now])?;
+        self.conn.execute("DELETE FROM draft_tombstones WHERE at < ?1", [now - KEEP_MS])?;
         Ok(())
     }
 
@@ -564,6 +594,12 @@ impl Store {
     }
 
     // ---- sync cursors ----
+
+    /// SQLite's `data_version`: changes whenever another connection (the
+    /// `coo` helper an agent runs) commits to this database.
+    pub fn data_version(&self) -> Result<i64> {
+        Ok(self.conn.query_row("PRAGMA data_version", [], |r| r.get(0))?)
+    }
 
     /// Whether any mail scope of the account has synced at least one page
     /// (false = cold first sync, the list should show skeletons).

@@ -481,7 +481,9 @@ static STARTED_AS: std::sync::OnceLock<Option<(std::time::SystemTime, u64)>> = s
 /// (old) process is refused. True when that's the case and the request
 /// was handed off to restart from the new binary.
 fn restart_if_updated(e: &pigeon_core::Error, msg: &Value) -> bool {
-    let denied = matches!(e, pigeon_core::Error::TokenStore(m) if m.contains("only Coo's own programs"));
+    // Any refusal counts, not its wording: the app's message changes across
+    // versions, and matching an older text left agents stuck after updates.
+    let denied = matches!(e, pigeon_core::Error::TokenStore(_));
     let updated = STARTED_AS.get().is_some_and(|was| was.is_some() && *was != exe_stamp());
     denied && updated && RESTART.get().is_some_and(|tx| tx.send(msg.clone()).is_ok())
 }

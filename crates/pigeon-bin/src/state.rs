@@ -321,6 +321,9 @@ pub struct AppState {
     pub agent_setup_open: Signal<bool>,
     /// "Reconnect your AI agent" (an agent's helper was turned away).
     pub agent_reconnect: Signal<bool>,
+    /// Drafts sent or discarded elsewhere (an agent) this session: an
+    /// editor open on one closes without saving.
+    pub drafts_done: Signal<Vec<String>>,
     /// The welcome tour is open (ui/tour.rs).
     pub tour_open: Signal<bool>,
     /// The welcome-in fly-over after a finished tour is playing.
@@ -446,6 +449,7 @@ impl AppState {
             microsoft_photos: Signal::new(Vec::new()),
             agent_setup_open: Signal::new(false),
             agent_reconnect: Signal::new(false),
+            drafts_done: Signal::new(Vec::new()),
             tour_open: Signal::new(false),
             welcome_in: Signal::new(false),
             bug_report_open: Signal::new(false),
@@ -833,6 +837,23 @@ fn apply(s: &mut AppState, delta: Delta) {
                 }
             }
             Delta::Reader(r) => s.reader.set(Some(r)),
+            Delta::DraftsDone(ids) => {
+                if s.draft.peek().as_ref().is_some_and(|d| ids.contains(&d.id)) {
+                    s.draft.set(None);
+                }
+                for id in &ids {
+                    crate::ui::compose::forget(id);
+                }
+                s.drafts_done.write().extend(ids);
+            }
+            Delta::ReaderRefresh(r) => {
+                let shown = s.reader.peek().as_ref().is_some_and(|v| {
+                    v.account_id == r.account_id && v.thread_id == r.thread_id && v.single == r.single
+                });
+                if shown {
+                    s.reader.set(Some(r));
+                }
+            }
             Delta::Body { account_id, message_id, body, invite } => {
                 let key = (account_id, message_id);
                 match invite {

@@ -112,6 +112,7 @@ fn ComposeWindow(props: ComposeWindowProps) -> Element {
         notice: Signal::new(None),
         windowed: true,
     });
+    super::compose::use_close_when_done(slot);
 
     use_hook(move || {
         let window = dioxus::desktop::window();

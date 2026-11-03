@@ -498,7 +498,8 @@ impl Pigeon {
 
     /// Save locally. The UI's copy may predate the last server sync, so a
     /// missing server reference is taken from what's stored.
-    pub fn save_draft(&self, draft: &mut Draft) -> Result<()> {
+    /// False when the draft was already sent or discarded (nothing saved).
+    pub fn save_draft(&self, draft: &mut Draft) -> Result<bool> {
         draft.updated_at = pigeon_core::now_ms();
         let store = self.store();
         if draft.server.is_none()
