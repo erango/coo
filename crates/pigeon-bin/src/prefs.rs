@@ -60,6 +60,13 @@ pub struct Prefs {
     /// After archiving, deleting or moving the open message: "next" opens
     /// the next one in the list, "close" just closes it.
     pub after_remove: String,
+    /// Archive a conversation once you reply to it / forward it (its Inbox
+    /// messages). Off by default; offered after the first one.
+    pub archive_after_reply: bool,
+    pub archive_after_forward: bool,
+    /// Whether that offer was made (it comes once each).
+    pub asked_archive_after_reply: bool,
+    pub asked_archive_after_forward: bool,
     /// Where a message's attachments show: "top" (under its header, before
     /// the text) or "bottom" (after the text).
     pub attachments_position: String,
@@ -190,6 +197,10 @@ impl Default for Prefs {
             default_calendar: String::new(),
             undo_send_seconds: 10,
             after_remove: "next".into(),
+            archive_after_reply: false,
+            archive_after_forward: false,
+            asked_archive_after_reply: false,
+            asked_archive_after_forward: false,
             attachments_position: "top".into(),
             shortcut_style: "gmail".into(),
             custom_shortcuts: Default::default(),

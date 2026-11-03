@@ -1,6 +1,7 @@
 pub mod account_menu;
 pub mod add_account;
 mod agent_setup;
+pub mod archive_offer;
 mod attachments;
 mod avatar;
 pub mod bird;
@@ -169,6 +170,15 @@ pub fn App() -> Element {
                 "agent-reconnect" => {
                     let mut o = s.agent_reconnect;
                     o.set(true);
+                }
+                "archive-offer" => {
+                    let mut o = s.archive_offer;
+                    o.set(Some(archive_offer::ArchiveOffer {
+                        forward: arg == "forward",
+                        first: true,
+                        account_id: String::new(),
+                        thread_id: String::new(),
+                    }));
                 }
                 "palette" => {
                     let mut p = s.palette_open;
@@ -706,6 +716,7 @@ pub fn App() -> Element {
         {body}
         if *s.agent_setup_open.read() { agent_setup::AgentSetup {} }
         if *s.agent_reconnect.read() && !*s.agent_setup_open.read() { agent_setup::AgentReconnect {} }
+        if s.archive_offer.read().is_some() { archive_offer::ArchiveOfferDialog {} }
         if *s.tour_open.read() { tour::Tour {} }
         if *s.welcome_in.read() { tour::WelcomeIn {} }
         if *s.update_dialog.read() { update_dialog::UpdateDialog {} }
@@ -1313,6 +1324,26 @@ pub fn delete_in_trash(s: &AppState, account_ids: &[&str]) -> bool {
         })
 }
 
+/// The open `item` is leaving the list: open the next one (or the one
+/// before), or close the reader (Settings › Reading › After removing).
+pub fn step_off(s: AppState, item: &ListItem) {
+    let list = s.visible_items();
+    let pos = list.iter().position(|i| AppState::key(i) == AppState::key(item));
+    let go_next = crate::prefs::get().after_remove != "close";
+    let next = pos
+        .filter(|_| go_next)
+        .and_then(|p| list.get(p + 1).or_else(|| p.checked_sub(1).and_then(|q| list.get(q))))
+        .cloned();
+    match next {
+        Some(n) => select(s, &n),
+        None => {
+            let (mut sel, mut reader) = (s.selected, s.reader);
+            sel.set(None);
+            reader.set(None);
+        }
+    }
+}
+
 pub fn act(s: AppState, item: &ListItem, action: MailAction) {
     if action == MailAction::Archive {
         milestone::archived(std::slice::from_ref(item));
@@ -1320,21 +1351,7 @@ pub fn act(s: AppState, item: &ListItem, action: MailAction) {
     let header = item.header();
     let in_trash = action == MailAction::Trash && delete_in_trash(&s, &[item.account_id()]);
     if action.leaves() && s.selected.read().as_deref() == Some(AppState::key(item).as_str()) {
-        let list = s.visible_items();
-        let pos = list.iter().position(|i| AppState::key(i) == AppState::key(item));
-        let go_next = crate::prefs::get().after_remove != "close";
-        let next = pos
-            .filter(|_| go_next)
-            .and_then(|p| list.get(p + 1).or_else(|| p.checked_sub(1).and_then(|q| list.get(q))))
-            .cloned();
-        match next {
-            Some(n) => select(s, &n),
-            None => {
-                let (mut sel, mut reader) = (s.selected, s.reader);
-                sel.set(None);
-                reader.set(None);
-            }
-        }
+        step_off(s, item);
     }
     let subject = if header.subject.is_empty() { "(no subject)".to_string() } else { header.subject.clone() };
     let label = match &action {
@@ -1523,6 +1540,10 @@ pub fn run(s: AppState, what: Do) {
             if *s.agent_reconnect.read() {
                 let mut o = s.agent_reconnect;
                 return o.set(false);
+            }
+            if s.archive_offer.read().is_some() {
+                let mut o = s.archive_offer;
+                return o.set(None);
             }
             if *s.update_dialog.read() {
                 let mut o = s.update_dialog;

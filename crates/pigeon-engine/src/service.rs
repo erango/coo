@@ -172,6 +172,13 @@ pub enum Cmd {
         action: MailAction,
         label: String,
     },
+    /// Archive a conversation's Inbox messages (after replying to or
+    /// forwarding it, per Settings › Composing), with Undo.
+    ArchiveThread {
+        account_id: String,
+        thread_id: String,
+        label: String,
+    },
     /// `Act` on several list items at once (a multi-selection), possibly
     /// across accounts; one toast, one undo for all of them.
     ActMany {
@@ -1155,6 +1162,33 @@ impl Service {
                 }
                 self.publish().await;
                 self.clone().flush_after_grace(&action, account.clone());
+                self.flush(account).await;
+            }
+            Cmd::ArchiveThread { account_id, thread_id, label } => {
+                let account = self.app.account(&account_id)?;
+                let (ids, inbox) = {
+                    let store = self.app.store();
+                    let Some(inbox) = store.role_folder(&account_id, FolderRole::Inbox)? else { return Ok(()) };
+                    let ids: Vec<String> = store
+                        .thread_messages(&account_id, &thread_id)?
+                        .into_iter()
+                        .filter(|m| {
+                            store
+                                .message(&account_id, &m.id)
+                                .ok()
+                                .flatten()
+                                .is_some_and(|h| h.folder_ids.contains(&inbox))
+                        })
+                        .map(|m| m.id)
+                        .collect();
+                    if ids.is_empty() {
+                        return Ok(());
+                    }
+                    (ids, inbox)
+                };
+                let handle = self.app.act(&account, &ids, Some(&inbox), &MailAction::Archive)?;
+                self.action_toast(label, Some((account_id, handle)), &MailAction::Archive);
+                self.publish().await;
                 self.flush(account).await;
             }
             Cmd::ActMany { items, action, label } => {

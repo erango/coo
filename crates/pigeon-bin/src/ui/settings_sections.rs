@@ -224,6 +224,9 @@ pub fn Reading() -> Element {
 const COMPOSE_MODES: [(&str, &str); 2] = [("window", "In a separate window"), ("docked", "Docked in the reading pane")];
 /// When drafts are saved (prefs `draft_saving`).
 const DRAFT_SAVING: [(&str, &str); 2] = [("ask", "Ask when closing"), ("auto", "Save as I write")];
+/// What happens to a conversation after you reply or forward (prefs
+/// `archive_after_reply` / `archive_after_forward`).
+const AFTER_SENDING: [(bool, &str); 2] = [(false, "Keep in Inbox"), (true, "Archive")];
 /// Where replies open (prefs `reply_mode`).
 const REPLY_MODES: [(&str, &str); 2] = [("inline", "Inline in the conversation"), ("window", "In a separate window")];
 
@@ -238,6 +241,9 @@ pub fn Writing() -> Element {
     let current_rmode = rmode.read().clone();
     let current = *undo.read();
     let current_mode = mode.read().clone();
+    let mut after_reply = use_signal(|| prefs::get().archive_after_reply);
+    let mut after_forward = use_signal(|| prefs::get().archive_after_forward);
+    let (cur_reply, cur_forward) = (*after_reply.read(), *after_forward.read());
 
     rsx! {
         div { class: "settings__title", "Writing" }
@@ -296,6 +302,38 @@ pub fn Writing() -> Element {
                             onclick: move |_| {
                                 prefs::update(|p| p.undo_send_seconds = secs);
                                 undo.set(secs);
+                            },
+                            "{label}"
+                        }
+                    }
+                }
+            }
+            Row { label: "After replying", hint: "Archive moves the conversation out of the Inbox once your reply is sent.",
+                div { class: "segmented", role: "radiogroup", "aria-label": "After replying",
+                    for (value, label) in AFTER_SENDING {
+                        button { role: "radio", "aria-checked": "{cur_reply == value}", "aria-selected": "{cur_reply == value}",
+                            onclick: move |_| {
+                                prefs::update(|p| {
+                                    p.archive_after_reply = value;
+                                    p.asked_archive_after_reply = true;
+                                });
+                                after_reply.set(value);
+                            },
+                            "{label}"
+                        }
+                    }
+                }
+            }
+            Row { label: "After forwarding",
+                div { class: "segmented", role: "radiogroup", "aria-label": "After forwarding",
+                    for (value, label) in AFTER_SENDING {
+                        button { role: "radio", "aria-checked": "{cur_forward == value}", "aria-selected": "{cur_forward == value}",
+                            onclick: move |_| {
+                                prefs::update(|p| {
+                                    p.archive_after_forward = value;
+                                    p.asked_archive_after_forward = true;
+                                });
+                                after_forward.set(value);
                             },
                             "{label}"
                         }

@@ -324,6 +324,8 @@ pub struct AppState {
     /// Drafts sent or discarded elsewhere (an agent) this session: an
     /// editor open on one closes without saving.
     pub drafts_done: Signal<Vec<String>>,
+    /// The one-time "archive after replying/forwarding?" offer on screen.
+    pub archive_offer: Signal<Option<crate::ui::archive_offer::ArchiveOffer>>,
     /// The welcome tour is open (ui/tour.rs).
     pub tour_open: Signal<bool>,
     /// The welcome-in fly-over after a finished tour is playing.
@@ -450,6 +452,7 @@ impl AppState {
             agent_setup_open: Signal::new(false),
             agent_reconnect: Signal::new(false),
             drafts_done: Signal::new(Vec::new()),
+            archive_offer: Signal::new(None),
             tour_open: Signal::new(false),
             welcome_in: Signal::new(false),
             bug_report_open: Signal::new(false),
@@ -973,8 +976,13 @@ fn apply(s: &mut AppState, delta: Delta) {
             }
             Delta::Sent { draft_id } => {
                 crate::ui::milestone::record(|m, now| m.sent(now));
+                let mut sent = None;
                 if let Some(o) = s.outgoing.write().iter_mut().find(|o| o.draft.id == draft_id) {
                     o.state = OutState::Sent(pigeon_core::now_ms());
+                    sent = Some(o.draft.clone());
+                }
+                if let Some(d) = sent.or_else(|| s.draft.peek().clone().filter(|d| d.id == draft_id)) {
+                    crate::ui::archive_offer::after_sent(s, &d);
                 }
                 s.sending.set(false);
                 if s.draft.peek().as_ref().is_some_and(|d| d.id == draft_id) {
