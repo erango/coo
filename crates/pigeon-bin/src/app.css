@@ -1419,7 +1419,8 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 /* A closed account's line: its unread count before the provider mark. */
 .nav-section__count { margin-left: auto; }
 .nav-section__count + .nav-section__meta { margin-left: 6px; }
-.nav-account .nav-section > span[dir="auto"] { flex: 1; min-width: 0; }
+/* A Hebrew or Arabic nickname still sits at the left, like the others. */
+.nav-account .nav-section > span[dir="auto"] { flex: 1; min-width: 0; text-align: left; }
 .nav-account .nav-section__count { margin-left: 0; }
 /* Closed accounts stack as a quiet list; an open one keeps its gap above. */
 .nav-account:has(> .nav-section:only-child) + .nav-account > .nav-section { margin-top: 4px; }
