@@ -299,7 +299,7 @@ fn AccountSection(
                 crate::prefs::update(move |p| p.accounts_open = saved);
             },
             if many { span { class: "pip", "{letter}" } } else { span { class: "dot" } }
-            span { dir: "auto", style: "overflow:hidden;text-overflow:ellipsis;white-space:nowrap", title: "{tip}", "{name}" }
+            span { dir: "auto", style: "text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap", title: "{tip}", "{name}" }
             if collapsed { super::bird::CountBadge { count: unread, class: "count nav-section__count" } }
             span { class: "nav-section__meta", title: "{meta}", dangerous_inner_html: provider_mark(nav.account.provider, meta) }
             if draggable { Icon { name: "grip", class: "icon--xs nav-section__grip" } }

@@ -450,6 +450,41 @@ fn drafts_roundtrip_and_follow_account_deletion() {
 }
 
 #[test]
+fn reply_drafts_are_found_by_conversation_server_copy_and_later_own_reply() {
+    let (mut s, ms, _) = setup();
+    let from = crate::compose::Sender { account_id: ms.id.clone(), address: Address::new(None, "me@work.com") };
+    let mut d = crate::compose::Draft::new(from, 5);
+    d.reply = Some(crate::compose::ReplyContext {
+        kind: crate::compose::ReplyKind::Reply,
+        account_id: ms.id.clone(),
+        message_id: "a1".into(),
+        thread_id: "t".into(),
+        internet_message_id: None,
+        references: vec![],
+    });
+    d.server = Some(crate::compose::ServerDraft { account_id: ms.id.clone(), id: "srv".into() });
+    s.save_draft(&d).unwrap();
+    let saved_at = s.draft(&d.id).unwrap().unwrap().updated_at;
+    s.apply_mail(&ms.id, "f", &[MailChange::Upsert(msg("a1", "t", saved_at - 1000, &["in-ms"]))], "1").unwrap();
+
+    assert_eq!(s.reply_draft(&ms.id, "t").unwrap().map(|r| r.id), Some(d.id.clone()));
+    assert!(s.reply_draft(&ms.id, "other").unwrap().is_none());
+    assert_eq!(s.drafts_for_server(d.server.as_ref().unwrap()).unwrap(), vec![d.id.clone()]);
+
+    let mine = vec!["me@work.com".to_string()];
+    assert!(s.answered_reply_drafts(&mine).unwrap().is_empty(), "nothing from me after it yet");
+    let mut theirs = msg("a2", "t", saved_at + 1000, &["in-ms"]);
+    theirs.from = Some(Address::new(None, "dana@acme.com"));
+    let mut sent = msg("a3", "t", saved_at + 2000, &["in-ms"]);
+    sent.from = Some(Address::new(None, "Me@Work.com"));
+    s.apply_mail(&ms.id, "f", &[MailChange::Upsert(theirs)], "2").unwrap();
+    assert!(s.answered_reply_drafts(&mine).unwrap().is_empty(), "their reply doesn't answer my draft");
+    s.apply_mail(&ms.id, "f", &[MailChange::Upsert(sent)], "3").unwrap();
+    assert_eq!(s.answered_reply_drafts(&mine).unwrap(), vec![d.id.clone()]);
+    assert!(s.answered_reply_drafts(&[]).unwrap().is_empty());
+}
+
+#[test]
 fn single_message_includes_folders() {
     let (mut s, _, g) = setup();
     s.apply_mail(&g.id, "mail", &[MailChange::Upsert(msg("b", "t", 1, &["INBOX", "STARRED"]))], "1").unwrap();

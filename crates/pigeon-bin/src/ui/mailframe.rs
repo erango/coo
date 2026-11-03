@@ -192,6 +192,8 @@ const QUOTE_CSS: &str = "\
 border-radius:13px;background:color-mix(in srgb,var(--q-fg) 7%,transparent);color:var(--q-muted);font-size:12px;\
 cursor:pointer;-webkit-user-select:none;user-select:none}\
 .coo-quoted>summary::-webkit-details-marker{display:none}\
+.coo-quoted>summary:focus{outline:none}\
+.coo-quoted>summary:focus-visible{box-shadow:inset 0 0 0 2px var(--q-accent)}\
 .coo-quoted>summary:hover{background:color-mix(in srgb,var(--q-fg) 11%,transparent);color:var(--q-fg)}\
 .coo-quoted__dots::before{content:'\\00B7\\00B7\\00B7';font-weight:700;letter-spacing:1px}\
 .coo-quoted__less{display:none}\

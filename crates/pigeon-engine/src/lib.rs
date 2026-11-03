@@ -763,8 +763,15 @@ impl Pigeon {
             Backend::ICloud(p) => p.mail.send_mime(&mime, thread).await?,
         }
         // Gone locally first, so an in-flight draft sync removes whatever it
-        // writes (it re-reads the store and finds nothing).
+        // writes (it re-reads the store and finds nothing). Copies of the
+        // same server draft go too: an agent's draft opened in the app is
+        // a second local draft that would otherwise linger as "Draft".
         self.store().delete_draft(&draft.id)?;
+        if let Some(sd) = &server {
+            for id in self.store().drafts_for_server(sd)? {
+                self.store().delete_draft(&id)?;
+            }
+        }
         if let Some(sd) = &server
             && let Ok(server_account) = self.account(&sd.account_id)
             && let Err(e) = self.delete_server_draft(&server_account, &sd.id).await

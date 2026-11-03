@@ -120,6 +120,8 @@ input.input--bare { border: 0; outline: none; }
    RTL text right-to-left internally but anchor it to the left edge, so a
    Hebrew name doesn't float away from the rest of the row. */
 .account-row__name { text-align: left; }
+/* Hebrew label and folder names line up with the others, on the left. */
+.nav-item__label, .move-picker__list [dir="auto"] { text-align: left; }
 
 /* "Connect an AI agent" dialog: the design's .dialog, wider, scrollable. */
 .agent-setup-scrim { position: fixed; inset: 0; z-index: 60; background: var(--scrim); display: flex; justify-content: center; align-items: flex-start; padding: 56px 16px; overflow-y: auto; }
@@ -1906,6 +1908,9 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
   -webkit-user-select: none; user-select: none;
 }
 .plain-body .coo-quoted > summary::-webkit-details-marker { display: none; }
+/* The ring sits inside the pill: at the frame's edge an outside ring is cut off. */
+.plain-body .coo-quoted > summary:focus { outline: none; }
+.plain-body .coo-quoted > summary:focus-visible { box-shadow: inset 0 0 0 2px var(--q-accent); }
 .plain-body .coo-quoted > summary:hover { background: color-mix(in srgb, var(--q-fg) 11%, transparent); color: var(--q-fg); }
 .plain-body .coo-quoted__dots::before { content: "\00B7\00B7\00B7"; font-weight: 700; letter-spacing: 1px; }
 .plain-body .coo-quoted__less { display: none; }

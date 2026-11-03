@@ -363,6 +363,11 @@ pub enum Cmd {
         account_id: String,
         message_id: String,
     },
+    /// Open the reply draft saved here for this conversation, if any.
+    ResumeReply {
+        account_id: String,
+        thread_id: String,
+    },
     Send(Draft),
     OpenAttachment {
         account_id: String,
@@ -872,6 +877,7 @@ impl Service {
 
     async fn publish_inner(&self) -> Result<()> {
         self.catch_watches().await;
+        self.drop_answered_drafts().await;
         let started = std::time::Instant::now();
         let r = self.publish_snapshot().await;
         self.refresh_reader();
@@ -1710,6 +1716,12 @@ impl Service {
                     }
                 }
             }
+            Cmd::ResumeReply { account_id, thread_id } => {
+                let draft = self.app.store().reply_draft(&account_id, &thread_id)?;
+                if let Some(d) = draft.filter(|d| d.scheduled_at.is_none()) {
+                    self.send(Delta::Draft(d));
+                }
+            }
             Cmd::Send(mut draft) => {
                 draft.scheduled_at = None;
                 draft.undo_window = false;
@@ -1985,6 +1997,27 @@ impl Service {
 
     /// Check mail stored since the last look against the watches: matches
     /// go to Needs you (and a notification, when the watch asks for one).
+    /// Reply drafts already answered another way (an agent sent its own
+    /// copy, or the reply went from the phone) are leftovers: drop them
+    /// here (the server copy, if any, stays in Drafts) and close their
+    /// editors, so the list's "Draft" label goes with them.
+    async fn drop_answered_drafts(&self) {
+        let mine: Vec<String> = self.my_addresses().await.into_iter().map(|a| a.to_lowercase()).collect();
+        let store = self.app.store();
+        let Ok(ids) = store.answered_reply_drafts(&mine) else { return };
+        if ids.is_empty() {
+            return;
+        }
+        for id in &ids {
+            if let Err(e) = store.delete_draft(id) {
+                tracing::warn!(error = %e, "could not drop an answered draft");
+            }
+        }
+        tracing::info!(count = ids.len(), "dropped answered reply drafts");
+        drop(store);
+        self.send(Delta::DraftsDone(ids));
+    }
+
     async fn catch_watches(&self) {
         let mark = self.watch_mark.load(Ordering::Relaxed);
         let (rows, watches) = {

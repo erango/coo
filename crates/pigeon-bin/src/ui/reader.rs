@@ -283,11 +283,18 @@ pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Elem
     // open the editor stands in for its read-only copy.
     let latest_draft = view.messages.last().filter(|m| m.is_draft).map(|m| m.id.clone());
     use_hook({
-        let (account_id, latest_draft) = (view.account_id.clone(), latest_draft.clone());
+        let (account_id, thread_id, latest_draft) =
+            (view.account_id.clone(), view.thread_id.clone(), latest_draft.clone());
         let mine = inline_draft.is_some();
         move || {
-            if let Some(message_id) = latest_draft.filter(|_| !windowed && !mine) {
-                send_cmd(Cmd::EditDraft { account_id, message_id });
+            if windowed || mine {
+                return;
+            }
+            match latest_draft {
+                Some(message_id) => send_cmd(Cmd::EditDraft { account_id, message_id }),
+                // A reply saved only here (not in the server's Drafts) shows
+                // as "Draft" in the list: open it too.
+                None => send_cmd(Cmd::ResumeReply { account_id, thread_id }),
             }
         }
     });

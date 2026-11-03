@@ -570,6 +570,54 @@ impl Store {
         Ok(out)
     }
 
+    /// Local drafts linked to this server draft: copies opened for editing
+    /// (an agent's draft, opened in the app) besides the one being sent.
+    pub fn drafts_for_server(&self, server: &crate::compose::ServerDraft) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT id FROM drafts
+             WHERE json_extract(json, '$.server.account_id') = ?1 AND json_extract(json, '$.server.id') = ?2",
+        )?;
+        let rows = stmt.query_map(params![server.account_id, server.id], |r| r.get(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// The newest reply draft for a conversation, if one is saved here.
+    pub fn reply_draft(&self, account_id: &str, thread_id: &str) -> Result<Option<crate::compose::Draft>> {
+        let json: Option<String> = self
+            .conn
+            .prepare_cached(
+                "SELECT json FROM drafts
+                 WHERE json_extract(json, '$.reply.account_id') = ?1 AND json_extract(json, '$.reply.thread_id') = ?2
+                 ORDER BY updated_at DESC LIMIT 1",
+            )?
+            .query_row(params![account_id, thread_id], |r| r.get(0))
+            .optional()?;
+        Ok(json.map(|j| serde_json::from_str(&j)).transpose()?)
+    }
+
+    /// Reply drafts already answered: a message from the user (`mine`,
+    /// lowercased addresses) landed in the conversation after the draft was
+    /// last saved and isn't scheduled. Leftovers of a reply sent another way
+    /// (an agent sent its own copy, or the reply went from the phone).
+    pub fn answered_reply_drafts(&self, mine: &[String]) -> Result<Vec<String>> {
+        if mine.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mine = serde_json::to_string(mine)?;
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT d.id FROM drafts d
+             WHERE json_extract(d.json, '$.reply') IS NOT NULL
+               AND json_extract(d.json, '$.scheduled_at') IS NULL
+               AND EXISTS (SELECT 1 FROM messages m
+                   WHERE m.account_id = json_extract(d.json, '$.reply.account_id')
+                     AND m.thread_id = json_extract(d.json, '$.reply.thread_id')
+                     AND m.is_draft = 0 AND m.received_at > d.updated_at
+                     AND lower(m.from_addr) IN (SELECT value FROM json_each(?1)))",
+        )?;
+        let rows = stmt.query_map([mine], |r| r.get(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     /// The draft is done with (sent or discarded): gone, and never saved
     /// again under its id.
     pub fn delete_draft(&self, id: &str) -> Result<()> {
