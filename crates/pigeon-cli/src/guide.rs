@@ -17,6 +17,13 @@ const COMMANDS: &[(&str, &str, &str)] = &[
     ("agenda", "coo --json agenda --from today --to +7d", "events in a range (-a <account>)"),
     ("freebusy", "coo --json freebusy <account> a@x.com,b@y.com --from +1d --to +2d", "busy intervals"),
     ("sync", "coo --json sync", "pull new mail and events (all accounts, or one)"),
+    (
+        "watch",
+        "coo --json watch --from @acme.com --subject invoice",
+        "wait for new mail; one JSON line per match (--thread --account --once --include-mine)",
+    ),
+    ("watches", "coo --json watches", "the running watches"),
+    ("unwatch", "coo --json unwatch <watch_id>", "stop a watch (--all: every one)"),
     ("senders", "coo --json senders", "every address the user can send from"),
     (
         "reply",
@@ -58,6 +65,8 @@ JSON shapes (fields; times RFC 3339 local):
   event:    account calendar_id id title start end all_day location organizer attendees[{email,name,response,optional}] my_response online_url cancelled
   act/undo: undo_handle sent deferred rejected[] needs_sign_in
   draft:    draft_id from from_account to[] cc[] subject crosses_accounts message_id(null until sent) in_server_drafts note
+  watch lines: {event:\"watching\", id, filters, stop} first, then {event:\"mail\", watch, ...message}; \
+{event:\"coo_not_running\"|\"coo_running\"} when the app (which syncs) stops or comes back
   error (stdout, non-zero exit): {\"error\": {\"kind\", \"message\"}}";
 
 pub fn agent_help() -> String {
@@ -72,6 +81,11 @@ pub fn agent_help() -> String {
          COMMANDS\n{cmds}\n{SHAPES}\n\n{OPERATORS}\n\n{TIMES}\n\n\
          WRITES\n{WRITE_ETIQUETTE}\nCLI: from a non-interactive caller, writes need --yes; send/reply take --dry-run \
          (save a draft to the account's Drafts folder, don't send; needs no --yes).\n\n{EXIT_CODES}\n{ERRORS}\n\n\
+         MONITORING\nTo be told about new mail (a reply on a thread, mail from someone, a subject), run \
+         `coo --json watch ...` as a background task (Claude Code: Bash with run_in_background, or Monitor) and act \
+         on each line it prints. Repeat a flag to match any of its values; different flags must all match. It reports \
+         only mail that arrives after it starts, never your own unless --include-mine. Stop it with `coo unwatch <id>` \
+         (the id is on its first line; `coo watches` lists them), or stop the background task.\n\n\
          MCP\n`coo mcp` serves the same operations as tools on stdio (read-only; add --allow-write for writes). \
          `coo mcp-config --client claude-code|claude-code-desktop|claude-desktop` prints a ready config with the \
          absolute path and env.\n"

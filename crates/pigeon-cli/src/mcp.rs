@@ -61,6 +61,20 @@ fn tools() -> Vec<Tool> {
             write: false,
         },
         Tool {
+            name: "list_watches",
+            description: "The running mail watches (started with the `coo watch` command for background \
+                monitoring): id, filters, since when. Use it to find a watch to stop.",
+            schema: s(json!({}), &[]),
+            write: false,
+        },
+        Tool {
+            name: "stop_watch",
+            description: "Stop a running mail watch by its id (from list_watches or the watch's first line), or \
+                every watch with all=true. Stopping only ends the waiting; it changes no mail.",
+            schema: s(json!({"id": str_("The watch id."), "all": bool_("Stop every running watch.", false)}), &[]),
+            write: false,
+        },
+        Tool {
             name: "list_folders",
             description: "Folders/labels of one account with unread and total counts. Use it to find a folder \
                 name for list_messages, or to answer \"how many unread in X\".",
@@ -296,6 +310,15 @@ async fn call(app: &Pigeon, w: Writes, name: &str, a: &Value) -> pigeon_core::Re
     Ok(match name {
         "list_accounts" => j(&ops::accounts(app)?),
         "list_folders" => j(&ops::folders(app, need(a, "account")?)?),
+        "list_watches" => j(&crate::watch::list(app)),
+        "stop_watch" => {
+            let all = flag(a, "all", false);
+            let id = a.get("id").and_then(Value::as_str).filter(|_| !all);
+            if id.is_none() && !all {
+                return Err(pigeon_core::Error::Other("give the watch id, or all=true".into()));
+            }
+            j(&json!({ "stopped": crate::watch::stop(app, id)? }))
+        }
         "list_messages" => {
             let limit = num(a, "limit", 30, 300) as u32;
             match ops::list(

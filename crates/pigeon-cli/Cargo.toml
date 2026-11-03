@@ -14,7 +14,8 @@ clap.workspace = true
 pigeon-core.workspace = true
 pigeon-engine.workspace = true
 rpassword.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["signal"] }
+libc = "0.2"
 serde_json.workspace = true
 serde.workspace = true
 tracing.workspace = true

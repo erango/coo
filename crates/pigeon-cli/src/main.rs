@@ -12,6 +12,7 @@ mod guide;
 mod mcp;
 mod ops;
 mod out;
+mod watch;
 
 use std::process::ExitCode;
 
@@ -187,6 +188,39 @@ enum Cmd {
     DraftSend { draft_id: String },
     /// Delete a saved draft, here and in the account's Drafts folder.
     DraftDelete { draft_id: String },
+    /// Wait for new mail and print one line per message that matches (with
+    /// --json, one JSON object per line). Runs until stopped (`coo unwatch`)
+    /// or, with --once, until the first match. For background monitoring:
+    /// Coo syncs, the watch only reads what arrives. Repeat a flag to match
+    /// any of its values; different flags must all match.
+    Watch {
+        /// A conversation (thread id from ls/search/get).
+        #[arg(long = "thread")]
+        threads: Vec<String>,
+        /// Sender address, or part of one (`@acme.com`).
+        #[arg(long)]
+        from: Vec<String>,
+        /// Text the subject contains.
+        #[arg(long = "subject")]
+        subjects: Vec<String>,
+        /// Account id or address (part matches).
+        #[arg(long = "account")]
+        accounts: Vec<String>,
+        /// Also report mail you send yourself.
+        #[arg(long)]
+        include_mine: bool,
+        /// Stop after the first match.
+        #[arg(long)]
+        once: bool,
+    },
+    /// The running watches.
+    Watches,
+    /// Stop a watch by id, or all of them with --all.
+    Unwatch {
+        id: Option<String>,
+        #[arg(long)]
+        all: bool,
+    },
     /// Create an event (invites are sent to attendees).
     EventCreate {
         account: String,
@@ -461,6 +495,35 @@ async fn run(cli: Cli) -> pigeon_core::Result<()> {
                     }
                 },
             );
+        }
+        Cmd::Watch { threads, from, subjects, accounts, include_mine, once } => {
+            let filters = watch::Filters { threads, from, subjects, accounts, include_mine };
+            watch::run(&app, json, filters, once).await?;
+        }
+        Cmd::Watches => {
+            let running = watch::list(&app);
+            emit(json, &running, |r| {
+                if r.is_empty() {
+                    println!("No watches running.");
+                }
+                for w in r {
+                    println!(
+                        "{}  since {}  {}",
+                        w.id,
+                        w.started_at,
+                        serde_json::to_string(&w.filters).unwrap_or_default()
+                    );
+                }
+            });
+        }
+        Cmd::Unwatch { id, all } => {
+            if id.is_none() && !all {
+                return Err(pigeon_core::Error::Other("give a watch id (see `coo watches`) or --all".into()));
+            }
+            let stopped = watch::stop(&app, id.as_deref().filter(|_| !all))?;
+            emit(json, &serde_json::json!({ "stopped": stopped }), |_| {
+                println!("Stopped {} watch{}.", stopped.len(), if stopped.len() == 1 { "" } else { "es" });
+            });
         }
         Cmd::Doctor => {
             let report = doctor(&app, &exe);

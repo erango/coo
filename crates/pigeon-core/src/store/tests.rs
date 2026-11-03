@@ -961,3 +961,18 @@ fn data_version_changes_only_for_another_connections_writes() {
     drop((app, agent));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn messages_after_reports_each_new_message_once() {
+    let (mut s, _ms, g) = setup();
+    s.apply_mail(&g.id, "mail", &[MailChange::Upsert(msg("a", "t1", 1, &["INBOX"]))], "1").unwrap();
+    let mark = s.last_message_pk().unwrap();
+    assert!(s.messages_after(mark, 10).unwrap().is_empty());
+    s.apply_mail(&g.id, "mail", &[MailChange::Upsert(msg("b", "t1", 2, &["INBOX"]))], "2").unwrap();
+    // An update to an older message keeps its key: not new.
+    s.apply_mail(&g.id, "mail", &[MailChange::Upsert(msg("a", "t1", 1, &["INBOX", "STARRED"]))], "3").unwrap();
+    let new = s.messages_after(mark, 10).unwrap();
+    assert_eq!(new.iter().map(|(_, m)| m.header.id.as_str()).collect::<Vec<_>>(), vec!["b"]);
+    assert_eq!(new[0].1.account_id, g.id);
+    assert!(s.messages_after(new[0].0, 10).unwrap().is_empty());
+}

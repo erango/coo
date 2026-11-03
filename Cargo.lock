@@ -4290,6 +4290,7 @@ version = "0.1.40"
 dependencies = [
  "chrono",
  "clap",
+ "libc",
  "pigeon-core",
  "pigeon-engine",
  "rpassword",
@@ -6220,6 +6221,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",

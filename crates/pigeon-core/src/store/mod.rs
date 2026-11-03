@@ -595,6 +595,26 @@ impl Store {
 
     // ---- sync cursors ----
 
+    /// The newest stored message's key (0 with none): a watch (`coo watch`)
+    /// reports only messages stored after it.
+    pub fn last_message_pk(&self) -> Result<i64> {
+        Ok(self.conn.query_row("SELECT COALESCE(MAX(pk), 0) FROM messages", [], |r| r.get(0))?)
+    }
+
+    /// Messages stored after key `pk`, oldest first, at most `limit`, with
+    /// their keys. Keys only grow, and an update keeps a message's key, so
+    /// each message shows up once.
+    pub fn messages_after(&self, pk: i64, limit: u32) -> Result<Vec<(i64, MessageRow)>> {
+        let sql = format!("SELECT {MSG_COLS}, m.pk FROM messages m WHERE m.pk > ?1 ORDER BY m.pk LIMIT ?2");
+        let mut stmt = self.conn.prepare_cached(&sql)?;
+        let rows = stmt
+            .query_map(params![pk, limit], |r| {
+                Ok((r.get(MSG_COL_COUNT)?, MessageRow { account_id: r.get(0)?, header: header_from_row(r)? }))
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(rows)
+    }
+
     /// SQLite's `data_version`: changes whenever another connection (the
     /// `coo` helper an agent runs) commits to this database.
     pub fn data_version(&self) -> Result<i64> {
