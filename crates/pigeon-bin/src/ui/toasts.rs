@@ -33,7 +33,7 @@ fn icon(t: &Toast) -> &'static str {
         Some(MailAction::Trash) => "trash",
         Some(MailAction::Flag | MailAction::Unflag) => "flag",
         Some(MailAction::MoveTo(_)) => "folder",
-        Some(MailAction::AddLabel(_)) => "tag",
+        Some(MailAction::AddLabel(_) | MailAction::Relabel { .. }) => "tag",
         Some(MailAction::MarkRead) => "mailopen",
         Some(MailAction::MarkUnread) => "mail",
         Some(MailAction::Spam | MailAction::NotSpam) => "alert",

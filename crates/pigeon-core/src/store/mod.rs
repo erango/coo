@@ -312,6 +312,10 @@ impl Store {
              FROM messages m WHERE m.account_id = ?1 AND m.thread_id = ?2 ORDER BY m.received_at"
         );
         let mut stmt = self.conn.prepare_cached(&sql)?;
+        let mut folders_stmt = self.conn.prepare_cached(
+            "SELECT DISTINCT mf.folder_id FROM message_folders mf JOIN messages m ON m.pk = mf.message_pk
+             WHERE m.account_id = ?1 AND m.thread_id = ?2",
+        )?;
         let mut out = Vec::with_capacity(picked.len());
         for (account, thread) in picked {
             let folder = folder_of(&account).unwrap_or_default();
@@ -338,7 +342,11 @@ impl Store {
                 }
                 latest = Some(h);
             }
-            let Some(latest) = latest else { continue };
+            let Some(mut latest) = latest else { continue };
+            // The conversation's labels and folders, across its messages
+            // (Gmail shows labels per conversation; the Label picker ticks them).
+            latest.folder_ids =
+                folders_stmt.query_map(params![account, thread], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
             out.push(ThreadRow {
                 account_id: account,
                 thread_id: thread,

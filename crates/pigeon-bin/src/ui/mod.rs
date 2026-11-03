@@ -430,7 +430,7 @@ pub fn App() -> Element {
                          if(l){{l.scrollTop={y}; if(Math.abs(l.scrollTop-{y})<2||++n>40) clearInterval(t);}}}},250)"
                     ));
                 }
-                // move:<account_id>|<thread_id>[|label] — open the thread, then the picker
+                // move:<account_id>|<thread_id>[|label[|<query>]] — open the thread, then the picker
                 "move" => {
                     let parts: Vec<String> = arg.split('|').map(String::from).collect();
                     if parts.len() >= 2 {
@@ -441,6 +441,11 @@ pub fn App() -> Element {
                         spawn(async move {
                             tokio::time::sleep(std::time::Duration::from_millis(900)).await;
                             move_picker::open(s, label);
+                            if let Some(q) = parts.get(3) {
+                                document::eval(&format!(
+                                    "setTimeout(()=>{{const i=document.getElementById('move-input'); if(i){{i.value={q:?}; i.dispatchEvent(new Event('input',{{bubbles:true}}));}}}},300)"
+                                ));
+                            }
                         });
                     }
                 }
@@ -1364,6 +1369,7 @@ pub fn act(s: AppState, item: &ListItem, action: MailAction) {
         MailAction::Unflag => format!("Unflagged “{subject}”"),
         MailAction::MoveTo(_) => format!("Moved “{subject}”"),
         MailAction::AddLabel(_) => format!("Labeled “{subject}”"),
+        MailAction::Relabel { .. } => format!("Changed labels on “{subject}”"),
         MailAction::Spam | MailAction::NotSpam | MailAction::Phishing => {
             spam::label_for(&s, std::slice::from_ref(item), &action, &format!("“{subject}”")).unwrap_or_default()
         }

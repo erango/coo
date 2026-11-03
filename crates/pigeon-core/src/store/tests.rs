@@ -193,6 +193,9 @@ fn threads_group_and_count() {
     s.apply_mail(&ms.id, "f", &[MailChange::Upsert(server_draft)], "2").unwrap();
     let threads = s.list_threads(&ListQuery::unified(FolderRole::Inbox, 10)).unwrap();
     assert!(threads.iter().all(|t| t.has_draft));
+    // A row carries its conversation's folders and labels, from every message.
+    let u = threads.iter().find(|t| t.thread_id == "u").unwrap();
+    assert!(u.latest.folder_ids.iter().any(|f| f == "proj"));
 
     let all = s.thread_messages(&ms.id, "t").unwrap();
     assert_eq!(all.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["a1", "a3", "a2"]);

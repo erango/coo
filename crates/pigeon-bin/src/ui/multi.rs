@@ -253,6 +253,7 @@ pub fn act_many(s: AppState, items: &[ListItem], action: MailAction) {
         MailAction::Unflag => format!("Unflagged {what}"),
         MailAction::MoveTo(_) => format!("Moved {what}"),
         MailAction::AddLabel(_) => format!("Labeled {what}"),
+        MailAction::Relabel { .. } => format!("Changed labels on {what}"),
         MailAction::Spam | MailAction::NotSpam | MailAction::Phishing => {
             super::spam::label_for(&s, items, &action, &what).unwrap_or_default()
         }

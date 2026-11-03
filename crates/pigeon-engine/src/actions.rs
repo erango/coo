@@ -15,6 +15,11 @@ pub enum MailAction {
     MoveTo(String),
     /// Add a label without leaving the current one (Gmail only).
     AddLabel(String),
+    /// Add and take off several labels at once (Gmail only).
+    Relabel {
+        add: Vec<String>,
+        remove: Vec<String>,
+    },
     /// Report as spam/junk (where the provider takes reports) and move to
     /// the spam folder.
     Spam,
@@ -137,7 +142,12 @@ pub fn resolve(
         (MailAction::AddLabel(label), ProviderKind::Google) => {
             MailOp::Relabel { ids, add: vec![label.clone()], remove: vec![] }
         }
-        (MailAction::AddLabel(_), _) => return Err(Error::Other("labels are a Gmail feature; use Move".into())),
+        (MailAction::Relabel { add, remove }, ProviderKind::Google) => {
+            MailOp::Relabel { ids, add: add.clone(), remove: remove.clone() }
+        }
+        (MailAction::AddLabel(_) | MailAction::Relabel { .. }, _) => {
+            return Err(Error::Other("labels are a Gmail feature; use Move".into()));
+        }
     })
 }
 
@@ -166,6 +176,12 @@ mod tests {
             MailOp::Relabel { ids: ids(), add: vec!["L1".into()], remove: vec![] }
         );
         assert!(resolve(ProviderKind::Microsoft, &MailAction::AddLabel("x".into()), ids(), None, roles).is_err());
+        let both = MailAction::Relabel { add: vec!["L1".into()], remove: vec!["L2".into()] };
+        assert_eq!(
+            resolve(ProviderKind::Google, &both, ids(), Some("INBOX"), roles).unwrap(),
+            MailOp::Relabel { ids: ids(), add: vec!["L1".into()], remove: vec!["L2".into()] }
+        );
+        assert!(resolve(ProviderKind::ICloud, &both, ids(), None, roles).is_err());
     }
 
     #[test]
