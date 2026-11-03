@@ -33,6 +33,7 @@ pub enum Entry {
     Forward,
     Reuse,
     OpenWindow,
+    Watch,
     Archive,
     Delete,
     Move,
@@ -57,6 +58,7 @@ impl Entry {
             Entry::Forward => ("Forward", "forward", Some(Do::Forward)),
             Entry::Reuse => ("Reuse message", "repeat", None),
             Entry::OpenWindow => ("Open in new window", "popout", None),
+            Entry::Watch => ("Watch this conversation", "eye", None),
             Entry::Archive => ("Archive", "archive", Some(Do::Archive)),
             Entry::Delete => ("Delete", "trash", Some(Do::Delete)),
             Entry::Move => ("Move to…", "folder", Some(Do::Move)),
@@ -88,6 +90,7 @@ pub fn entries(bulk: bool, labels: bool, flag: &MailAction, read: &MailAction, s
             Entry::Reuse,
             Entry::Sep,
             Entry::OpenWindow,
+            Entry::Watch,
             Entry::Sep,
         ]);
     }
@@ -185,6 +188,14 @@ fn run(s: AppState, m: &RowMenu, entry: Entry) {
         Entry::Forward => return reply(item, ReplyKind::Forward),
         Entry::Reuse => return reply(item, ReplyKind::Reuse),
         Entry::OpenWindow => return super::reader_window::open(s, item.clone()),
+        Entry::Watch => {
+            let h = item.header();
+            super::settings_watches::watch_thread(item.account_id(), &h.thread_id, &h.subject);
+            return s.push_toast(pigeon_engine::service::Toast {
+                message: "Watching this conversation: replies show in Needs you".into(),
+                ..Default::default()
+            });
+        }
         Entry::Move | Entry::Label => {
             let label = entry == Entry::Label;
             return if m.bulk {
@@ -300,6 +311,7 @@ mod tests {
                 Entry::Reuse,
                 Entry::Sep,
                 Entry::OpenWindow,
+                Entry::Watch,
                 Entry::Sep,
                 Entry::Archive,
                 Entry::Delete,

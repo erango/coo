@@ -11,7 +11,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use pigeon_core::model::MessageRow;
+pub use pigeon_core::watches::Filters;
 use pigeon_core::{Error, Result};
 use pigeon_engine::Pigeon;
 use serde::{Deserialize, Serialize};
@@ -22,48 +22,6 @@ use crate::out::MessageOut;
 const POLL: Duration = Duration::from_secs(2);
 /// How often a watch checks that the Coo app (which syncs) is running.
 const APP_CHECK: Duration = Duration::from_secs(30);
-/// Messages received this long before the watch started still count (a
-/// sync can lag a little); older ones that arrive later (a label filled in,
-/// a server search) are history, not new mail.
-const GRACE_MS: i64 = 10 * 60 * 1000;
-
-/// What a watch waits for. Each list matches any of its values; the lists
-/// that are given must all match. No filters: any new mail.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct Filters {
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub threads: Vec<String>,
-    /// Sender addresses or parts of them (`@acme.com`), any case.
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub from: Vec<String>,
-    /// Text the subject contains, any case.
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub subjects: Vec<String>,
-    /// Account ids or addresses (parts match).
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub accounts: Vec<String>,
-    /// Also report what you send yourself (off: only incoming mail).
-    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
-    pub include_mine: bool,
-}
-
-impl Filters {
-    /// Whether `m` is new mail this watch reports. `mine`: the user's own
-    /// addresses, lowercased.
-    pub fn matches(&self, m: &MessageRow, mine: &[String], started_at: i64) -> bool {
-        let h = &m.header;
-        let from = h.from.as_ref().map(|a| a.email.to_lowercase()).unwrap_or_default();
-        let any = |list: &[String], f: &dyn Fn(&str) -> bool| list.is_empty() || list.iter().any(|v| f(v));
-        !h.is_draft
-            && h.received_at >= started_at - GRACE_MS
-            && (self.include_mine || !mine.contains(&from))
-            && any(&self.threads, &|t| h.thread_id == t)
-            && any(&self.from, &|f| from.contains(&f.to_lowercase()))
-            && any(&self.subjects, &|s| h.subject.to_lowercase().contains(&s.to_lowercase()))
-            && any(&self.accounts, &|a| m.account_id.to_lowercase().contains(&a.to_lowercase()))
-    }
-}
-
 /// A running watch, as registered.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WatchOut {
@@ -227,60 +185,128 @@ pub async fn run(app: &Pigeon, json: bool, filters: Filters, once: bool) -> Resu
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use pigeon_core::model::{Address, MessageHeader};
+/// One Needs-you item for agents: the message, which watch caught it and
+/// its note, and whether it's done.
+#[derive(Debug, Serialize)]
+pub struct NeedsOut {
+    pub id: i64,
+    pub watch_id: String,
+    pub watch: String,
+    /// What the user wants done with it (the watch's note).
+    pub note: String,
+    pub caught_at: String,
+    pub done: bool,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub done_by: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub done_note: String,
+    pub message: MessageOut,
+}
 
-    use super::*;
+/// A saved watch, for agents.
+#[derive(Debug, Serialize)]
+pub struct SavedOut {
+    pub id: String,
+    pub name: String,
+    pub filters: Filters,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub note: String,
+    pub notify: bool,
+    pub paused: bool,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub created_by: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub until: Option<String>,
+    pub caught: u32,
+}
 
-    fn row(account: &str, thread: &str, from: &str, subject: &str, at: i64) -> MessageRow {
-        MessageRow {
-            account_id: account.into(),
-            header: MessageHeader {
-                id: "m".into(),
-                thread_id: thread.into(),
-                internet_message_id: None,
-                subject: subject.into(),
-                from: Some(Address::new(None, from)),
-                to: vec![],
-                cc: vec![],
-                snippet: String::new(),
-                received_at: at,
-                is_read: false,
-                is_flagged: false,
-                has_attachments: false,
-                is_draft: false,
-                folder_ids: vec![],
-            },
+impl SavedOut {
+    fn new(w: &pigeon_core::watches::Watch) -> Self {
+        SavedOut {
+            id: w.id.clone(),
+            name: w.name.clone(),
+            filters: w.filters.clone(),
+            note: w.note.clone(),
+            notify: w.notify,
+            paused: w.paused,
+            created_by: w.created_by.clone(),
+            until: w.until.map(crate::out::iso),
+            caught: w.hits,
         }
     }
+}
 
-    #[test]
-    fn filters_combine_lists_and_skip_drafts_history_and_own_mail() {
-        let mine = vec!["me@x.io".to_string()];
-        let m = row("google:me@x.io", "t1", "Dana@Acme.com", "Invoice 42", 1_000_000);
-        let none = Filters::default();
-        assert!(none.matches(&m, &mine, 1_000_000), "no filters: any new mail");
-
-        let f = Filters {
-            from: vec!["@acme.com".into(), "bob@".into()],
-            subjects: vec!["invoice".into()],
-            ..Default::default()
-        };
-        assert!(f.matches(&m, &mine, 1_000_000));
-        let f = Filters { from: vec!["@acme.com".into()], subjects: vec!["receipt".into()], ..Default::default() };
-        assert!(!f.matches(&m, &mine, 1_000_000), "every given list must match");
-        assert!(Filters { threads: vec!["t1".into()], ..Default::default() }.matches(&m, &mine, 1_000_000));
-        assert!(!Filters { threads: vec!["t2".into()], ..Default::default() }.matches(&m, &mine, 1_000_000));
-        assert!(!Filters { accounts: vec!["microsoft".into()], ..Default::default() }.matches(&m, &mine, 1_000_000));
-
-        let mut draft = m.clone();
-        draft.header.is_draft = true;
-        assert!(!none.matches(&draft, &mine, 1_000_000));
-        assert!(!none.matches(&m, &mine, 1_000_000 + GRACE_MS + 1), "older mail arriving late is history");
-
-        let sent = row("google:me@x.io", "t1", "ME@x.io", "Re: Invoice 42", 1_000_000);
-        assert!(!none.matches(&sent, &mine, 1_000_000));
-        assert!(Filters { include_mine: true, ..Default::default() }.matches(&sent, &mine, 1_000_000));
+/// What the watches caught: open items (plus the last day's done ones with
+/// `include_done`), newest first.
+pub fn needs_you(app: &Pigeon, include_done: bool) -> Result<Vec<NeedsOut>> {
+    let now = pigeon_core::now_ms();
+    let store = app.store();
+    let items = store.needs_you(include_done.then_some(24 * 3_600_000), now)?;
+    let mut out = Vec::new();
+    for n in items {
+        let Some(h) = store.message(&n.account_id, &n.message_id)? else { continue };
+        out.push(NeedsOut {
+            id: n.id,
+            watch_id: n.watch_id,
+            watch: n.watch_name,
+            note: n.note,
+            caught_at: crate::out::iso(n.caught_at),
+            done: n.done_at.is_some(),
+            done_by: n.done_by,
+            done_note: n.done_note,
+            message: MessageOut::new(&n.account_id, &h),
+        });
     }
+    Ok(out)
+}
+
+/// Mark a Needs-you item done, saying what was done.
+pub fn mark_done(app: &Pigeon, id: i64, note: &str, by: &str) -> Result<serde_json::Value> {
+    if !app.store().set_needs_done(id, true, by, note.trim(), pigeon_core::now_ms())? {
+        return Err(Error::Other(format!("no Needs-you item {id} (see needs_you)")));
+    }
+    Ok(serde_json::json!({ "done": id }))
+}
+
+/// Save a watch in Coo (it catches mail while Coo runs, even with no agent
+/// open).
+pub fn add_watch(
+    app: &Pigeon,
+    name: &str,
+    filters: Filters,
+    note: &str,
+    notify: bool,
+    until: Option<i64>,
+    by: &str,
+) -> Result<SavedOut> {
+    if name.trim().is_empty() {
+        return Err(Error::Other("give the watch a name".into()));
+    }
+    if filters.is_empty() {
+        return Err(Error::Other("give at least one of from, subject, thread or account".into()));
+    }
+    let mut w = pigeon_core::watches::Watch::new(name, filters, pigeon_core::now_ms());
+    w.note = note.trim().to_string();
+    w.notify = notify;
+    w.until = until;
+    w.created_by = by.to_string();
+    app.store().save_watch(&w)?;
+    Ok(SavedOut::new(&w))
+}
+
+/// Saved watches and running `coo watch` streams.
+pub fn all(app: &Pigeon) -> Result<serde_json::Value> {
+    let saved: Vec<SavedOut> = app.store().watches()?.iter().map(SavedOut::new).collect();
+    Ok(serde_json::json!({ "saved": saved, "running": list(app) }))
+}
+
+/// Remove a saved watch or stop a running stream, by id (`None`: every
+/// running stream; saved watches are only removed one by one).
+pub fn remove(app: &Pigeon, id: Option<&str>) -> Result<serde_json::Value> {
+    if let Some(id) = id
+        && app.store().delete_watch(id)?
+    {
+        return Ok(serde_json::json!({ "removed": id }));
+    }
+    Ok(serde_json::json!({ "stopped": stop(app, id)? }))
 }

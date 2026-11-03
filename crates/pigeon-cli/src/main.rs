@@ -213,13 +213,49 @@ enum Cmd {
         #[arg(long)]
         once: bool,
     },
-    /// The running watches.
+    /// Save a watch in Coo: matching new mail goes to Needs you while Coo
+    /// runs, even with no agent open. Same filters as `watch`.
+    WatchAdd {
+        #[arg(long)]
+        name: String,
+        #[arg(long = "thread")]
+        threads: Vec<String>,
+        #[arg(long)]
+        from: Vec<String>,
+        #[arg(long = "subject")]
+        subjects: Vec<String>,
+        #[arg(long = "account")]
+        accounts: Vec<String>,
+        /// What the user wants done with a match.
+        #[arg(long, default_value = "")]
+        note: String,
+        /// Also show a notification for each match.
+        #[arg(long)]
+        notify: bool,
+        /// Stop watching after this many days.
+        #[arg(long)]
+        days: Option<i64>,
+    },
+    /// Saved watches and running `watch` streams.
     Watches,
-    /// Stop a watch by id, or all of them with --all.
+    /// Remove a saved watch or stop a running stream by id, or stop every
+    /// stream with --all.
     Unwatch {
         id: Option<String>,
         #[arg(long)]
         all: bool,
+    },
+    /// What needs the user: mail the saved watches caught, newest first.
+    NeedsYou {
+        /// Also items done in the last day.
+        #[arg(long)]
+        all: bool,
+    },
+    /// Mark a Needs-you item done, saying what was done.
+    Done {
+        id: i64,
+        #[arg(long, default_value = "")]
+        note: String,
     },
     /// Create an event (invites are sent to attendees).
     EventCreate {
@@ -500,18 +536,29 @@ async fn run(cli: Cli) -> pigeon_core::Result<()> {
             let filters = watch::Filters { threads, from, subjects, accounts, include_mine };
             watch::run(&app, json, filters, once).await?;
         }
+        Cmd::WatchAdd { name, threads, from, subjects, accounts, note, notify, days } => {
+            let filters = watch::Filters { threads, from, subjects, accounts, include_mine: false };
+            let until = days.map(|d| pigeon_core::now_ms() + d.max(1) * 86_400_000);
+            let w = watch::add_watch(&app, &name, filters, &note, notify, until, "Your assistant")?;
+            emit(json, &w, |w| println!("Watching: {} ({})", w.name, w.id));
+        }
         Cmd::Watches => {
-            let running = watch::list(&app);
-            emit(json, &running, |r| {
-                if r.is_empty() {
-                    println!("No watches running.");
-                }
-                for w in r {
+            let all = watch::all(&app)?;
+            emit(json, &all, |v| {
+                for w in v["saved"].as_array().into_iter().flatten() {
                     println!(
-                        "{}  since {}  {}",
-                        w.id,
-                        w.started_at,
-                        serde_json::to_string(&w.filters).unwrap_or_default()
+                        "{}  {}  {}",
+                        w["id"].as_str().unwrap_or_default(),
+                        w["name"].as_str().unwrap_or_default(),
+                        w["filters"]
+                    );
+                }
+                for w in v["running"].as_array().into_iter().flatten() {
+                    println!(
+                        "{}  (running since {})  {}",
+                        w["id"].as_str().unwrap_or_default(),
+                        w["started_at"].as_str().unwrap_or_default(),
+                        w["filters"]
                     );
                 }
             });
@@ -520,10 +567,30 @@ async fn run(cli: Cli) -> pigeon_core::Result<()> {
             if id.is_none() && !all {
                 return Err(pigeon_core::Error::Other("give a watch id (see `coo watches`) or --all".into()));
             }
-            let stopped = watch::stop(&app, id.as_deref().filter(|_| !all))?;
-            emit(json, &serde_json::json!({ "stopped": stopped }), |_| {
-                println!("Stopped {} watch{}.", stopped.len(), if stopped.len() == 1 { "" } else { "es" });
+            let done = watch::remove(&app, id.as_deref().filter(|_| !all))?;
+            emit(json, &done, |v| println!("{v}"));
+        }
+        Cmd::NeedsYou { all } => {
+            let items = watch::needs_you(&app, all)?;
+            emit(json, &items, |items| {
+                if items.is_empty() {
+                    println!("Nothing needs you.");
+                }
+                for n in items {
+                    let from = n.message.from.as_ref().map(|a| a.email.as_str()).unwrap_or_default();
+                    println!(
+                        "{}  [{}]  {from}: {}{}",
+                        n.id,
+                        n.watch,
+                        n.message.subject,
+                        if n.done { "  (done)" } else { "" }
+                    );
+                }
             });
+        }
+        Cmd::Done { id, note } => {
+            let v = watch::mark_done(&app, id, &note, "Your assistant")?;
+            emit(json, &v, |_| println!("Done."));
         }
         Cmd::Doctor => {
             let report = doctor(&app, &exe);

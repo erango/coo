@@ -103,16 +103,17 @@ pub(super) fn remember(account_id: &str, folder_id: &str) {
 /// The concrete folder the item is listed from, so it isn't offered as a
 /// target.
 fn current_folder(s: &AppState, item: &ListItem) -> Option<String> {
-    match &*s.mailbox.read() {
-        Mailbox::Folder { folder_id, .. } => Some(folder_id.clone()),
-        Mailbox::Unified(role) => s
-            .accounts
-            .read()
-            .iter()
-            .find(|a| a.account.id == item.account_id())
-            .and_then(|a| a.folders.iter().find(|f| f.folder.role == Some(*role)))
-            .map(|f| f.folder.id.clone()),
-    }
+    let role = match &*s.mailbox.read() {
+        Mailbox::Folder { folder_id, .. } => return Some(folder_id.clone()),
+        Mailbox::Unified(role) => *role,
+        Mailbox::NeedsYou => pigeon_core::model::FolderRole::Inbox,
+    };
+    s.accounts
+        .read()
+        .iter()
+        .find(|a| a.account.id == item.account_id())
+        .and_then(|a| a.folders.iter().find(|f| f.folder.role == Some(role)))
+        .map(|f| f.folder.id.clone())
 }
 
 #[component]

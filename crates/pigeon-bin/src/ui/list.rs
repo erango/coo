@@ -14,7 +14,7 @@ use crate::state::{AppState, OutState, Outgoing};
 /// Accounts a mailbox shows mail from.
 pub(crate) fn scope_accounts(mb: &Mailbox, all: &[String]) -> Vec<String> {
     match mb {
-        Mailbox::Unified(_) => all.to_vec(),
+        Mailbox::Unified(_) | Mailbox::NeedsYou => all.to_vec(),
         Mailbox::Folder { account_id, .. } => vec![account_id.clone()],
     }
 }
@@ -23,6 +23,7 @@ pub(crate) fn scope_accounts(mb: &Mailbox, all: &[String]) -> Vec<String> {
 pub fn shows_outgoing(mb: &Mailbox, role_of_folder: Option<FolderRole>, draft_account: &str) -> bool {
     match mb {
         Mailbox::Unified(r) => matches!(r, FolderRole::Inbox | FolderRole::Sent | FolderRole::Drafts),
+        Mailbox::NeedsYou => false,
         Mailbox::Folder { account_id, .. } => {
             account_id == draft_account
                 && matches!(role_of_folder, Some(FolderRole::Inbox | FolderRole::Sent | FolderRole::Drafts))
@@ -48,6 +49,7 @@ pub fn role_title(role: FolderRole) -> &'static str {
 pub fn title(s: &AppState, mb: &Mailbox) -> (String, String) {
     match mb {
         Mailbox::Unified(role) => (role_title(*role).to_string(), "All accounts".to_string()),
+        Mailbox::NeedsYou => ("Needs you".to_string(), "Caught by your watches".to_string()),
         Mailbox::Folder { account_id, folder_id } => {
             let accounts = s.accounts.read();
             let acct = accounts.iter().find(|a| &a.account.id == account_id);
@@ -141,7 +143,7 @@ pub fn MailList() -> Element {
             .find(|a| &a.account.id == account_id)
             .and_then(|a| a.folders.iter().find(|f| &f.folder.id == folder_id))
             .and_then(|f| f.folder.role),
-        Mailbox::Unified(_) => None,
+        Mailbox::Unified(_) | Mailbox::NeedsYou => None,
     };
     let outgoing: Vec<Outgoing> = s
         .outgoing
@@ -478,8 +480,10 @@ fn empty_copy(role: Option<FolderRole>) -> (&'static str, &'static str) {
 #[component]
 fn Empty(syncing: bool) -> Element {
     let s = use_context::<AppState>();
+    let needs = *s.mailbox.read() == Mailbox::NeedsYou;
     let role = match &*s.mailbox.read() {
         Mailbox::Unified(r) => Some(*r),
+        Mailbox::NeedsYou => None,
         Mailbox::Folder { account_id, folder_id } => s
             .accounts
             .read()
@@ -490,7 +494,11 @@ fn Empty(syncing: bool) -> Element {
     };
     let inbox = role == Some(FolderRole::Inbox);
     let trash = role == Some(FolderRole::Trash);
-    let (title, body) = empty_copy(role);
+    let (title, body) = if needs {
+        ("Nothing needs you", "Watches catch the mail you care about. Set them up in Settings › Watches.")
+    } else {
+        empty_copy(role)
+    };
     // Inbox zero: poke the napping pigeon and it startles awake, coos, and
     // settles back after a moment.
     let mut startled = use_signal(|| false);

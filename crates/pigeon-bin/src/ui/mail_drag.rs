@@ -122,6 +122,7 @@ pub fn is_current(mailbox: &Mailbox, account_id: &str, folder: &FolderInfo) -> b
     match mailbox {
         Mailbox::Folder { account_id: a, folder_id } => a == account_id && *folder_id == folder.folder.id,
         Mailbox::Unified(role) => folder.folder.role == Some(*role),
+        Mailbox::NeedsYou => folder.folder.role == Some(FolderRole::Inbox),
     }
 }
 

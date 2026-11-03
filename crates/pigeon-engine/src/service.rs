@@ -32,6 +32,8 @@ const SYNC_PROGRESS_EVERY: Duration = Duration::from_millis(1500);
 /// asked for what it sent or changed.
 const STORE_WATCH_EVERY: Duration = Duration::from_secs(1);
 const AFTER_AGENT_SYNC: Duration = Duration::from_secs(2);
+/// Done Needs-you items stay visible (crossed off) this long.
+const NEEDS_RECENT_DONE_MS: i64 = 24 * 3_600_000;
 
 /// A password that never shows up in `Debug` output (commands get logged).
 #[derive(Clone)]
@@ -52,12 +54,16 @@ pub enum Mailbox {
         account_id: String,
         folder_id: String,
     },
+    /// Mail your watches caught that isn't done yet (`pigeon_core::watches`).
+    /// Its messages act as if listed from the Inbox.
+    NeedsYou,
 }
 
 impl Mailbox {
     fn query(&self, limit: u32) -> ListQuery {
         match self {
             Mailbox::Unified(role) => ListQuery::unified(*role, limit),
+            Mailbox::NeedsYou => ListQuery::unified(FolderRole::Inbox, limit),
             Mailbox::Folder { account_id, folder_id } => ListQuery {
                 account_id: Some(account_id.clone()),
                 folder: FolderSel::Id(folder_id.clone()),
@@ -71,6 +77,7 @@ impl Mailbox {
     fn folder_for(&self, store_role: impl Fn(&str, FolderRole) -> Option<String>, account_id: &str) -> Option<String> {
         match self {
             Mailbox::Unified(role) => store_role(account_id, *role),
+            Mailbox::NeedsYou => store_role(account_id, FolderRole::Inbox),
             Mailbox::Folder { folder_id, .. } => Some(folder_id.clone()),
         }
     }
@@ -79,6 +86,7 @@ impl Mailbox {
     pub fn search_scope(&self) -> SearchScope {
         match self {
             Mailbox::Unified(role) => SearchScope::Role(*role),
+            Mailbox::NeedsYou => SearchScope::Role(FolderRole::Inbox),
             Mailbox::Folder { account_id, folder_id } => {
                 SearchScope::Folder { account_id: account_id.clone(), folder_id: folder_id.clone() }
             }
@@ -171,6 +179,16 @@ pub enum Cmd {
         thread_id: Option<String>,
         action: MailAction,
         label: String,
+    },
+    /// Add or change a watch.
+    SaveWatch(pigeon_core::watches::Watch),
+    DeleteWatch {
+        id: String,
+    },
+    /// Mark a Needs-you item done, or open again.
+    NeedsDone {
+        id: i64,
+        done: bool,
     },
     /// Archive a conversation's Inbox messages (after replying to or
     /// forwarding it, per Settings › Composing), with Undo.
@@ -528,6 +546,12 @@ pub enum Delta {
     /// The open conversation changed underneath (a reply landed, an agent
     /// acted on it): apply only if that conversation is still the one shown.
     ReaderRefresh(ReaderView),
+    /// What the watches caught: open items, plus ones done in the last day.
+    NeedsYou(Vec<pigeon_core::watches::NeedsItem>),
+    /// The saved watches (Settings › Watches).
+    Watches(Vec<pigeon_core::watches::Watch>),
+    /// Mail a watch with notifications on just caught: (watch name, message).
+    Caught(Vec<(String, MessageRow)>),
     /// Drafts sent or discarded elsewhere (an agent): editors still open
     /// on them close without saving.
     DraftsDone(Vec<String>),
@@ -742,6 +766,8 @@ struct Service {
     /// (see `watch_store`).
     store_version: AtomicI64,
     store_checked_at: AtomicI64,
+    /// The newest message key the watches were checked against.
+    watch_mark: AtomicI64,
     watching: AtomicBool,
     /// A sync after an agent's change is waiting (one at a time).
     agent_sync: AtomicBool,
@@ -845,6 +871,7 @@ impl Service {
     }
 
     async fn publish_inner(&self) -> Result<()> {
+        self.catch_watches().await;
         let started = std::time::Instant::now();
         let r = self.publish_snapshot().await;
         self.refresh_reader();
@@ -876,7 +903,19 @@ impl Service {
             }
             let accounts_ms = t.elapsed().as_secs_f64() * 1000.0 - lock_ms;
             let q = mailbox.query(limit);
-            let items = if threaded {
+            let items = if mailbox == Mailbox::NeedsYou {
+                // One row per caught message, newest first.
+                let mut seen = std::collections::HashSet::new();
+                let mut rows = Vec::new();
+                for n in store.needs_you(None, now)? {
+                    if seen.insert((n.account_id.clone(), n.message_id.clone()))
+                        && let Some(header) = store.message(&n.account_id, &n.message_id)?
+                    {
+                        rows.push(ListItem::Message(MessageRow { account_id: n.account_id, header }));
+                    }
+                }
+                rows
+            } else if threaded {
                 store.list_threads(&q)?.into_iter().map(ListItem::Thread).collect()
             } else {
                 store.list_messages(&q)?.into_iter().map(ListItem::Message).collect()
@@ -904,6 +943,11 @@ impl Service {
         self.send(Delta::GoogleContacts(self.app.contact_photo_accounts().unwrap_or_default()));
         self.send(Delta::MicrosoftPhotos(self.app.microsoft_photo_accounts().unwrap_or_default()));
         self.send(Delta::List { mailbox, threaded, items });
+        {
+            let store = self.app.store();
+            self.send(Delta::NeedsYou(store.needs_you(Some(NEEDS_RECENT_DONE_MS), now).unwrap_or_default()));
+            self.send(Delta::Watches(store.watches().unwrap_or_default()));
+        }
         self.send(Delta::NextUp(next_up.into_iter().filter(|e| !e.event.all_day).take(3).collect()));
         if let Some((from, to, events, calendars)) = cal {
             self.send(Delta::Events { from, to, events, calendars });
@@ -1157,12 +1201,25 @@ impl Service {
                     return Ok(());
                 }
                 let handle = self.app.act(&account, &ids, from.as_deref(), &action)?;
+                self.handled(&account_id, &ids, &action);
                 if shows_toast(&action) {
                     self.action_toast(label, Some((account_id, handle)), &action);
                 }
                 self.publish().await;
                 self.clone().flush_after_grace(&action, account.clone());
                 self.flush(account).await;
+            }
+            Cmd::SaveWatch(w) => {
+                self.app.store().save_watch(&w)?;
+                self.publish().await;
+            }
+            Cmd::DeleteWatch { id } => {
+                self.app.store().delete_watch(&id)?;
+                self.publish().await;
+            }
+            Cmd::NeedsDone { id, done } => {
+                self.app.store().set_needs_done(id, done, "", "", now_ms())?;
+                self.publish().await;
             }
             Cmd::ArchiveThread { account_id, thread_id, label } => {
                 let account = self.app.account(&account_id)?;
@@ -1187,6 +1244,7 @@ impl Service {
                     (ids, inbox)
                 };
                 let handle = self.app.act(&account, &ids, Some(&inbox), &MailAction::Archive)?;
+                self.handled(&account_id, &ids, &MailAction::Archive);
                 self.action_toast(label, Some((account_id, handle)), &MailAction::Archive);
                 self.publish().await;
                 self.flush(account).await;
@@ -1209,6 +1267,7 @@ impl Service {
                     if !self.may_act(&account, from.as_deref(), &action).await? {
                         continue;
                     }
+                    self.handled(&account_id, &ids, &action);
                     handles.push((account_id, self.app.act(&account, &ids, from.as_deref(), &action)?));
                     touched.push(account);
                 }
@@ -1913,6 +1972,54 @@ impl Service {
         }
     }
 
+    /// Mail moved out of the way (archived, deleted, moved) is handled:
+    /// it leaves Needs you.
+    fn handled(&self, account_id: &str, ids: &[String], action: &MailAction) {
+        if action.leaves() {
+            let store = self.app.store();
+            for id in ids {
+                let _ = store.set_message_needs_done(account_id, id, now_ms());
+            }
+        }
+    }
+
+    /// Check mail stored since the last look against the watches: matches
+    /// go to Needs you (and a notification, when the watch asks for one).
+    async fn catch_watches(&self) {
+        let mark = self.watch_mark.load(Ordering::Relaxed);
+        let (rows, watches) = {
+            let store = self.app.store();
+            let Ok(rows) = store.messages_after(mark, 2000) else { return };
+            (rows, store.watches().unwrap_or_default())
+        };
+        let Some((last, _)) = rows.last() else { return };
+        // Only one check moves the mark (publishes can overlap).
+        if self.watch_mark.compare_exchange(mark, *last, Ordering::SeqCst, Ordering::SeqCst).is_err() {
+            return;
+        }
+        let now = now_ms();
+        let watches: Vec<_> = watches.into_iter().filter(|w| w.active(now)).collect();
+        if watches.is_empty() {
+            return;
+        }
+        let mine: Vec<String> = self.my_addresses().await.into_iter().map(|a| a.to_lowercase()).collect();
+        let mut ring = Vec::new();
+        {
+            let store = self.app.store();
+            for (_, m) in &rows {
+                for w in watches.iter().filter(|w| w.catches(m, &mine, now)) {
+                    let fresh = store.catch(w, &m.account_id, &m.header.id, &m.header.thread_id, now).unwrap_or(false);
+                    if fresh && w.notify {
+                        ring.push((w.name.clone(), m.clone()));
+                    }
+                }
+            }
+        }
+        if !ring.is_empty() {
+            self.send(Delta::Caught(ring));
+        }
+    }
+
     /// Re-read the open conversation; when it changed (a reply arrived, an
     /// agent sent or acted), show it again and load the new bodies.
     fn refresh_reader(&self) {
@@ -2199,12 +2306,14 @@ pub async fn run(app: Arc<Pigeon>, mut rx: mpsc::UnboundedReceiver<Cmd>, tx: mps
         reading: Default::default(),
         store_version: AtomicI64::new(0),
         store_checked_at: AtomicI64::new(now_ms()),
+        watch_mark: AtomicI64::new(0),
         watching: AtomicBool::new(false),
         agent_sync: AtomicBool::new(false),
         me: Default::default(),
     });
     let _ = svc.me.set(Arc::downgrade(&svc));
     svc.store_version.store(svc.app.store().data_version().unwrap_or(0), Ordering::Relaxed);
+    svc.watch_mark.store(svc.app.store().last_message_pk().unwrap_or(0), Ordering::Relaxed);
     // Share sign-ins with the `coo` helper (AI agents) while the app runs,
     // and say so here when an agent hits something only the person can fix.
     crate::broker::start(svc.app.clone(), Some(agent_notices(Arc::downgrade(&svc))));

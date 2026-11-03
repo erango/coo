@@ -168,6 +168,39 @@ fn ThreadReader() -> Element {
     }
 }
 
+/// A watch caught mail in this conversation: which one, its note for your
+/// assistant, and Done (or what an assistant already did).
+#[component]
+fn NeedsBanner(account_id: String, message_ids: Vec<String>) -> Element {
+    let s = use_context::<AppState>();
+    let needs = s.needs.read();
+    let mine: Vec<_> =
+        needs.iter().filter(|n| n.account_id == account_id && message_ids.contains(&n.message_id)).collect();
+    let item = mine.iter().find(|n| n.done_at.is_none()).or_else(|| mine.first()).map(|n| (*n).clone());
+    let Some(n) = item else { return rsx! {} };
+    let done = n.done_at.is_some();
+    let id = n.id;
+    let line = if done {
+        let who = if n.done_by.is_empty() { "You".to_string() } else { n.done_by.clone() };
+        if n.done_note.is_empty() { format!("{who} marked this done.") } else { format!("{who}: {}", n.done_note) }
+    } else if n.note.is_empty() {
+        format!("Caught by {}.", n.watch_name)
+    } else {
+        format!("Caught by {}. For your assistant: {}", n.watch_name, n.note)
+    };
+    let (icon, label) = if done { ("check", "Not done") } else { ("eye", "Done") };
+    rsx! {
+        div { class: "needs-banner", "data-done": done.then_some("true"), role: "status",
+            Icon { name: icon, class: "icon--sm" }
+            span { class: "needs-banner__text", dir: "auto", "{line}" }
+            button { class: "btn btn--secondary btn--sm", r#type: "button",
+                onclick: move |_| send_cmd(Cmd::NeedsDone { id, done: !done }),
+                "{label}"
+            }
+        }
+    }
+}
+
 /// The thread subject: selectable like any text, plus a copy button that
 /// shows on hover and turns into a check for a moment once copied.
 #[component]
@@ -275,6 +308,9 @@ pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Elem
                 FindBar { total: matches }
             }
             SubjectLine { subject: subject.clone() }
+            if !windowed {
+                NeedsBanner { account_id: view.account_id.clone(), message_ids: view.messages.iter().map(|m| m.id.clone()).collect::<Vec<_>>() }
+            }
             div { class: "thread-meta",
                 span { class: "tag", "data-hue": "{hue}", span { class: "dot dot--sm" } "{account_email}" }
                 // A single message is just a message: no conversation summary.

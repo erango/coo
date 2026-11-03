@@ -35,6 +35,7 @@ pub mod sender_card;
 mod settings;
 mod settings_bird;
 mod settings_sections;
+mod settings_watches;
 mod sidebar;
 mod spam;
 mod toasts;
@@ -1220,6 +1221,7 @@ fn step(s: AppState, delta: isize) {
 pub fn viewing(mailbox: &Mailbox, account: &AccountNav, role: FolderRole) -> bool {
     match mailbox {
         Mailbox::Unified(r) => *r == role,
+        Mailbox::NeedsYou => role == FolderRole::Inbox,
         Mailbox::Folder { account_id, folder_id } => {
             *account_id == account.account.id
                 && account.folders.iter().any(|f| f.folder.id == *folder_id && f.folder.role == Some(role))

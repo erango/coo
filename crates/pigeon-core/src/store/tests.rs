@@ -976,3 +976,32 @@ fn messages_after_reports_each_new_message_once() {
     assert_eq!(new[0].1.account_id, g.id);
     assert!(s.messages_after(new[0].0, 10).unwrap().is_empty());
 }
+
+#[test]
+fn watches_catch_once_and_needs_you_tracks_done() {
+    let (mut s, _ms, g) = setup();
+    s.apply_mail(&g.id, "mail", &[MailChange::Upsert(msg("a", "t1", 1, &["INBOX"]))], "1").unwrap();
+    let mut w = crate::watches::Watch::new("Acme", crate::watches::Filters::default(), 1);
+    w.note = "draft a reply".into();
+    s.save_watch(&w).unwrap();
+    assert_eq!(s.watches().unwrap(), vec![w.clone()]);
+
+    assert!(s.catch(&w, &g.id, "a", "t1", 10).unwrap());
+    assert!(!s.catch(&w, &g.id, "a", "t1", 11).unwrap(), "once per message");
+    assert_eq!(s.watch(&w.id).unwrap().unwrap().hits, 1);
+    // A message that isn't stored (gone) doesn't show.
+    s.catch(&w, &g.id, "gone", "t9", 12).unwrap();
+    let open = s.needs_you(None, 20).unwrap();
+    assert_eq!(open.len(), 1);
+    assert_eq!((open[0].watch_name.as_str(), open[0].note.as_str()), ("Acme", "draft a reply"));
+
+    assert!(s.set_needs_done(open[0].id, true, "Claude", "Drafted a reply", 30).unwrap());
+    assert!(s.needs_you(None, 40).unwrap().is_empty());
+    let recent = s.needs_you(Some(100), 40).unwrap();
+    assert_eq!((recent[0].done_by.as_str(), recent[0].done_note.as_str()), ("Claude", "Drafted a reply"));
+    s.set_needs_done(open[0].id, false, "", "", 50).unwrap();
+    assert_eq!(s.set_message_needs_done(&g.id, "a", 60).unwrap(), 1);
+
+    assert!(s.delete_watch(&w.id).unwrap());
+    assert!(s.needs_you(Some(1_000), 70).unwrap().is_empty(), "its items go with it");
+}

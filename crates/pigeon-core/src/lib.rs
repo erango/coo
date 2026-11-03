@@ -27,6 +27,7 @@ pub mod store;
 pub mod sync;
 pub mod text;
 pub mod tokens;
+pub mod watches;
 
 pub use error::{Error, Result};
 

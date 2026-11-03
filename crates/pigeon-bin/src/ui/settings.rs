@@ -54,6 +54,11 @@ pub const PAGES: &[(&str, &str, &str)] = &[
         "bell",
         "notify sound sounds alert banner reminder reminders meeting focus do not disturb mute muted volume dock badge unread count icon test",
     ),
+    (
+        "Watches",
+        "eye",
+        "watch watches needs you rule rules filter catch notify alert supplier sender subject conversation assistant agent",
+    ),
     ("Privacy", "lock", "remote images tracking trusted senders crash reports sentry"),
     ("Keyboard shortcuts", "dash", "keys shortcut shortcuts hotkey gmail outlook style custom"),
 ];
@@ -216,6 +221,7 @@ pub fn Settings() -> Element {
                     "Calendar" => rsx! { super::settings_sections::CalendarSettings {} },
                     "Notifications" => rsx! { super::settings_sections::Notifications {} },
                     "Privacy" => rsx! { super::settings_sections::Privacy {} },
+                    "Watches" => rsx! { super::settings_watches::Watches {} },
                     "Keyboard shortcuts" => rsx! { super::settings_sections::Shortcuts {} },
                     _ => rsx! { super::settings_sections::General {} },
                 }

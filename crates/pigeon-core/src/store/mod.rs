@@ -17,6 +17,7 @@ mod outbox;
 mod search;
 mod send_addresses;
 mod services;
+mod watches;
 pub use outbox::{PURGE_GRACE_MS, undo_ops};
 
 const MIGRATIONS: &[&str] = &[
@@ -35,6 +36,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("013_main_address.sql"),
     include_str!("014_contact_photos.sql"),
     include_str!("015_draft_tombstones.sql"),
+    include_str!("016_watches.sql"),
 ];
 
 /// Which folder a list query reads.

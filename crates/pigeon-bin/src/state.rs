@@ -324,6 +324,10 @@ pub struct AppState {
     /// Drafts sent or discarded elsewhere (an agent) this session: an
     /// editor open on one closes without saving.
     pub drafts_done: Signal<Vec<String>>,
+    /// What the watches caught (open, and done in the last day).
+    pub needs: Signal<Vec<pigeon_core::watches::NeedsItem>>,
+    /// Saved watches (Settings › Watches).
+    pub watches: Signal<Vec<pigeon_core::watches::Watch>>,
     /// The one-time "archive after replying/forwarding?" offer on screen.
     pub archive_offer: Signal<Option<crate::ui::archive_offer::ArchiveOffer>>,
     /// The welcome tour is open (ui/tour.rs).
@@ -452,6 +456,8 @@ impl AppState {
             agent_setup_open: Signal::new(false),
             agent_reconnect: Signal::new(false),
             drafts_done: Signal::new(Vec::new()),
+            needs: Signal::new(Vec::new()),
+            watches: Signal::new(Vec::new()),
             archive_offer: Signal::new(None),
             tour_open: Signal::new(false),
             welcome_in: Signal::new(false),
@@ -759,6 +765,34 @@ fn apply(s: &mut AppState, delta: Delta) {
     {
         let delta = debug_patch(s, delta);
         match delta {
+            Delta::NeedsYou(items) => {
+                if *s.needs.peek() != items {
+                    s.needs.set(items);
+                }
+            }
+            Delta::Watches(w) => {
+                if *s.watches.peek() != w {
+                    s.watches.set(w);
+                }
+            }
+            Delta::Caught(caught) => {
+                let mut sound = crate::prefs::get().mail_sound && crate::sound::take_alert(crate::sound::Kind::Mail);
+                for (watch, m) in caught {
+                    let from = m.header.from.as_ref().map(|a| a.display().to_string()).unwrap_or_default();
+                    crate::notify::post(&crate::notify::Note {
+                        title: format!("Needs you · {watch}"),
+                        body: format!("{from}: {}", m.header.subject),
+                        target: crate::notify::Target::Thread {
+                            account: m.account_id.clone(),
+                            thread: m.header.thread_id.clone(),
+                            message: m.header.id.clone(),
+                        },
+                        join_url: None,
+                        sound: std::mem::take(&mut sound).then_some(crate::sound::Kind::Mail),
+                        banner: true,
+                    });
+                }
+            }
             Delta::NewMail(rows) => {
                 let prefs = crate::prefs::get();
                 let banner = prefs.mail_alert != "background" || !crate::notify::app_is_active();
@@ -1125,10 +1159,14 @@ pub fn mailbox_key(m: &Mailbox) -> String {
             format!("unified:{role}")
         }
         Mailbox::Folder { account_id, folder_id } => format!("folder:{account_id}|{folder_id}"),
+        Mailbox::NeedsYou => "needs".to_string(),
     }
 }
 
 pub fn parse_mailbox(key: &str) -> Option<Mailbox> {
+    if key == "needs" {
+        return Some(Mailbox::NeedsYou);
+    }
     if let Some(role) = key.strip_prefix("unified:") {
         return serde_json::from_value(serde_json::Value::String(role.to_string())).ok().map(Mailbox::Unified);
     }
@@ -1139,7 +1177,7 @@ pub fn parse_mailbox(key: &str) -> Option<Mailbox> {
 /// The restored mailbox still exists: its account and folder are there.
 pub fn mailbox_exists(m: &Mailbox, accounts: &[AccountNav]) -> bool {
     match m {
-        Mailbox::Unified(_) => true,
+        Mailbox::Unified(_) | Mailbox::NeedsYou => true,
         Mailbox::Folder { account_id, folder_id } => {
             accounts.iter().any(|a| a.account.id == *account_id && a.folders.iter().any(|f| f.folder.id == *folder_id))
         }

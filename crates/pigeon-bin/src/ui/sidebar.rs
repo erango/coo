@@ -86,6 +86,29 @@ fn visible_folders(provider: ProviderKind, folders: &[FolderInfo]) -> Vec<&Folde
     out
 }
 
+/// Needs you: what the watches caught, under the Inbox. Shown once there's
+/// a watch (or something caught).
+#[component]
+fn NeedsNav() -> Element {
+    let s = use_context::<AppState>();
+    let open = s.needs.read().iter().filter(|n| n.done_at.is_none()).count() as u32;
+    if s.watches.read().is_empty() && open == 0 {
+        return rsx! {};
+    }
+    let mut mailbox = s.mailbox;
+    let active = *mailbox.read() == Mailbox::NeedsYou;
+    rsx! {
+        a { class: "nav-item nav-item--needs", href: "#",
+            "aria-current": if active { "page" } else { "false" },
+            title: "Mail your watches caught",
+            onclick: move |e| { e.prevent_default(); super::search::close(s); mailbox.set(Mailbox::NeedsYou); },
+            Icon { name: "eye" }
+            span { class: "nav-item__label", "Needs you" }
+            super::bird::CountBadge { count: open }
+        }
+    }
+}
+
 #[component]
 pub fn Sidebar() -> Element {
     let s = use_context::<AppState>();
@@ -145,31 +168,34 @@ fn MailNav(many: bool) -> Element {
         accounts.iter().flat_map(|a| &a.folders).filter(|f| f.folder.role == Some(role)).map(|f| f.unread).sum()
     };
 
+    let unified = |role: FolderRole, label: &'static str, icon: &'static str| -> Element {
+        let count = if role == FolderRole::Inbox { unified_unread(role) } else { 0 };
+        let active = current == Mailbox::Unified(role);
+        let all: Vec<String> = accounts.iter().map(|a| a.account.id.clone()).collect();
+        rsx! {
+            a { class: "nav-item", href: "#",
+                "aria-current": if active { "page" } else { "false" },
+                // Unified Trash: empty every account's.
+                oncontextmenu: move |e| {
+                    if role == FolderRole::Trash && let Some(first) = all.first() {
+                        e.prevent_default();
+                        let p = e.client_coordinates();
+                        super::account_menu::open_for(s, first, super::account_menu::Target::Trash(all.clone()), p.x, p.y);
+                    }
+                },
+                onclick: move |e| { e.prevent_default(); super::search::close(s); mailbox.set(Mailbox::Unified(role)); },
+                Icon { name: icon }
+                span { class: "nav-item__label", "{label}" }
+                super::bird::CountBadge { count }
+            }
+        }
+    };
     rsx! {
         nav { class: "sidebar__nav", "aria-label": "Mailboxes",
-            for (role, label, icon) in UNIFIED {
-                {
-                    let count = if role == FolderRole::Inbox { unified_unread(role) } else { 0 };
-                    let active = current == Mailbox::Unified(role);
-                    let all: Vec<String> = accounts.iter().map(|a| a.account.id.clone()).collect();
-                    rsx! {
-                        a { class: "nav-item", href: "#",
-                            "aria-current": if active { "page" } else { "false" },
-                            // Unified Trash: empty every account's.
-                            oncontextmenu: move |e| {
-                                if role == FolderRole::Trash && let Some(first) = all.first() {
-                                    e.prevent_default();
-                                    let p = e.client_coordinates();
-                                    super::account_menu::open_for(s, first, super::account_menu::Target::Trash(all.clone()), p.x, p.y);
-                                }
-                            },
-                            onclick: move |e| { e.prevent_default(); super::search::close(s); mailbox.set(Mailbox::Unified(role)); },
-                            Icon { name: icon }
-                            span { class: "nav-item__label", "{label}" }
-                            super::bird::CountBadge { count }
-                        }
-                    }
-                }
+            {unified(UNIFIED[0].0, UNIFIED[0].1, UNIFIED[0].2)}
+            NeedsNav {}
+            for (role, label, icon) in UNIFIED.into_iter().skip(1) {
+                {unified(role, label, icon)}
             }
             for (i, a) in accounts.iter().enumerate() {
                 AccountSection { key: "{a.account.id}", nav: a.clone(), first: i == 0, many, index: i, count: accounts.len(), drag, over }

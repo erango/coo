@@ -61,17 +61,58 @@ fn tools() -> Vec<Tool> {
             write: false,
         },
         Tool {
+            name: "needs_you",
+            description: "What needs the user: mail Coo's watches caught (saved rules like \"invoices from Acme\"), \
+                newest first, each with the message, the watch's name and its note (what the user wants done with \
+                it). Coo catches these while it runs, even with no assistant open, so call this when the user asks \
+                what needs them, what's new that matters, or to follow up on their watches. Read a message with \
+                get_thread, act on it, then call mark_done.",
+            schema: s(json!({"include_done": bool_("Also list items done in the last day.", false)}), &[]),
+            write: false,
+        },
+        Tool {
+            name: "mark_done",
+            description: "Mark a needs_you item handled, with a short note on what you did (\"Drafted a reply in \
+                Drafts\"); the user sees it in Coo. It changes no mail.",
+            schema: s(
+                json!({"id": json!({"type": "integer", "description": "The item id from needs_you."}),
+                "note": str_("What you did, in a few words.")}),
+                &["id"],
+            ),
+            write: false,
+        },
+        Tool {
+            name: "add_watch",
+            description: "Save a watch in Coo: it catches matching new mail into needs_you while Coo runs, even when \
+                no assistant is open. Use it when the user says \"tell me when …\", \"keep an eye on …\" or \"let \
+                me know if … writes\". Each list matches any of its values; the lists given must all match.",
+            schema: s(
+                json!({
+                    "name": str_("A short name the user will recognize (\"Lena's logo feedback\")."),
+                    "from": strs("Sender addresses or parts of them (\"@acme.com\")."),
+                    "subject": strs("Words the subject contains."),
+                    "thread": strs("Thread ids, to watch conversations for replies."),
+                    "account": strs(ACCOUNT),
+                    "note": str_("What the user wants done with a match, for whoever picks it up."),
+                    "notify": bool_("Also show the user a notification for each match.", true),
+                    "days": json!({"type": "integer", "description": "Stop watching after this many days (none: until removed).", "minimum": 1}),
+                }),
+                &["name"],
+            ),
+            write: false,
+        },
+        Tool {
             name: "list_watches",
-            description: "The running mail watches (started with the `coo watch` command for background \
-                monitoring): id, filters, since when. Use it to find a watch to stop.",
+            description: "The user's saved watches (name, filters, note, how many caught) and any running `coo watch` \
+                streams.",
             schema: s(json!({}), &[]),
             write: false,
         },
         Tool {
-            name: "stop_watch",
-            description: "Stop a running mail watch by its id (from list_watches or the watch's first line), or \
-                every watch with all=true. Stopping only ends the waiting; it changes no mail.",
-            schema: s(json!({"id": str_("The watch id."), "all": bool_("Stop every running watch.", false)}), &[]),
+            name: "remove_watch",
+            description: "Remove a saved watch, or stop a running `coo watch` stream, by its id from list_watches. \
+                Only when the user asks; it changes no mail.",
+            schema: s(json!({"id": str_("The watch id.")}), &["id"]),
             write: false,
         },
         Tool {
@@ -310,15 +351,38 @@ async fn call(app: &Pigeon, w: Writes, name: &str, a: &Value) -> pigeon_core::Re
     Ok(match name {
         "list_accounts" => j(&ops::accounts(app)?),
         "list_folders" => j(&ops::folders(app, need(a, "account")?)?),
-        "list_watches" => j(&crate::watch::list(app)),
-        "stop_watch" => {
-            let all = flag(a, "all", false);
-            let id = a.get("id").and_then(Value::as_str).filter(|_| !all);
-            if id.is_none() && !all {
-                return Err(pigeon_core::Error::Other("give the watch id, or all=true".into()));
-            }
-            j(&json!({ "stopped": crate::watch::stop(app, id)? }))
+        "needs_you" => j(&crate::watch::needs_you(app, flag(a, "include_done", false))?),
+        "mark_done" => {
+            let id =
+                a.get("id").and_then(Value::as_i64).ok_or_else(|| pigeon_core::Error::Other("missing id".into()))?;
+            j(&crate::watch::mark_done(
+                app,
+                id,
+                a.get("note").and_then(Value::as_str).unwrap_or_default(),
+                &client_name(),
+            )?)
         }
+        "add_watch" => {
+            let filters = crate::watch::Filters {
+                from: strings(a, "from"),
+                subjects: strings(a, "subject"),
+                threads: strings(a, "thread"),
+                accounts: strings(a, "account"),
+                include_mine: false,
+            };
+            let until = a.get("days").and_then(Value::as_i64).map(|d| pigeon_core::now_ms() + d.max(1) * 86_400_000);
+            j(&crate::watch::add_watch(
+                app,
+                need(a, "name")?,
+                filters,
+                a.get("note").and_then(Value::as_str).unwrap_or_default(),
+                flag(a, "notify", true),
+                until,
+                &client_name(),
+            )?)
+        }
+        "list_watches" => j(&crate::watch::all(app)?),
+        "remove_watch" => j(&crate::watch::remove(app, Some(need(a, "id")?))?),
         "list_messages" => {
             let limit = num(a, "limit", 30, 300) as u32;
             match ops::list(
@@ -486,6 +550,25 @@ fn tool_list(w: Writes) -> Value {
 
 /// Env var carrying the request a restarted server answers first.
 const REPLAY: &str = "COO_MCP_REPLAY";
+/// The agent's own name (from `initialize`), carried across a restart.
+const CLIENT_ENV: &str = "COO_MCP_CLIENT";
+static CLIENT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Who the user sees as having done something ("Claude"), from the MCP
+/// client's name.
+fn client_name() -> String {
+    let raw = CLIENT.get().cloned().or_else(|| std::env::var(CLIENT_ENV).ok()).unwrap_or_default();
+    let lower = raw.to_lowercase();
+    if lower.contains("claude") && lower.contains("code") {
+        "Claude Code".into()
+    } else if lower.contains("claude") {
+        "Claude".into()
+    } else if raw.trim().is_empty() {
+        "Your assistant".into()
+    } else {
+        raw.trim().to_string()
+    }
+}
 
 /// Where requests go that need this server restarted from its updated
 /// binary (see `restart_if_updated`).
@@ -518,6 +601,9 @@ async fn handle(app: &Pigeon, w: Writes, msg: Value) -> Option<Value> {
     let params = msg.get("params").cloned().unwrap_or(Value::Null);
     let result = match method {
         "initialize" => {
+            if let Some(name) = params.pointer("/clientInfo/name").and_then(Value::as_str) {
+                let _ = CLIENT.set(name.to_string());
+            }
             let asked = params.get("protocolVersion").and_then(Value::as_str).unwrap_or_default();
             let version = SUPPORTED_VERSIONS.iter().find(|v| **v == asked).copied().unwrap_or(SUPPORTED_VERSIONS[0]);
             Ok(json!({
@@ -584,7 +670,11 @@ async fn restart(msg: &Value) {
     // Let replies already on their way reach the agent.
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     let Ok(exe) = std::env::current_exe() else { return };
-    let err = std::process::Command::new(exe).args(std::env::args_os().skip(1)).env(REPLAY, msg.to_string()).exec();
+    let err = std::process::Command::new(exe)
+        .args(std::env::args_os().skip(1))
+        .env(REPLAY, msg.to_string())
+        .env(CLIENT_ENV, client_name())
+        .exec();
     tracing::warn!(error = %err, "could not restart the MCP server");
 }
 

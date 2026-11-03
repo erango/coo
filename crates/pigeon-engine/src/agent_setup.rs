@@ -24,7 +24,10 @@ pub mod guide {
 
     pub const WORKFLOW: &str = "Workflow: list accounts first; then list a mailbox or search; then read a whole \
         thread (not just one message) before summarizing or replying. Message and thread ids are per account: \
-        always pass the account id they came with. If results look stale or a message is missing, sync, then retry.";
+        always pass the account id they came with. If results look stale or a message is missing, sync, then retry. \
+        When the user asks what needs them, start with Needs you (mail their saved watches caught, each with a \
+        note on what they want done); mark each item done once handled. \"Tell me when …\" requests become a \
+        saved watch.";
 
     pub const OPERATORS: &str = "Search operators: from:<text> to:<text> has:attachment is:unread is:read \
         is:flagged in:<inbox|sent|drafts|trash|spam|archive|starred> account:<text> before:YYYY-MM-DD \

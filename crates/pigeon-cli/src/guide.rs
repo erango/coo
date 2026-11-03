@@ -22,8 +22,15 @@ const COMMANDS: &[(&str, &str, &str)] = &[
         "coo --json watch --from @acme.com --subject invoice",
         "wait for new mail; one JSON line per match (--thread --account --once --include-mine)",
     ),
-    ("watches", "coo --json watches", "the running watches"),
-    ("unwatch", "coo --json unwatch <watch_id>", "stop a watch (--all: every one)"),
+    (
+        "watch-add",
+        "coo --json watch-add --name \"Acme invoices\" --from @acme.com --subject invoice --note \"…\"",
+        "save a watch in Coo: matches go to Needs you, even with no agent running",
+    ),
+    ("needs-you", "coo --json needs-you", "what the saved watches caught (--all: also done ones)"),
+    ("done", "coo --json done <id> --note \"Drafted a reply\"", "mark a Needs-you item handled"),
+    ("watches", "coo --json watches", "saved watches and running streams"),
+    ("unwatch", "coo --json unwatch <watch_id>", "remove a saved watch or stop a stream (--all: every stream)"),
     ("senders", "coo --json senders", "every address the user can send from"),
     (
         "reply",
@@ -85,7 +92,11 @@ pub fn agent_help() -> String {
          `coo --json watch ...` as a background task (Claude Code: Bash with run_in_background, or Monitor) and act \
          on each line it prints. Repeat a flag to match any of its values; different flags must all match. It reports \
          only mail that arrives after it starts, never your own unless --include-mine. Stop it with `coo unwatch <id>` \
-         (the id is on its first line; `coo watches` lists them), or stop the background task.\n\n\
+         (the id is on its first line; `coo watches` lists them), or stop the background task.\n\
+         Saved watches live in Coo instead: `coo watch-add` (or the MCP add_watch tool) keeps catching matches into \
+         Needs you while Coo runs, with no agent running. When the user asks what needs them, read `coo needs-you` \
+         (MCP needs_you): each item has the message and the watch's note saying what they want done; act, then \
+         `coo done <id> --note \"what you did\"`.\n\n\
          MCP\n`coo mcp` serves the same operations as tools on stdio (read-only; add --allow-write for writes). \
          `coo mcp-config --client claude-code|claude-code-desktop|claude-desktop` prints a ready config with the \
          absolute path and env.\n"
