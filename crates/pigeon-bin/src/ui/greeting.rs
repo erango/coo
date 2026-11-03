@@ -172,6 +172,10 @@ pub fn in_empty_reader() -> bool {
 pub fn debug(s: AppState, arg: &str) {
     let mut parts = arg.split('|');
     let Some(scene) = parts.next().and_then(Scene::from_id) else { return };
+    // With an update waiting too (PIGEON_DEBUG_UPDATE=<version>).
+    if let Ok(v) = std::env::var("PIGEON_DEBUG_UPDATE") {
+        crate::updater::fake_ready(&v);
+    }
     if let (Some(account_id), Some(thread_id)) = (parts.next(), parts.next()) {
         let mut sel = s.selected;
         sel.set(Some(format!("{account_id}|{thread_id}")));
@@ -204,6 +208,23 @@ fn Art(scene: Scene) -> Element {
     }
 }
 
+/// An update waiting for a restart, offered with the day's hello.
+#[component]
+fn UpdateNote() -> Element {
+    let s = use_context::<AppState>();
+    let Some(version) = s.update_ready.read().clone() else { return rsx! {} };
+    rsx! {
+        div { class: "greet-update",
+            Icon { name: "sync", class: "icon--sm" }
+            span { class: "greet-update__text", "Coo {version} is ready" }
+            button { class: "btn btn--secondary btn--sm", r#type: "button",
+                onclick: move |e| { e.stop_propagation(); super::restart_to_update(); },
+                "Restart to update"
+            }
+        }
+    }
+}
+
 /// The greeting in the empty reader.
 #[component]
 pub fn GreetingHello() -> Element {
@@ -214,6 +235,7 @@ pub fn GreetingHello() -> Element {
             div { class: "greet__scene", Art { scene: g.scene } }
             div { class: "greet__title", dir: "auto", "{g.title}" }
             div { class: "greet__line", dir: "auto", "{g.line}" }
+            UpdateNote {}
         }
     }
 }
@@ -231,6 +253,7 @@ pub fn GreetingCard() -> Element {
             div { class: "greet-card__text",
                 div { class: "greet-card__title", dir: "auto", "{g.title}" }
                 div { class: "greet-card__line", dir: "auto", "{g.line}" }
+                UpdateNote {}
             }
             button { class: "icon-btn icon-btn--sm", r#type: "button", "aria-label": "Dismiss", title: "Dismiss",
                 onclick: move |e| { e.stop_propagation(); dismiss(); },
