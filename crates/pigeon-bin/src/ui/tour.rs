@@ -48,6 +48,8 @@ pub fn Tour() -> Element {
     let mut hops = use_signal(|| 0u32);
     let mut backward = use_signal(|| false);
     let mut finished = use_signal(|| false);
+    // Whether Coo is the default email app (None: a dev build, not offered).
+    let mail_app = use_signal(crate::mailto::is_default);
     // The control that just changed and a counter, so its motion replays.
     let mut fx = use_signal(|| ("", 0u32));
     // Prefs as of the last change here (re-read after each one).
@@ -333,6 +335,16 @@ pub fn Tour() -> Element {
                                         touched("menubar");
                                         if now { flash(menubar_demo, 2400); }
                                     } }
+                                if mail_app.read().is_some() {
+                                    div { class: "tour-toggle",
+                                        span { class: ic("mailapp", *mail_app.read() == Some(true)), Icon { name: "at", class: "icon--sm" } }
+                                        div { class: "tour-toggle__text",
+                                            b { "Coo as your email app" }
+                                            span { class: "tour__hint", "Email links in other apps and on the web start a new message in Coo." }
+                                        }
+                                        super::settings_sections::DefaultMailButton { state: mail_app }
+                                    }
+                                }
                                 div { class: "tour-toggle",
                                     span { class: ic("sound", pr.sound_theme != crate::sound::NONE) + if fx_key == "sound" && pr.sound_theme != crate::sound::NONE { " tour-ic--wave" } else { "" },
                                         svg { class: "icon", view_box: "0 0 24 24", "aria-hidden": "true", fill: "none", stroke: "currentColor", stroke_width: "1.7", stroke_linecap: "round", stroke_linejoin: "round",

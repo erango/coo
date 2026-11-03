@@ -14,16 +14,18 @@
 //! menu, status menu), and while the window is hidden Coo installs on its own
 //! once nothing is being written or sent (see `silent_install_due`).
 //!
-//! Besides Sparkle's own schedule, Coo checks in the background when it comes
-//! to the foreground (at most every 10 minutes, `check_due`: the appcast is
-//! one small request) and whenever About opens.
+//! Besides Sparkle's own schedule, Coo checks in the background whenever it
+//! becomes the active app (at most every 3 minutes, `check_due`: the appcast
+//! is one small request) and whenever About opens. Activation, not window
+//! focus: ⌘-Tab back to Coo with its window hidden in the menu bar, or with
+//! a compose window in front, focuses no main window.
 //!
 //! Everything here runs on the main thread (Dioxus desktop's UI thread).
 
 use std::time::{Duration, SystemTime};
 
 /// Foreground checks run at most this often (any check resets the clock).
-pub const FOREGROUND_INTERVAL: Duration = Duration::from_secs(10 * 60);
+pub const FOREGROUND_INTERVAL: Duration = Duration::from_secs(3 * 60);
 /// A downloaded update installs by itself, in menu-bar mode, after this long.
 pub const SILENT_INSTALL_AFTER: Duration = Duration::from_secs(10 * 60);
 
@@ -128,9 +130,14 @@ mod imp {
 
     use block2::{Block, RcBlock};
     use objc2::rc::{Allocated, Retained};
-    use objc2::runtime::{AnyClass, AnyObject, Bool, NSObject};
+    use std::ptr::NonNull;
+
+    use objc2::runtime::{AnyClass, AnyObject, Bool, NSObject, NSObjectProtocol, ProtocolObject};
     use objc2::{MainThreadMarker, MainThreadOnly, define_class, msg_send};
-    use objc2_foundation::{NSBundle, NSDate, NSError, NSString};
+    use objc2_app_kit::NSApplicationDidBecomeActiveNotification;
+    use objc2_foundation::{
+        NSBundle, NSDate, NSError, NSNotification, NSNotificationCenter, NSOperationQueue, NSString,
+    };
 
     use super::{Status, events};
 
@@ -215,6 +222,7 @@ mod imp {
         static INSTALL: RefCell<Option<RcBlock<dyn Fn()>>> = const { RefCell::new(None) };
         static LAST_CHECK: Cell<Option<SystemTime>> = const { Cell::new(None) };
         static CHECKING: Cell<bool> = const { Cell::new(false) };
+        static ACTIVE_OBSERVER: OnceCell<Retained<ProtocolObject<dyn NSObjectProtocol>>> = const { OnceCell::new() };
     }
 
     fn load() -> Option<Sparkle> {
@@ -253,7 +261,25 @@ mod imp {
     }
 
     pub fn start() {
-        let _ = with(|_| ());
+        if with(|_| ()).is_none() {
+            return;
+        }
+        // Coming back to Coo: a silent check (`check_due` throttles it).
+        ACTIVE_OBSERVER.with(|o| {
+            o.get_or_init(|| {
+                let block = RcBlock::new(|_: NonNull<NSNotification>| check_background(false));
+                // SAFETY: the main queue runs the block on the main thread,
+                // where everything here lives; the name is AppKit's constant.
+                unsafe {
+                    NSNotificationCenter::defaultCenter().addObserverForName_object_queue_usingBlock(
+                        Some(NSApplicationDidBecomeActiveNotification),
+                        None,
+                        Some(&NSOperationQueue::mainQueue()),
+                        &block,
+                    )
+                }
+            });
+        });
     }
 
     pub fn available() -> bool {
@@ -424,8 +450,8 @@ mod tests {
     fn foreground_checks_are_every_ten_minutes() {
         let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_800_000_000);
         assert!(check_due(None, t0));
-        assert!(!check_due(Some(t0), t0 + Duration::from_secs(9 * 60)));
-        assert!(check_due(Some(t0), t0 + Duration::from_secs(10 * 60)));
+        assert!(!check_due(Some(t0), t0 + Duration::from_secs(2 * 60)));
+        assert!(check_due(Some(t0), t0 + Duration::from_secs(3 * 60)));
         // A clock that went backwards doesn't block checks forever.
         assert!(check_due(Some(t0 + Duration::from_secs(3600)), t0));
     }

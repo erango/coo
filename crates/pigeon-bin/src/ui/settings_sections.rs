@@ -40,6 +40,7 @@ pub fn General() -> Element {
     let available = crate::updater::available();
     let (version, build) = crate::updater::version();
     let mut auto = use_signal(crate::updater::automatic);
+    let mail_app = use_signal(crate::mailto::is_default);
     rsx! {
         div { class: "settings__title", "General" }
         Group { title: "Window",
@@ -59,6 +60,21 @@ pub fn General() -> Element {
                             "{label}"
                         }
                     }
+                }
+            }
+        }
+        if let Some(default) = *mail_app.read() {
+            Group { title: "Email links",
+                Row { label: "Default email app",
+                    hint: if default {
+                        "Email links in other apps and on the web start a new message in Coo.".to_string()
+                    } else {
+                        match crate::mailto::current_app() {
+                            Some(app) => format!("Email links in other apps open {app}. Make Coo the default to write them here."),
+                            None => "Make Coo the default to write email links from other apps and the web here.".to_string(),
+                        }
+                    },
+                    DefaultMailButton { state: mail_app }
                 }
             }
         }
@@ -103,6 +119,39 @@ pub fn General() -> Element {
                 super::settings_bird::AboutBird {}
                 button { class: "btn btn--secondary btn--sm", r#type: "button", onclick: move |_| crate::about::show(), "Open" }
             }
+        }
+    }
+}
+
+/// "Make default" for email links, or a check once Coo is the default.
+/// `state` is `mailto::is_default()`; macOS may ask the user to confirm,
+/// so it's checked again for a minute after the click.
+#[component]
+pub fn DefaultMailButton(state: Signal<Option<bool>>) -> Element {
+    let mut state = state;
+    let mut asking = use_signal(|| false);
+    if *state.read() == Some(true) {
+        return rsx! {
+            span { class: "default-mail__on", Icon { name: "check", class: "icon--sm" } "Default" }
+        };
+    }
+    rsx! {
+        button { class: "btn btn--secondary btn--sm", r#type: "button", disabled: *asking.read(),
+            onclick: move |_| {
+                crate::mailto::make_default();
+                asking.set(true);
+                spawn(async move {
+                    for _ in 0..120 {
+                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                        if crate::mailto::is_default() == Some(true) {
+                            state.set(Some(true));
+                            break;
+                        }
+                    }
+                    asking.set(false);
+                });
+            },
+            if *asking.read() { "Waiting for macOS…" } else { "Make default" }
         }
     }
 }

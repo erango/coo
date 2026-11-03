@@ -727,7 +727,8 @@ fn Body(account_id: String, message_id: String, sender: String, body: StoredBody
             if prefs.quotes_open {
                 folded = folded.map(|h| h.replace("<details class=\"coo-quoted", "<details open class=\"coo-quoted"));
             }
-            let (marked, _) = mailframe::highlight_html(folded.as_deref().unwrap_or(html), &terms);
+            let linked = mailframe::linkify_html(folded.as_deref().unwrap_or(html));
+            let (marked, _) = mailframe::highlight_html(&linked, &terms);
             let doc = mailframe::srcdoc(
                 &marked,
                 &s.palette.read(),
@@ -750,15 +751,11 @@ fn Body(account_id: String, message_id: String, sender: String, body: StoredBody
             let split = if prefs.quote_style == "plain" { None } else { pigeon_core::quotes::split_text(text) };
             let main = split.as_ref().map_or(text, |(m, _)| m.as_str());
             let quote = split.as_ref().map(|(_, q)| q.clone());
-            let runs: Vec<(String, bool)> =
-                mailframe::split_matches(main, &terms).into_iter().map(|(t, m)| (t.to_string(), m)).collect();
             rsx! {
                 div { class: "plain-body", dir: "auto", "data-quotes": "{prefs.quote_style}",
                     // One inline run: .plain-body is a flex column.
                     div { dir: "auto", style: "unicode-bidi:plaintext",
-                        for (i, (t, m)) in runs.into_iter().enumerate() {
-                            if m { mark { key: "{i}", "data-pg-match": "true", "{t}" } } else { span { key: "{i}", "{t}" } }
-                        }
+                        LinkedText { text: main.to_string(), terms }
                     }
                     if let Some(q) = quote {
                         TextQuoted { quote: q, open: prefs.quotes_open }
@@ -903,6 +900,38 @@ fn TextQuoted(quote: pigeon_core::quotes::TextQuote, open: bool) -> Element {
     }
 }
 
+/// Plain text with its web and email addresses as links and the search
+/// terms marked. A click opens a web link in the browser and starts a new
+/// message to an email address.
+#[component]
+fn LinkedText(text: String, terms: Vec<String>) -> Element {
+    let s = use_context::<AppState>();
+    let mut runs = Vec::new();
+    for (seg, link) in pigeon_core::links::split(&text) {
+        let href = link.map(|l| l.href());
+        for (t, m) in mailframe::split_matches(seg, &terms) {
+            runs.push((t.to_string(), m, href.clone()));
+        }
+    }
+    rsx! {
+        for (i, (t, m, href)) in runs.into_iter().enumerate() {
+            if let Some(href) = href {
+                a { key: "{i}", class: "plain-link", href: "{href}", title: "{href}",
+                    onclick: move |e| {
+                        e.prevent_default();
+                        super::open_link(&s, &href);
+                    },
+                    if m { mark { "data-pg-match": "true", "{t}" } } else { "{t}" }
+                }
+            } else if m {
+                mark { key: "{i}", "data-pg-match": "true", "{t}" }
+            } else {
+                span { key: "{i}", "{t}" }
+            }
+        }
+    }
+}
+
 #[component]
 fn TextQuoteLevel(quote: pigeon_core::quotes::TextQuote, level: usize, open: bool) -> Element {
     let inner = quote.inner.as_deref().cloned();
@@ -917,7 +946,7 @@ fn TextQuoteLevel(quote: pigeon_core::quotes::TextQuote, level: usize, open: boo
                     if let Some(t) = &w.when { span { "{t}" } }
                 }
             }
-            div { class: "coo-q__body", dir: "auto", "{text}" }
+            div { class: "coo-q__body", dir: "auto", LinkedText { text, terms: Vec::new() } }
             if let Some(q) = inner {
                 if level >= 2 {
                     details { class: "coo-quoted coo-quoted--deeper", open,

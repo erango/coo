@@ -11,6 +11,7 @@ mod fonts;
 mod format;
 mod greeting;
 mod keymon;
+mod mailto;
 mod meeting;
 mod menu;
 mod menubar;
@@ -159,7 +160,8 @@ fn main() {
                 .with_background_color((17, 18, 21, 255))
                 // Release builds default to no right-click menu at all; bridge.rs keeps
                 // it to text, editors, links and images (trimmed by ctxmenu.rs).
-                .with_disable_context_menu(false),
+                .with_disable_context_menu(false)
+                .with_custom_event_handler(|event, _| mailto::on_event(event)),
         )
         .launch(ui::App);
 }

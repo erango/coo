@@ -13,6 +13,7 @@ pub mod http;
 pub mod ics;
 pub mod identity;
 pub mod images;
+pub mod links;
 pub mod meeting;
 pub mod model;
 pub mod mojibake;

@@ -15,7 +15,7 @@ pub fn decode_data_url(url: &str) -> Option<(String, Vec<u8>)> {
     Some((mime.to_string(), bytes))
 }
 
-fn percent_decode(s: &str) -> Vec<u8> {
+pub(crate) fn percent_decode(s: &str) -> Vec<u8> {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;

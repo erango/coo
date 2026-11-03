@@ -109,13 +109,21 @@ pub fn App() -> Element {
                     reader_window::close_all();
                 }
             }
-            Event::Reopen { .. } => {
-                crate::menubar::show_main();
-                crate::updater::check_background(false);
-            }
-            // Coming back to the foreground: a silent update check, at most every 10 minutes.
-            Event::WindowEvent { event: WindowEvent::Focused(true), .. } => crate::updater::check_background(false),
+            // Coming back to the foreground checks for updates too
+            // (updater.rs watches the app becoming active).
+            Event::Reopen { .. } => crate::menubar::show_main(),
             _ => {}
+        }
+    });
+
+    // An email link clicked in another app (Coo as the default email app):
+    // a new message to it, in the main window.
+    use_future(move || async move {
+        loop {
+            for url in crate::mailto::next().await {
+                crate::menubar::show_main();
+                open_link(&s, &url);
+            }
         }
     });
 
@@ -1122,12 +1130,7 @@ async fn bridge_loop(s: AppState) {
                     d.set(None);
                 }
             }
-            "link" => {
-                let v = msg.v.to_ascii_lowercase();
-                if v.starts_with("http://") || v.starts_with("https://") || v.starts_with("mailto:") {
-                    let _ = open::that_detached(&msg.v);
-                }
-            }
+            "link" => open_link(&s, &msg.v),
             // Screenshot runs (PIGEON_IGNORE_INPUT=1) open frontmost; never let a
             // stray keystroke meant for another app act on the demo mailbox.
             "key" if input_ignored() => {}
@@ -1400,7 +1403,20 @@ pub fn report_bug(s: AppState) {
 /// folders); from the all-accounts mailboxes (or Calendar), from the
 /// default set in Settings.
 pub fn new_message(s: AppState) {
-    send_cmd(Cmd::NewDraft { from_account: contextual_from(&s) });
+    send_cmd(Cmd::NewDraft { from_account: contextual_from(&s), mailto: None });
+}
+
+/// A link clicked in a message: a web link opens in the browser, a
+/// `mailto:` link starts a new message here.
+pub fn open_link(s: &AppState, url: &str) {
+    let v = url.to_ascii_lowercase();
+    if v.starts_with("mailto:") {
+        if let Some(m) = pigeon_core::links::parse_mailto(url) {
+            send_cmd(Cmd::NewDraft { from_account: contextual_from(s), mailto: Some(m) });
+        }
+    } else if v.starts_with("http://") || v.starts_with("https://") {
+        let _ = open::that_detached(url);
+    }
 }
 
 fn contextual_from(s: &AppState) -> Option<String> {

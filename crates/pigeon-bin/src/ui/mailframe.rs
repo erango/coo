@@ -89,16 +89,12 @@ pub fn split_matches<'a>(text: &'a str, terms: &[String]) -> Vec<(&'a str, bool)
     out
 }
 
-/// Wrap matches in text nodes of (sanitized) HTML with `<mark>`; tags,
-/// entities and style/script/title content are left alone. Returns the new
-/// HTML and the number of matches. Only the original characters plus our
-/// own `<mark>` tags are emitted, so it can't open a sanitization hole.
-pub fn highlight_html(html: &str, terms: &[String]) -> (String, usize) {
-    if terms.is_empty() {
-        return (html.to_string(), 0);
-    }
+/// Rewrite the text between the tags of (sanitized) HTML with `f`; tags,
+/// comments and the content of `style`/`script`/`title`/`textarea` (and
+/// of `also_skip` elements) pass through untouched. `f` gets the text as
+/// it stands in the HTML, entities and all.
+fn map_text(html: &str, also_skip: &[&str], mut f: impl FnMut(&str, &mut String)) -> String {
     let mut out = String::with_capacity(html.len() + 64);
-    let mut count = 0;
     let mut rest = html;
     let mut skip_until: Option<String> = None;
     while !rest.is_empty() {
@@ -107,27 +103,7 @@ pub fn highlight_html(html: &str, terms: &[String]) -> (String, usize) {
         if skip_until.is_some() {
             out.push_str(text);
         } else {
-            // Don't match across an entity: highlight between them only.
-            let mut t = text;
-            while !t.is_empty() {
-                let amp = t.find('&').unwrap_or(t.len());
-                for (seg, m) in split_matches(&t[..amp], terms) {
-                    if m {
-                        count += 1;
-                        out.push_str("<mark data-pg-match>");
-                        out.push_str(seg);
-                        out.push_str("</mark>");
-                    } else {
-                        out.push_str(seg);
-                    }
-                }
-                t = &t[amp..];
-                if !t.is_empty() {
-                    let end = t.find(';').filter(|&e| e <= 12).map_or(1, |e| e + 1);
-                    out.push_str(&t[..end]);
-                    t = &t[end..];
-                }
-            }
+            f(text, &mut out);
         }
         rest = &rest[lt..];
         if rest.is_empty() {
@@ -161,7 +137,9 @@ pub fn highlight_html(html: &str, terms: &[String]) -> (String, usize) {
             .to_ascii_lowercase();
         match &skip_until {
             Some(close) if name == *close => skip_until = None,
-            None if matches!(name.as_str(), "style" | "script" | "title" | "textarea") => {
+            None if matches!(name.as_str(), "style" | "script" | "title" | "textarea")
+                || also_skip.contains(&name.as_str()) =>
+            {
                 skip_until = Some(format!("/{name}"))
             }
             _ => {}
@@ -169,7 +147,90 @@ pub fn highlight_html(html: &str, terms: &[String]) -> (String, usize) {
         out.push_str(tag);
         rest = &rest[end..];
     }
+    out
+}
+
+/// The length of the entity `t` starts with (`&amp;`), or 1 for a bare `&`.
+fn entity_len(t: &str) -> usize {
+    t.find(';').filter(|&e| e <= 12).map_or(1, |e| e + 1)
+}
+
+/// Wrap matches in text nodes of (sanitized) HTML with `<mark>`; tags,
+/// entities and style/script/title content are left alone. Returns the new
+/// HTML and the number of matches. Only the original characters plus our
+/// own `<mark>` tags are emitted, so it can't open a sanitization hole.
+pub fn highlight_html(html: &str, terms: &[String]) -> (String, usize) {
+    if terms.is_empty() {
+        return (html.to_string(), 0);
+    }
+    let mut count = 0;
+    let out = map_text(html, &[], |text, out| {
+        // Don't match across an entity: highlight between them only.
+        let mut t = text;
+        while !t.is_empty() {
+            let amp = t.find('&').unwrap_or(t.len());
+            for (seg, m) in split_matches(&t[..amp], terms) {
+                if m {
+                    count += 1;
+                    out.push_str("<mark data-pg-match>");
+                    out.push_str(seg);
+                    out.push_str("</mark>");
+                } else {
+                    out.push_str(seg);
+                }
+            }
+            t = &t[amp..];
+            if !t.is_empty() {
+                let end = entity_len(t);
+                out.push_str(&t[..end]);
+                t = &t[end..];
+            }
+        }
+    });
     (out, count)
+}
+
+/// Make the web and email addresses in the text of (sanitized) HTML
+/// clickable, outside its own links. A link can run through `&amp;` (a
+/// URL's query) but no other entity (`&lt;https://x.io&gt;`). The text
+/// stays as it was in the HTML, so the href needs no escaping: it holds no
+/// `"`, `<` or `>` (pigeon_core::links breaks there) and only http(s) and
+/// mailto.
+pub fn linkify_html(html: &str) -> String {
+    map_text(html, &["a"], |text, out| {
+        let mut t = text;
+        while !t.is_empty() {
+            let mut cut = 0;
+            while let Some(a) = t[cut..].find('&').map(|a| cut + a) {
+                if !t[a..].starts_with("&amp;") {
+                    cut = a;
+                    break;
+                }
+                cut = a + "&amp;".len();
+            }
+            if !t[cut..].starts_with('&') {
+                cut = t.len();
+            }
+            for (seg, link) in pigeon_core::links::split(&t[..cut]) {
+                match link {
+                    Some(link) => {
+                        out.push_str("<a href=\"");
+                        out.push_str(&link.href());
+                        out.push_str("\">");
+                        out.push_str(seg);
+                        out.push_str("</a>");
+                    }
+                    None => out.push_str(seg),
+                }
+            }
+            t = &t[cut..];
+            if !t.is_empty() {
+                let end = entity_len(t);
+                out.push_str(&t[..end]);
+                t = &t[end..];
+            }
+        }
+    })
 }
 
 const MARK_CSS: &str = "mark{background:#FFE58A;color:#111;border-radius:3px;padding:0 1px}mark[data-current]{background:#1F8A70;color:#fff}";
@@ -297,6 +358,15 @@ mod tests {
         let doc = srcdoc("", "dracula", true, true, false, "");
         assert!(doc.contains(&format!("--mail-fg: {fg}")) && doc.contains(&format!("--mail-link: {link}")));
         assert!(!doc.contains("#EDEEF0"));
+    }
+
+    #[test]
+    fn links_addresses_in_text_but_not_in_links_or_markup() {
+        let html = r#"<p title="x.io">Go to x.io/a?b=1&amp;c=2 or <a href="https://y.io">y.io</a>, write dan@tvtracker.online &lt;https://z.io&gt;</p><style>a.io{}</style>"#;
+        assert_eq!(
+            linkify_html(html),
+            r#"<p title="x.io">Go to <a href="https://x.io/a?b=1&amp;c=2">x.io/a?b=1&amp;c=2</a> or <a href="https://y.io">y.io</a>, write <a href="mailto:dan@tvtracker.online">dan@tvtracker.online</a> &lt;<a href="https://z.io">https://z.io</a>&gt;</p><style>a.io{}</style>"#
+        );
     }
 
     #[test]

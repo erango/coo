@@ -1950,6 +1950,8 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 /* Plain-text messages: ">"-quoted history folds like HTML quotes do
    (the frame's look, mailframe.rs QUOTE_CSS, in the app's tokens). */
 .plain-body { --q-fg: var(--text-1); --q-muted: var(--text-3); --q-accent: var(--accent); }
+.plain-body a.plain-link { color: var(--accent); text-decoration: none; cursor: pointer; overflow-wrap: anywhere; }
+.plain-body a.plain-link:hover { text-decoration: underline; }
 .plain-body .coo-quoted { margin: 8px 0 4px; white-space: normal; font-size: 14px; line-height: 1.55; }
 .plain-body .coo-quoted > summary {
   list-style: none; display: inline-flex; align-items: center; gap: 8px; height: 26px; padding: 0 11px; border-radius: 13px;
@@ -2407,3 +2409,7 @@ html[data-contrast="high"] .greet-card { box-shadow: 0 0 0 1.5px var(--line-stro
 .watch-row__controls { display: flex; align-items: center; gap: 12px; }
 .watch-row__toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); }
 .watch-new__actions { justify-content: flex-end; gap: 8px; }
+
+/* Settings › General and the tour: Coo is the default email app. */
+.default-mail__on { display: inline-flex; align-items: center; gap: 6px; height: 28px; font-size: 13px; color: var(--text-2); }
+.default-mail__on .icon { color: var(--success); }

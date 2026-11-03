@@ -313,6 +313,8 @@ pub enum Cmd {
     /// the first sending address.
     NewDraft {
         from_account: Option<String>,
+        /// From a `mailto:` link: who to, the subject and the text.
+        mailto: Option<pigeon_core::links::Mailto>,
     },
     /// Save locally now; push to the server after a short pause.
     SaveDraft(Draft),
@@ -1549,7 +1551,7 @@ impl Service {
                 let draft = self.app.reply(&account, &message_id, kind, None).await?;
                 self.send(Delta::Draft(draft));
             }
-            Cmd::NewDraft { from_account } => {
+            Cmd::NewDraft { from_account, mailto } => {
                 let from = match from_account.and_then(|id| self.app.account(&id).ok()) {
                     Some(account) => self.app.primary_sender(&account)?,
                     None => self
@@ -1561,6 +1563,12 @@ impl Service {
                         .ok_or_else(|| Error::Other("add an account first".into()))?,
                 };
                 let mut draft = Draft::new(from, now_ms());
+                if let Some(m) = mailto {
+                    (draft.to, draft.cc, draft.bcc, draft.subject) = (m.to, m.cc, m.bcc, m.subject);
+                    if !m.body.is_empty() {
+                        draft.body_html = pigeon_core::text::text_to_html(&m.body);
+                    }
+                }
                 self.app.save_draft(&mut draft)?;
                 self.send(Delta::Draft(draft));
             }

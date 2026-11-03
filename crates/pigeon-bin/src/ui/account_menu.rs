@@ -265,7 +265,7 @@ fn run(s: AppState, m: &AccountMenu, entry: Entry) {
     close(s);
     let id = m.account_id.clone();
     match entry {
-        Entry::NewFrom => send_cmd(Cmd::NewDraft { from_account: Some(id) }),
+        Entry::NewFrom => send_cmd(Cmd::NewDraft { from_account: Some(id), mailto: None }),
         Entry::SetDefault => s.set_default_account(Some(&id)),
         Entry::ClearDefault => s.set_default_account(None),
         Entry::Mute | Entry::Unmute => {
