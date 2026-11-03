@@ -54,8 +54,15 @@ input.input--bare { border: 0; outline: none; }
 .nav-account[data-drop="after"] { box-shadow: inset 0 -2px 0 var(--accent); }
 .nav-account[data-dragging] { opacity: 0.45; }
 .nav-section[draggable="true"] { cursor: grab; }
-.nav-section__grip { margin-left: 2px; opacity: 0; color: var(--text-3); transition: opacity var(--dur-fast, 120ms) var(--ease-standard, ease); }
-.nav-section:hover .nav-section__grip { opacity: 1; }
+/* The drag grip takes no room until hover (its negative margin cancels the
+   row's 8px gap), so the provider mark lines up with the folder counts; on
+   hover it and its gap grow in together. */
+.nav-section__grip {
+  flex: none; width: 0; margin-left: -8px; opacity: 0; color: var(--text-3);
+  transition: width 160ms var(--ease-standard, ease), margin-left 160ms var(--ease-standard, ease), opacity 120ms var(--ease-standard, ease);
+}
+.nav-section:hover .nav-section__grip { width: 12px; margin-left: 2px; opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .nav-section__grip { transition: opacity 120ms; } }
 
 /* Text size (⌘+/⌘-): the root gets `zoom` and `--ui-zoom`. CSS zoom doesn't
    rescale viewport units, so divide them back out wherever the layout uses
