@@ -139,15 +139,18 @@ pub fn FlagIcon(
     if !flagged && !always && a != Some("down") {
         return rsx! {};
     }
+    // Taken down where the flag stays shown (toolbar buttons): it ends as
+    // the upright outline, so its fill drains instead of the flag lowering.
+    let unfill = !flagged && always && a == Some("down");
     rsx! {
-        span { class: "flag-wave", "data-flag": a, "data-up": flagged.then_some("true"),
-            if flagged {
+        span { class: "flag-wave", "data-flag": if unfill { Some("unfill") } else { a }, "data-up": flagged.then_some("true"),
+            if flagged || unfill {
                 // The icon set's flag is an outline (its fill is set on the
                 // symbol, out of CSS's reach): the same shape, filled.
                 svg { class: "icon {class}", "aria-hidden": "true", view_box: "0 0 24 24", fill: "none", stroke: "currentColor",
                     stroke_width: "1.6", stroke_linecap: "round", stroke_linejoin: "round",
                     path { d: "M5 21V4" }
-                    path { d: "M5 4h12l-2.5 4L17 12H5z", fill: "currentColor" }
+                    path { class: "flag-wave__cloth", d: "M5 4h12l-2.5 4L17 12H5z", fill: "currentColor" }
                 }
             } else {
                 Icon { name: "flag", class: class }

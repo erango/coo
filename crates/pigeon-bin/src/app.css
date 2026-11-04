@@ -1722,7 +1722,8 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .list[data-sweep] .row[data-leaving] { display: none; }
 @keyframes row-sweep { to { transform: translateY(220px) scale(0.3) rotate(4deg); opacity: 0; } }
 
-/* Flag flutter: a flag set waves once; one taken down lowers. */
+/* Flag flutter: a flag set waves once; one taken down lowers, or, where
+   the outline stays shown (toolbar buttons), loses its fill and color. */
 .flag-wave { display: inline-flex; }
 /* A flag that's up: the flag color everywhere, toolbar buttons included. */
 .flag-wave[data-up] { color: var(--warning); }
@@ -1733,6 +1734,12 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
   60% { transform: skewY(7deg); } 80% { transform: skewY(-3deg); } 100% { transform: none; }
 }
 @keyframes flag-down { to { transform: translateY(5px) scaleY(0.2); opacity: 0; } }
+.flag-wave[data-flag="unfill"] { animation: flag-uncolor 450ms ease-out; }
+.flag-wave[data-flag="unfill"] > .icon { transform-origin: 15% 95%; animation: flag-settle 450ms cubic-bezier(0.22, 1, 0.36, 1); }
+.flag-wave[data-flag="unfill"] .flag-wave__cloth { animation: flag-unfill 450ms ease-out both; }
+@keyframes flag-uncolor { from { color: var(--warning); } }
+@keyframes flag-unfill { from { fill-opacity: 1; } to { fill-opacity: 0; } }
+@keyframes flag-settle { 30% { transform: skewY(5deg); } 65% { transform: skewY(-2deg); } }
 
 /* Mark read / unread: the envelope's flap folds shut (read) or open
    (unread) over the fold line, with a small settle at the end. */
@@ -1771,7 +1778,8 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .server-more__msg > .bird--tiny { margin-right: 2px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .bird *, .perch__coo, .perch__feather, .list[data-sweep] .row, .flag-wave > .icon, .sidebar__status .sync-status .icon, .count--zero, .count__feather { animation: none !important; }
+  .bird *, .perch__coo, .perch__feather, .list[data-sweep] .row, .flag-wave > .icon, .flag-wave[data-flag="unfill"], .flag-wave__cloth, .sidebar__status .sync-status .icon, .count--zero, .count__feather { animation: none !important; }
+  .flag-wave[data-flag="unfill"] .flag-wave__cloth { fill-opacity: 0; }
   .count__feather { display: none; }
 }
 /* The appearance switch in the sidebar's bar (sidebar.rs ThemeButton): each
