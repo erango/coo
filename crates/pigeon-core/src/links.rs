@@ -203,6 +203,13 @@ mod tests {
         );
         assert_eq!(links("<https://x.io>"), [("https://x.io", "https://x.io".to_string())]);
         assert_eq!(
+            links("The page is live: https://tvtracker.online/tv-time-alternative."),
+            [(
+                "https://tvtracker.online/tv-time-alternative",
+                "https://tvtracker.online/tv-time-alternative".to_string()
+            )]
+        );
+        assert_eq!(
             links("mail.tvtracker.online:8080/x"),
             [("mail.tvtracker.online:8080/x", "https://mail.tvtracker.online:8080/x".to_string())]
         );

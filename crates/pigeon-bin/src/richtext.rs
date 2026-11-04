@@ -107,6 +107,25 @@ pub const EMOTICONS: &[(&str, &str)] = &[
     ("8-)", "😎"),
 ];
 
+/// The script's `autolink` ask, `{"t": token, "s": text}`: the web and
+/// email addresses in `s`, sent back to `__cooAutolink` as
+/// `[start, end, href]` in UTF-16 offsets (the script's string indices).
+pub fn autolink(ask: &str) {
+    #[derive(serde::Deserialize)]
+    struct Ask {
+        t: u64,
+        s: String,
+    }
+    let Ok(ask) = serde_json::from_str::<Ask>(ask) else { return };
+    let utf16 = |end: usize| ask.s[..end].encode_utf16().count();
+    let found: Vec<(usize, usize, String)> = pigeon_core::links::find(&ask.s)
+        .into_iter()
+        .map(|(r, link)| (utf16(r.start), utf16(r.end), link.href()))
+        .collect();
+    let found = serde_json::to_string(&found).unwrap_or_default();
+    dioxus::document::eval(&format!("window.__cooAutolink && window.__cooAutolink({}, {found})", ask.t));
+}
+
 /// Keys that end an emoticon.
 pub const EMOTICON_ENDS: &[&str] = &[" ", "Enter", ".", ",", "!", "?"];
 
@@ -830,6 +849,11 @@ const JS: &str = r##"
     if (e.key === 'Backspace' && was && r.collapsed && was.kind !== 'list' && undoAuto(ed, was)) { e.preventDefault(); refresh(ed); return; }
     const pre = around(ed, 'pre');
     if (pre) return preKey(ed, pre, r, e);
+    // A space or Enter ends a word: link it if it's an address.
+    if ((e.key === ' ' || e.key === 'Enter') && r.collapsed && r.startContainer.nodeType === 3) {
+      const n = r.startContainer, upto = r.startOffset;
+      askLinks(n, n.data.slice(0, upto).search(/\S*$/), upto);
+    }
     if (r.collapsed && !around(ed, 'code') && EMOTICON_ENDS.has(e.key) && emoticon(r, e.key)) r = caretRange();
     if (e.key === '`' && r.collapsed && !around(ed, 'code') && inlineCode(ed, r)) { e.preventDefault(); return; }
     if (e.key === 'Enter' && !e.shiftKey && r.collapsed && fence(ed, r)) { e.preventDefault(); return; }
@@ -893,6 +917,58 @@ const JS: &str = r##"
       if (!st.length) el.removeAttribute('style');
     }
   }
+
+  // ---- Links as you type or paste ----
+  // A web or email address becomes a link when a space or Enter ends it,
+  // and pasted text gets its addresses linked. Which words are addresses
+  // is Rust's call (pigeon_core::links, with the public suffix list behind
+  // bare domains like tvtracker.online): the script asks (`autolink`) and
+  // links what comes back, if the text is still the same.
+  const linkAsks = new Map();
+  let linkSeq = 0;
+  function askLinks(node, from, to) {
+    const el = node && node.nodeType === 3 && node.parentElement;
+    if (!el || el.closest('a, code, pre') || !editorOf(node)) return;
+    const text = node.data.slice(from, to);
+    if (!/[.@]/.test(text)) return;
+    const t = ++linkSeq;
+    linkAsks.set(t, { node, from, text });
+    dioxus.send({ k: 'autolink', v: JSON.stringify({ t, s: text }) });
+  }
+  window.__cooAutolink = (t, found) => {
+    const ask = linkAsks.get(t);
+    linkAsks.delete(t);
+    if (!ask) return;
+    const { node, from, text } = ask;
+    if (!node.isConnected || node.data.slice(from, from + text.length) !== text) return;
+    const ed = editorOf(node), doc = node.ownerDocument;
+    // Last first: wrapping splits the node after the link, so the earlier
+    // offsets still hold. The caret, after the word, moves with the split.
+    for (const [s, e, href] of found.slice().reverse()) {
+      const r = doc.createRange();
+      r.setStart(node, from + s); r.setEnd(node, from + e);
+      const a = doc.createElement('a');
+      a.href = href;
+      r.surroundContents(a);
+    }
+    if (ed && found.length) changed(ed);
+  };
+  onDoc('input', (e) => {
+    if (e.inputType !== 'insertFromPaste') return;
+    const ed = e.target.closest && e.target.closest('[data-editor]');
+    if (!ed) return;
+    const walk = D.createTreeWalker(ed, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while (walk.nextNode()) nodes.push(walk.currentNode);
+    for (const n of nodes) askLinks(n, 0, n.length);
+  }, true);
+  // Links in the editor are text to edit; ⌘-click opens one.
+  onDoc('click', (e) => {
+    const a = e.metaKey && e.target.closest && e.target.closest('a[href]');
+    if (!a || !editorOf(a)) return;
+    e.preventDefault();
+    dioxus.send({ k: 'link', v: a.href });
+  }, true);
 
   window.__pigeonFormatDemo = (edId) => { // debug screenshots only
     const ed = document.getElementById(edId); if (!ed) return;

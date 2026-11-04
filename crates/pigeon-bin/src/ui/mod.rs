@@ -199,6 +199,16 @@ pub fn App() -> Element {
                 }
                 // compose:<to list>[|<partial>] — new draft, chips + autocomplete
                 "compose" => new_message(s),
+                // autolink:<text> — new draft with <text> as if pasted, so its
+                // addresses become links (screenshots)
+                "autolink" => {
+                    crate::prefs::update(|p| p.compose_mode = "docked".into());
+                    new_message(s);
+                    let arg = arg.to_string();
+                    document::eval(&format!(
+                        "setTimeout(()=>{{const e=document.querySelector('[data-editor]'); if(e){{e.focus(); e.innerHTML='<div dir=\\'auto\\'>'+{arg:?}+'</div>'; e.dispatchEvent(new InputEvent('input',{{bubbles:true,inputType:'insertFromPaste'}}));}}}},1500)"
+                    ));
+                }
                 // add-account[:<email> | choose|<email> | icloud|<email> | waiting|google|<email>]
                 "add-account" => {
                     let mut slot = s.add_account;
@@ -1130,6 +1140,7 @@ async fn bridge_loop(s: AppState) {
                     d.set(None);
                 }
             }
+            "autolink" => crate::richtext::autolink(&msg.v),
             "link" => open_link(&s, &msg.v),
             // Screenshot runs (PIGEON_IGNORE_INPUT=1) open frontmost; never let a
             // stray keystroke meant for another app act on the demo mailbox.

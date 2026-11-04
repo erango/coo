@@ -64,8 +64,8 @@ pub fn FormatBar(editor: String) -> Element {
                             let title = match *cmd {
                                 "size" => "Text size (⇧⌘> / ⇧⌘<)".to_string(),
                                 "emoji" => "Emoji (all of them: ⌃⌘Space)".to_string(),
-                                "dirLtr" => "Left to right paragraph (⌃ + left ⇧)".to_string(),
-                                "dirRtl" => "Right to left paragraph (⌃ + right ⇧)".to_string(),
+                                "dirLtr" => "Left to right (⌃ + left ⇧)".to_string(),
+                                "dirRtl" => "Right to left (⌃ + right ⇧)".to_string(),
                                 "color" | "highlight" | "align" => label.to_string(),
                                 _ => tip(cmd),
                             };

@@ -448,6 +448,7 @@ async fn bridge_loop(s: AppState, item: ListItem) {
             "win" => super::window_action(&msg.v),
             "ctx-img" => crate::ctxmenu::set_image(&msg.v),
             "attach-drag" => crate::dragout::start(&msg.v),
+            "autolink" => crate::richtext::autolink(&msg.v),
             "link" => super::open_link(&s, &msg.v),
             _ => {}
         }

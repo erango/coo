@@ -1105,7 +1105,7 @@ pub fn InlineReply(draft: Draft) -> Element {
             if attachments_on_top() { Attachments { top: true } }
             super::format_bar::FormatBar { editor: id.clone() }
             div { class: "inline-reply__editor", id: "{id}", contenteditable: "true", "data-editor": "true",
-                dir: "auto", "data-placeholder": "Write a reply…  Ctrl+Right Shift for RTL",
+                dir: "auto", "data-placeholder": "Write a reply…",
                 dangerous_inner_html: "{body}",
             }
             div { style: "padding:0 16px", SignaturePreview {} }
@@ -1334,9 +1334,8 @@ pub fn Composer(draft: Draft, #[props(default)] docked: bool) -> Element {
                 super::drive::DriveSheet { editor: id.clone() }
                 div { class: "composer__footer",
                     super::drive::AttachMenu {}
-                    match notice {
-                        Some(n) => rsx! { span { class: "t-caption composer__notice", role: "alert", "{n}" } },
-                        None => rsx! { span { class: "t-caption", "Ctrl+Right Shift: RTL · Ctrl+Left Shift: LTR" } },
+                    if let Some(n) = notice {
+                        span { class: "t-caption composer__notice", role: "alert", "{n}" }
                     }
                     span { class: "spacer" }
                     SendButton {}

@@ -181,6 +181,7 @@ async fn bridge_loop(s: AppState, slot: ComposeSlot) {
             },
             "draft-input" => compose::autosave(slot, &msg.v),
             "ctx-img" => crate::ctxmenu::set_image(&msg.v),
+            "autolink" => crate::richtext::autolink(&msg.v),
             "link" => super::open_link(&s, &msg.v),
             _ => {}
         }
