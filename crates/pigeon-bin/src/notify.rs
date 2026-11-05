@@ -172,7 +172,13 @@ pub fn mail_notes(rows: &[MessageRow], prefs: &Prefs) -> Vec<Note> {
         [] => Vec::new(),
         [r] => vec![Note {
             title: who(r),
-            body: if r.header.subject.is_empty() { r.header.snippet.clone() } else { r.header.subject.clone() },
+            body: if !prefs.notify_previews {
+                "New message".into()
+            } else if r.header.subject.is_empty() {
+                r.header.snippet.clone()
+            } else {
+                r.header.subject.clone()
+            },
             target: Target::Thread {
                 account: r.account_id.clone(),
                 thread: r.header.thread_id.clone(),
@@ -315,6 +321,31 @@ pub fn permission() -> Permission {
     }
 }
 
+/// macOS's own "Show previews" for Coo (System Settings › Notifications).
+/// macOS applies it to the banners itself; Settings reflects it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OsPreviews {
+    Always,
+    WhenUnlocked,
+    Never,
+}
+
+pub fn os_previews() -> OsPreviews {
+    #[cfg(target_os = "macos")]
+    {
+        mac::refresh_permission();
+        match mac::PREVIEWS.load(std::sync::atomic::Ordering::Relaxed) {
+            1 => OsPreviews::WhenUnlocked,
+            2 => OsPreviews::Never,
+            _ => OsPreviews::Always,
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        OsPreviews::Always
+    }
+}
+
 /// System Settings › Notifications › Coo.
 pub const SETTINGS_URL: &str =
     "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=il.co.frost-media.pigeon";
@@ -404,6 +435,8 @@ mod mac {
         std::sync::Mutex::new(std::collections::BTreeSet::new());
     /// 0 unknown, 1 allowed, 2 denied.
     pub static PERMISSION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+    /// macOS's "Show previews" for Coo: 0 always, 1 when unlocked, 2 never.
+    pub static PREVIEWS: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 
     pub fn refresh_permission() {
         if !BUNDLED.load(Ordering::Relaxed) {
@@ -411,7 +444,15 @@ mod mac {
         }
         let done = RcBlock::new(|settings: std::ptr::NonNull<objc2_user_notifications::UNNotificationSettings>| {
             // SAFETY: the system passes a valid settings object.
-            let status = unsafe { settings.as_ref() }.authorizationStatus();
+            let settings = unsafe { settings.as_ref() };
+            let status = settings.authorizationStatus();
+            use objc2_user_notifications::UNShowPreviewsSetting as P;
+            let previews = match settings.showPreviewsSetting() {
+                P::WhenAuthenticated => 1,
+                P::Never => 2,
+                _ => 0,
+            };
+            PREVIEWS.store(previews, Ordering::Relaxed);
             use objc2_user_notifications::UNAuthorizationStatus as S;
             let v = if status == S::Denied {
                 2
@@ -600,6 +641,10 @@ mod tests {
         let n = mail_notes(&rows, &muted);
         assert_eq!((n.len(), n[0].title.as_str()), (1, "Dee"));
         assert!(mail_notes(&rows, &Prefs { notify_new_mail: false, ..Prefs::default() }).is_empty());
+
+        let private = Prefs { notify_previews: false, ..Prefs::default() };
+        let n = mail_notes(&rows[..1], &private);
+        assert_eq!((n[0].title.as_str(), n[0].body.as_str()), ("Ann", "New message"));
     }
 
     fn ev(id: &str, start: i64, resp: Response, url: Option<&str>) -> EventRow {

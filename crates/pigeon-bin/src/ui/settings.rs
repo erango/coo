@@ -52,7 +52,7 @@ pub const PAGES: &[(&str, &str, &str)] = &[
     (
         "Notifications",
         "bell",
-        "notify sound sounds alert banner reminder reminders meeting focus do not disturb mute muted volume dock badge unread count icon test",
+        "notify sound sounds alert banner reminder reminders meeting focus do not disturb mute muted volume dock badge unread count icon test preview previews subject hide private privacy",
     ),
     (
         "Watches",

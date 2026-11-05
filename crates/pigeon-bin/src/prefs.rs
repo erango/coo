@@ -28,6 +28,8 @@ pub struct Prefs {
     pub recent_move_targets: Vec<String>,
     /// Desktop notification for new inbox mail.
     pub notify_new_mail: bool,
+    /// New-mail banners show the subject; off, only who it's from.
+    pub notify_previews: bool,
     /// Desktop reminder before events start.
     pub notify_events: bool,
     /// Nicknames shown instead of an account's address, by account id.
@@ -182,6 +184,7 @@ impl Default for Prefs {
             palette: crate::themes::DEFAULT.into(),
             recent_move_targets: Vec::new(),
             notify_new_mail: true,
+            notify_previews: true,
             notify_events: true,
             account_nicknames: Default::default(),
             dock_badge: true,

@@ -708,12 +708,34 @@ pub fn Notifications() -> Element {
         p.set(prefs::get());
     };
     let quiet = cur.sound_theme == crate::sound::NONE;
+    let os_previews = crate::notify::os_previews();
     rsx! {
         div { class: "settings__title", "Notifications" }
         Group { title: "New mail",
             Row { label: "Notify me", hint: "Alerts for new inbox mail.",
                 input { class: "switch", r#type: "checkbox", checked: cur.notify_new_mail, "aria-label": "Notify me about new mail",
                     onchange: move |_| set(|p| p.notify_new_mail = !p.notify_new_mail) }
+            }
+            match os_previews {
+                crate::notify::OsPreviews::Never => rsx! {
+                    Row { label: "Show subject", hint: "macOS is set to never show previews of Coo's notifications.",
+                        button { class: "btn btn--secondary btn--sm", r#type: "button",
+                            onclick: move |_| { let _ = open::that_detached(crate::notify::SETTINGS_URL); },
+                            "Open Notification Settings" }
+                    }
+                },
+                os => rsx! {
+                    Row { label: "Show subject",
+                        hint: if os == crate::notify::OsPreviews::WhenUnlocked {
+                            "Banners show the subject, only while your Mac is unlocked (set in macOS). Off: only who it's from."
+                        } else {
+                            "Banners show the subject. Off: only who it's from."
+                        },
+                        input { class: "switch", r#type: "checkbox", checked: cur.notify_previews,
+                            disabled: !cur.notify_new_mail, "aria-label": "Show the subject in new-mail notifications",
+                            onchange: move |_| set(|p| p.notify_previews = !p.notify_previews) }
+                    }
+                },
             }
             Row { label: "Show",
                 div { class: "segmented", role: "radiogroup", "aria-label": "New mail alert",
