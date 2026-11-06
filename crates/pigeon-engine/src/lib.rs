@@ -40,6 +40,11 @@ use pigeon_graph::Graph;
 /// Calendar window kept locally, relative to now.
 const CALENDAR_PAST_DAYS: i64 = 30;
 const CALENDAR_FUTURE_DAYS: i64 = 365;
+/// The most one account's sync may take. Each request has its own timeout,
+/// but a sync that stalls anyway (a lock, a retry loop) would otherwise
+/// hold up every later sync until Coo restarts. Progress is saved as pages
+/// land, so a long first sync cut here carries on with the next one.
+const SYNC_ACCOUNT_LIMIT: std::time::Duration = std::time::Duration::from_secs(10 * 60);
 /// Sent ops stay undoable this long.
 /// How long a finished action can still be undone (⌘Z works after its
 /// notice is gone).
@@ -812,6 +817,15 @@ impl Pigeon {
     /// Sync mail + calendar for one account. Mail and calendar run
     /// concurrently and fail independently.
     pub async fn sync_account(&self, account: &Account) -> SyncReport {
+        match tokio::time::timeout(SYNC_ACCOUNT_LIMIT, self.sync_account_now(account)).await {
+            Ok(report) => report,
+            Err(_) => {
+                SyncReport { account: account.clone(), mail: Err(Error::TimedOut), calendar: Err(Error::TimedOut) }
+            }
+        }
+    }
+
+    async fn sync_account_now(&self, account: &Account) -> SyncReport {
         let backend = match self.backend(account) {
             Ok(b) => b,
             Err(e) => {

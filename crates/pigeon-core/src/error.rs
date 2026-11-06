@@ -22,6 +22,9 @@ pub enum Error {
     Io(#[from] std::io::Error),
     #[error("json: {0}")]
     Json(#[from] serde_json::Error),
+    /// A whole step (an account's sync) ran past its limit.
+    #[error("timed out")]
+    TimedOut,
     #[error("{0}")]
     Other(String),
 }
@@ -43,6 +46,7 @@ impl Error {
             Error::Db(_) => "db",
             Error::Io(_) => "io",
             Error::Json(_) => "json",
+            Error::TimedOut => "timed-out",
             Error::Other(_) => "other",
         }
     }

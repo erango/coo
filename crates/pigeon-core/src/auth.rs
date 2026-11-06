@@ -539,9 +539,14 @@ impl TokenSource {
                 Err(_) => return Err(Error::TokenStore(crate::broker::APP_NOT_RUNNING.into())),
             }
         }
-        let store = self.store.fallback().unwrap_or(&self.store);
-        let refresh_token =
-            store.get(&self.account_id)?.ok_or_else(|| Error::SignInRequired(self.account_id.clone()))?;
+        let store = self.store.fallback().unwrap_or(&self.store).clone();
+        // Keychain calls block, for as long as an "allow access" dialog
+        // waits: off the async workers, so the sync's time limit still holds.
+        let (s, id) = (store.clone(), self.account_id.clone());
+        let refresh_token = tokio::task::spawn_blocking(move || s.get(&id))
+            .await
+            .map_err(|e| Error::Other(e.to_string()))??
+            .ok_or_else(|| Error::SignInRequired(self.account_id.clone()))?;
         let resp = refresh(&self.app, &refresh_token).await.map_err(|e| match e {
             Error::SignInRequired(_) => Error::SignInRequired(self.account_id.clone()),
             e => e,
@@ -549,7 +554,10 @@ impl TokenSource {
         if let Some(rotated) = resp.refresh_token.as_deref()
             && rotated != refresh_token
         {
-            store.set(&self.account_id, rotated)?;
+            let (id, rotated) = (self.account_id.clone(), rotated.to_string());
+            tokio::task::spawn_blocking(move || store.set(&id, &rotated))
+                .await
+                .map_err(|e| Error::Other(e.to_string()))??;
         }
         *cached = Some((resp.access_token.clone(), resp.expires_at()));
         let expires_at = resp.expires_at();

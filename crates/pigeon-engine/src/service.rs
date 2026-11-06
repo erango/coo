@@ -1000,6 +1000,15 @@ impl Service {
         if self.syncing.swap(true, Ordering::SeqCst) {
             return;
         }
+        // Cleared however this ends, a panic included: a flag left set
+        // would skip every later sync until Coo restarts.
+        struct Running<'a>(&'a AtomicBool);
+        impl Drop for Running<'_> {
+            fn drop(&mut self) {
+                self.0.store(false, Ordering::SeqCst);
+            }
+        }
+        let running = Running(&self.syncing);
         let started = now_ms();
         self.set_sync(|s| s.syncing = true).await;
         // Show mail as it lands during a long (first) sync instead of only
@@ -1076,7 +1085,7 @@ impl Service {
             s.offline = offline;
         })
         .await;
-        self.syncing.store(false, Ordering::SeqCst);
+        drop(running);
         self.publish().await;
         self.check_new_mail().await;
     }
