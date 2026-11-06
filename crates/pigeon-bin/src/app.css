@@ -818,26 +818,26 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .toast__msg { line-height: 1.35; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 .toast > .btn, .toast > .icon { flex: none; }
 .toast--reminder { min-height: 52px; }
-/* Light mode: dark toasts, so they stand out from the white panes (the
-   palette's own ink as the surface). Dark mode keeps the raised bg-3. The
-   tokens are re-pointed inside the toast so its text, icons, Undo and kbd
-   follow. */
-:root, :root[data-theme="dark"] {
-  --toast-bg: var(--bg-3); --toast-fg: var(--text-1); --toast-fg-2: var(--text-2);
-  --toast-accent: var(--accent); --toast-error: var(--error);
-}
-:root[data-theme="light"] {
+/* Toasts stand out from the panes in either mode: the palette's own ink
+   as the surface (dark toasts in light mode, light ones in dark mode).
+   The tokens are re-pointed inside the toast so its text, icons, Undo and
+   kbd follow; accent and error shift toward the toast's text so they keep
+   their contrast on it. */
+:root {
   --toast-bg: color-mix(in srgb, var(--text-1) 94%, var(--bg-0));
   --toast-fg: var(--bg-0);
   --toast-fg-2: color-mix(in srgb, var(--bg-0) 78%, var(--text-1));
+}
+:root, :root[data-theme="dark"] {
+  --toast-accent: color-mix(in srgb, var(--accent) 60%, #000000);
+  --toast-error: color-mix(in srgb, var(--error) 65%, #000000);
+}
+:root[data-theme="light"] {
   --toast-accent: color-mix(in srgb, var(--accent) 55%, #FFFFFF);
   --toast-error: color-mix(in srgb, var(--error) 60%, #FFFFFF);
 }
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]):not([data-theme="light"]) {
-    --toast-bg: color-mix(in srgb, var(--text-1) 94%, var(--bg-0));
-    --toast-fg: var(--bg-0);
-    --toast-fg-2: color-mix(in srgb, var(--bg-0) 78%, var(--text-1));
     --toast-accent: color-mix(in srgb, var(--accent) 55%, #FFFFFF);
     --toast-error: color-mix(in srgb, var(--error) 60%, #FFFFFF);
   }
