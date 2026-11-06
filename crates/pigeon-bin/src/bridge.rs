@@ -568,7 +568,8 @@ pub const JS: &str = r#"
   function contextGuard(e, doc) {
     const sel = doc.getSelection && doc.getSelection();
     const hasText = sel && !sel.isCollapsed && sel.toString().trim() !== '';
-    const media = e.target.closest && e.target.closest('img, a[href]');
+    // Coo's own nav items are `href="#"` anchors: no "Open Link" for those.
+    const media = e.target.closest && e.target.closest('img, a[href]:not([href="#"])');
     // The image under the pointer, for the menu's Save Image… (ctxmenu.rs).
     const img = e.target.closest && e.target.closest('img');
     if (img && (img.currentSrc || img.src)) send('ctx-img', img.currentSrc || img.src);
