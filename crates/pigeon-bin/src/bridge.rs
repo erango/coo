@@ -822,6 +822,22 @@ pub const JS: &str = r#"
   };
   // Re-fit every frame (after a text-size change).
   window.pigeonFitFrames = () => document.querySelectorAll('iframe.mail-frame').forEach((f) => f._pgFit && f._pgFit());
+  // Back from display sleep, WebKit sometimes repaints only part of a
+  // frame laid out again meanwhile, over its old picture: RTL mail showed
+  // each line's first letter twice. Re-fit and repaint the reading pane
+  // and every frame whole.
+  const repaint = (el) => {
+    el.style.opacity = '0.999';
+    requestAnimationFrame(() => { el.style.opacity = ''; });
+  };
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    document.querySelectorAll('.reader').forEach(repaint);
+    document.querySelectorAll('iframe.mail-frame').forEach((f) => {
+      if (f._pgFit) f._pgFit();
+      try { repaint(f.contentDocument.documentElement); } catch (_) {}
+    });
+  });
   new MutationObserver(scan).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['srcdoc'] });
   scan();
 })();

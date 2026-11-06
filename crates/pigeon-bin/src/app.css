@@ -774,16 +774,22 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 
 /* Scrollbars: WebKit's overlay scrollbar ends up under row hover
    backgrounds (rows are composited for the list animations), so scroll
-   areas draw their own thin scrollbar in a reserved gutter. The thumb only
-   shows while the area is hovered, like the overlay one. */
-.list::-webkit-scrollbar, .reader::-webkit-scrollbar, .settings::-webkit-scrollbar, .settings-nav::-webkit-scrollbar { width: 10px; height: 10px; background: transparent; }
-.list::-webkit-scrollbar-thumb, .reader::-webkit-scrollbar-thumb, .settings::-webkit-scrollbar-thumb, .settings-nav::-webkit-scrollbar-thumb {
+   areas draw their own thin scrollbar in a reserved gutter. The sidebar's
+   too: with macOS set to always show scroll bars, its native track is
+   opaque. The thumb only shows while the area is hovered, like the
+   overlay one. */
+.list::-webkit-scrollbar, .reader::-webkit-scrollbar, .settings::-webkit-scrollbar, .settings-nav::-webkit-scrollbar,
+.sidebar__nav::-webkit-scrollbar, .sidebar .cal-list::-webkit-scrollbar { width: 10px; height: 10px; background: transparent; }
+.list::-webkit-scrollbar-thumb, .reader::-webkit-scrollbar-thumb, .settings::-webkit-scrollbar-thumb, .settings-nav::-webkit-scrollbar-thumb,
+.sidebar__nav::-webkit-scrollbar-thumb, .sidebar .cal-list::-webkit-scrollbar-thumb {
   border: 3px solid transparent; border-radius: 10px; background-clip: padding-box;
   background-color: color-mix(in oklab, var(--text-3) 55%, transparent);
 }
 .list:not(:hover)::-webkit-scrollbar-thumb, .reader:not(:hover)::-webkit-scrollbar-thumb,
-.settings:not(:hover)::-webkit-scrollbar-thumb, .settings-nav:not(:hover)::-webkit-scrollbar-thumb { background-color: transparent; }
-.list::-webkit-scrollbar-thumb:hover, .reader::-webkit-scrollbar-thumb:hover { background-color: var(--text-3); }
+.settings:not(:hover)::-webkit-scrollbar-thumb, .settings-nav:not(:hover)::-webkit-scrollbar-thumb,
+.sidebar__nav:not(:hover)::-webkit-scrollbar-thumb, .sidebar .cal-list:not(:hover)::-webkit-scrollbar-thumb { background-color: transparent; }
+.list::-webkit-scrollbar-thumb:hover, .reader::-webkit-scrollbar-thumb:hover,
+.sidebar__nav::-webkit-scrollbar-thumb:hover, .sidebar .cal-list::-webkit-scrollbar-thumb:hover { background-color: var(--text-3); }
 .settings-field .segmented > button { white-space: nowrap; }
 
 /* Reading pane with several messages selected (ui/multi.rs). */
