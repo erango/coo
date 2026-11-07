@@ -27,6 +27,7 @@ pub const THEMES: &[Theme] = &[
     theme!("chime", "Chime"),
     theme!("knock", "Knock"),
     theme!("bowl", "Bowl"),
+    theme!("glass", "Glass"),
 ];
 pub const NONE: &str = "none";
 pub const DEFAULT: &str = "droplet";

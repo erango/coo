@@ -125,6 +125,44 @@ def wood(t):
     return bell(988.0, 0.35, 0.06, partials=p)(t) + bell(1318.5, 0.35, 0.07, partials=p, start=0.09)(t) * 0.8
 
 
+_TAP_NOISE = [random.Random(11).uniform(-1, 1) for _ in range(int(RATE * 0.01))]
+
+
+def tap(u, f=1568.0, gain=1.0):
+    """A fingertip tap on a glass: a tiny soft click, then the glass rings
+    briefly with its inharmonic partials (the highest die first)."""
+    if u < 0 or u > 0.6:
+        return 0.0
+    i = int(u * RATE)
+    click = 0.25 * math.exp(-u / 0.0012) * (_TAP_NOISE[i] if i < len(_TAP_NOISE) else 0.0)
+    ring = sum(
+        a * math.exp(-u / d) * math.sin(2 * math.pi * f * m * u)
+        for m, a, d in ((1, 1.0, 0.14), (2.32, 0.22, 0.06), (4.25, 0.07, 0.025))
+    )
+    return gain * (min(1.0, u / 0.0015) * ring + click)
+
+
+def muted(u):
+    """A tap's ring once the next tap lands at u = 0: the fingertip damps it."""
+    return 1.0 if u < 0 else math.exp(-u / 0.008)
+
+
+def double_tap(t, f=1568.0):
+    # The second tap a touch softer. It mutes the first's ring as it lands,
+    # as a fingertip does (and the two rings can't cancel out).
+    return tap(t, f) * muted(t - 0.14) + tap(t - 0.14, f, 0.72)
+
+
+def glass(t):
+    # A gentle double tap on a glass.
+    return double_tap(t)
+
+
+def glass_meeting(t):
+    # Two double taps, the second pair a step higher.
+    return double_tap(t) * muted(t - 0.5) + 0.9 * double_tap(t - 0.5, 1760.0)
+
+
 def droplet_meeting(t):
     # Three drips, each a little higher: same sound, reads as "time to go".
     return sum(drip(t - st, 700.0 * r, 1700.0 * r) for st, r in ((0.0, 1.0), (0.17, 1.19), (0.34, 1.41)))
@@ -154,13 +192,14 @@ def wood_meeting(t):
 
 # theme -> (mail recipe, length), (meeting recipe, length)
 # Bells that ring out: the last part of the file fades smoothly to silence.
-RING_OUT = {"chime", "bowl"}
+RING_OUT = {"chime", "bowl", "glass"}
 SOUNDS = {
     "droplet": ((droplet, 0.3), (droplet_meeting, 0.6)),
     "coo": ((coo, 0.72), (coo_meeting, 1.4)),
     "chime": ((chime, 1.6), (chime_meeting, 2.0)),
     "knock": ((wood, 0.5), (wood_meeting, 0.75)),
     "bowl": ((bowl, 2.3), (bowl_meeting, 3.0)),
+    "glass": ((glass, 0.7), (glass_meeting, 1.2)),
 }
 
 
