@@ -123,7 +123,7 @@ pub fn UpdateDialog() -> Element {
                 div { class: "dialog__actions",
                     if let Some(url) = notes_url {
                         button { class: "btn btn--ghost btn--sm update-dialog__notes", r#type: "button",
-                            onclick: move |_| { let _ = open::that_detached(&url); },
+                            onclick: move |_| { crate::web::open(&url); },
                             "What's new"
                         }
                     }

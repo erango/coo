@@ -29,6 +29,7 @@ mod syskeys;
 mod themes;
 mod ui;
 mod updater;
+mod web;
 mod week;
 
 use std::sync::{Arc, Mutex, OnceLock};

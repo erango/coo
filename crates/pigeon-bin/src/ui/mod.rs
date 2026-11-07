@@ -970,7 +970,7 @@ async fn click_loop(s: AppState) {
         let (mut mode, mut settings, mut search) = (s.mode, s.settings_open, s.search);
         match click {
             Click::Join(url) => {
-                let _ = open::that_detached(&url);
+                crate::web::open(&url);
             }
             Click::Mail { account, thread, message, action: MailNoteAction::Reply } => {
                 mode.set(Mode::Mail);
@@ -1426,7 +1426,7 @@ pub fn open_link(s: &AppState, url: &str) {
             send_cmd(Cmd::NewDraft { from_account: contextual_from(s), mailto: Some(m) });
         }
     } else if v.starts_with("http://") || v.starts_with("https://") {
-        let _ = open::that_detached(url);
+        crate::web::open(url);
     }
 }
 

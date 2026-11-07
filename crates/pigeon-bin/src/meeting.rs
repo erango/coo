@@ -28,11 +28,11 @@ fn has_native_app(service: Service) -> bool {
 pub fn join(url: &str) {
     let link = MeetingLink { url: url.to_string(), service: service_of(url) };
     let target = native_url(&link).filter(|_| has_native_app(link.service)).unwrap_or_else(|| link.url.clone());
-    if let Err(e) = open::that_detached(&target) {
-        tracing::warn!(error = %e, "could not open meeting link");
+    if !crate::web::open(&target) {
+        tracing::warn!("could not open meeting link");
         // Native scheme refused: fall back to the web link.
         if target != link.url {
-            let _ = open::that_detached(&link.url);
+            crate::web::open(&link.url);
         }
     }
 }
