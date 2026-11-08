@@ -1926,14 +1926,21 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 /* Each open message is a lightly outlined block: its header row is the
    app's, the email sits under the sender's name in reading size. */
 .thread .msg { margin-top: 14px; padding: 18px 22px 20px; border-radius: 14px; box-shadow: inset 0 0 0 1px var(--line); }
-.thread .msg > :not(.msg-head) { margin-left: 44px; }
+/* Designed mail (the sender's own colors and layout, usually a 600px
+   newsletter) gets the pane's whole width: no card around its message, and
+   the email runs edge to edge under the header, so it isn't shrunk to fit
+   between paddings. Its header lines up with the subject. */
+.reader { --reader-pad: 48px; padding-left: var(--reader-pad); padding-right: var(--reader-pad); }
+.thread .msg:has(> .mail-body[data-render="paper"]) { padding-left: 0; padding-right: 0; border-radius: 0; box-shadow: none; }
+.thread .msg > .mail-body[data-render="paper"] { margin-left: calc(-1 * var(--reader-pad)); margin-right: calc(-1 * var(--reader-pad)); max-width: none; }
+.mail-body[data-render="paper"] .mail-body__toggle { margin: 0 var(--reader-pad); }
 .msg-head__btn { color: var(--text-3); flex: none; }
 .msg-head__time + .msg-head__btn { margin-left: 4px; }
 .thread .msg-collapsed { padding: 0 22px; }
 .reader { padding-bottom: 56px; }
 
 /* Original colors: the email on its own paper, clearly the sender's. */
-.mail-body[data-render="paper"] .mail-frame { border-radius: 10px; }
+.reader .mail-body[data-render="paper"] .mail-frame[data-render="paper"] { border-radius: 0; box-shadow: none; }
 
 /* The reply: the message fades into the sheet above a floating card. */
 .reply-dock { position: relative; flex: none; padding: 0 40px 18px; }
