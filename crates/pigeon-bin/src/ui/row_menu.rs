@@ -46,7 +46,26 @@ pub enum Entry {
     MarkRead,
     MarkUnread,
     SaveEml,
+    /// The sender: make a VIP, or no longer.
+    Vip,
+    Unvip,
+    /// The sender's new mail: stop or resume its notifications.
+    Mute,
+    Unmute,
+    /// Everyone at the sender's domain.
+    MuteDomain,
+    UnmuteDomain,
     Sep,
+}
+
+/// What the menu offers about the right-clicked message's sender (vip.rs).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SenderNotify {
+    pub vip: bool,
+    pub muted: bool,
+    /// Their domain can be muted as a whole (not gmail.com and the like):
+    /// whether it is now.
+    pub domain_muted: Option<bool>,
 }
 
 impl Entry {
@@ -71,6 +90,12 @@ impl Entry {
             Entry::MarkRead => ("Mark as read", "mailopen", Some(Do::MarkRead)),
             Entry::MarkUnread => ("Mark as unread", "mail", Some(Do::MarkUnread)),
             Entry::SaveEml => ("Save as .eml…", "download", None),
+            Entry::Vip => ("Make sender a VIP", "star", None),
+            Entry::Unvip => ("Remove sender from VIPs", "star", None),
+            Entry::Mute => ("Mute notifications from sender", "bell-off", None),
+            Entry::Unmute => ("Unmute sender", "bell", None),
+            Entry::MuteDomain => ("Mute everyone at their domain", "bell-off", None),
+            Entry::UnmuteDomain => ("Unmute everyone at their domain", "bell", None),
             Entry::Sep => ("", "", None),
         }
     }
@@ -80,7 +105,14 @@ impl Entry {
 /// window). `flag`/`read` are what the toggles would do; `labels` adds
 /// Gmail's "Label as…"; `spam` is what the accounts support
 /// ([`super::spam::offered`]).
-pub fn entries(bulk: bool, labels: bool, flag: &MailAction, read: &MailAction, spam: &[MailAction]) -> Vec<Entry> {
+pub fn entries(
+    bulk: bool,
+    labels: bool,
+    flag: &MailAction,
+    read: &MailAction,
+    spam: &[MailAction],
+    sender: Option<SenderNotify>,
+) -> Vec<Entry> {
     let mut v = Vec::new();
     if !bulk {
         v.extend([
@@ -93,6 +125,14 @@ pub fn entries(bulk: bool, labels: bool, flag: &MailAction, read: &MailAction, s
             Entry::Watch,
             Entry::Sep,
         ]);
+        if let Some(n) = sender {
+            v.push(if n.vip { Entry::Unvip } else { Entry::Vip });
+            v.push(if n.muted { Entry::Unmute } else { Entry::Mute });
+            if let Some(d) = n.domain_muted {
+                v.push(if d { Entry::UnmuteDomain } else { Entry::MuteDomain });
+            }
+            v.push(Entry::Sep);
+        }
     }
     v.extend([Entry::Archive, Entry::Delete, Entry::Move]);
     if labels {
@@ -159,7 +199,37 @@ fn entries_for(s: &AppState, m: &RowMenu) -> Vec<Entry> {
         let flag = if m.item.header().is_flagged { MailAction::Unflag } else { MailAction::Flag };
         (flag, if unread(&m.item) { MailAction::MarkRead } else { MailAction::MarkUnread })
     };
-    entries(m.bulk, labels, &flag, &read, &super::spam::for_items(s, &items))
+    let sender = if m.bulk { None } else { sender_notify(&m.item) };
+    entries(m.bulk, labels, &flag, &read, &super::spam::for_items(s, &items), sender)
+}
+
+/// The row's sender, lowercased, when it has one.
+fn sender_of(item: &ListItem) -> Option<String> {
+    item.header().from.as_ref().map(|a| a.email.trim().to_lowercase()).filter(|e| e.contains('@'))
+}
+
+fn sender_notify(item: &ListItem) -> Option<SenderNotify> {
+    use crate::vip::{self, Rule};
+    let email = sender_of(item)?;
+    let p = crate::prefs::get();
+    let own = vip::rule_of(&p, &email);
+    let domain = vip::domain_of(&email).filter(|d| !vip::is_shared_domain(d));
+    Some(SenderNotify {
+        vip: own == Some(Rule::Vip),
+        muted: own == Some(Rule::Muted),
+        domain_muted: domain.map(|d| vip::rule_of(&p, &format!("@{d}")) == Some(Rule::Muted)),
+    })
+}
+
+/// Who the sender is in a toast: their name, else their address.
+fn sender_name(item: &ListItem) -> String {
+    item.header().from.as_ref().map(|a| a.display().to_string()).unwrap_or_else(|| "This sender".into())
+}
+
+/// Set the rule for `key` and say what changed.
+fn set_sender_rule(s: AppState, key: String, rule: Option<crate::vip::Rule>, said: String) {
+    crate::vip::update(move |p| crate::vip::set_rule(p, &key, rule));
+    s.local_toast(said, false);
 }
 
 /// Right-click on a row.
@@ -206,6 +276,28 @@ fn run(s: AppState, m: &RowMenu, entry: Entry) {
         }
         Entry::Sep => return,
         Entry::SaveEml => return super::save_eml(items),
+        Entry::Vip | Entry::Unvip | Entry::Mute | Entry::Unmute => {
+            use crate::vip::Rule;
+            let Some(email) = sender_of(item) else { return };
+            let who = sender_name(item);
+            let (rule, said) = match entry {
+                Entry::Vip => (Some(Rule::Vip), format!("{who} is a VIP now")),
+                Entry::Mute => (Some(Rule::Muted), format!("{who} won't notify you anymore")),
+                Entry::Unmute => (None, format!("{who} can notify you again")),
+                _ => (None, format!("{who} isn't a VIP anymore")),
+            };
+            return set_sender_rule(s, email, rule, said);
+        }
+        Entry::MuteDomain | Entry::UnmuteDomain => {
+            let Some(domain) = sender_of(item).and_then(|e| crate::vip::domain_of(&e)) else { return };
+            let mute = entry == Entry::MuteDomain;
+            let said = if mute {
+                format!("Nobody at {domain} will notify you")
+            } else {
+                format!("Everyone at {domain} can notify you again")
+            };
+            return set_sender_rule(s, format!("@{domain}"), mute.then_some(crate::vip::Rule::Muted), said);
+        }
         Entry::Archive => MailAction::Archive,
         Entry::Delete => MailAction::Trash,
         Entry::Flag => MailAction::Flag,
@@ -270,6 +362,13 @@ pub fn RowMenuView() -> Element {
                     } else {
                         {
                             let (label, icon, what) = entry.look();
+                            let label = match entry {
+                                Entry::MuteDomain | Entry::UnmuteDomain => {
+                                    let d = sender_of(&m.item).and_then(|e| crate::vip::domain_of(&e)).unwrap_or_default();
+                                    if entry == Entry::MuteDomain { format!("Mute everyone at {d}") } else { format!("Unmute everyone at {d}") }
+                                }
+                                _ => label.to_string(),
+                            };
                             let hint = what.map(hint).unwrap_or_default();
                             let m = m.clone();
                             let danger = entry == Entry::Delete;
@@ -301,7 +400,7 @@ mod tests {
 
     #[test]
     fn single_rows_get_reply_and_window_bulk_does_not() {
-        let one = entries(false, false, &MailAction::Flag, &MailAction::MarkUnread, &[]);
+        let one = entries(false, false, &MailAction::Flag, &MailAction::MarkUnread, &[], None);
         assert_eq!(
             one,
             [
@@ -323,7 +422,7 @@ mod tests {
                 Entry::SaveEml,
             ]
         );
-        let many = entries(true, true, &MailAction::Unflag, &MailAction::MarkRead, &[]);
+        let many = entries(true, true, &MailAction::Unflag, &MailAction::MarkRead, &[], None);
         assert_eq!(
             many,
             [
@@ -343,21 +442,35 @@ mod tests {
     #[test]
     fn spam_entries_follow_what_the_accounts_support() {
         let spam = [MailAction::Spam, MailAction::Phishing];
-        let e = entries(true, false, &MailAction::Flag, &MailAction::MarkRead, &spam);
+        let e = entries(true, false, &MailAction::Flag, &MailAction::MarkRead, &spam, None);
         assert_eq!(&e[..5], [Entry::Archive, Entry::Delete, Entry::Move, Entry::Spam, Entry::Phishing]);
-        let e = entries(false, true, &MailAction::Flag, &MailAction::MarkRead, &[MailAction::NotSpam]);
+        let e = entries(false, true, &MailAction::Flag, &MailAction::MarkRead, &[MailAction::NotSpam], None);
         assert!(e.contains(&Entry::NotSpam) && !e.contains(&Entry::Spam) && !e.contains(&Entry::Phishing));
     }
 
     #[test]
     fn keyboard_steps_skip_separators_and_stop_at_the_ends() {
-        let e = entries(false, false, &MailAction::Flag, &MailAction::MarkRead, &[]);
+        let e = entries(false, false, &MailAction::Flag, &MailAction::MarkRead, &[], None);
         assert_eq!(step(&e, None, true), Some(0));
         assert_eq!(step(&e, None, false), Some(e.len() - 1));
         assert_eq!(step(&e, Some(3), true), Some(5), "skips the separator after Reuse");
         assert_eq!(step(&e, Some(5), false), Some(3));
         assert_eq!(step(&e, Some(0), false), Some(0));
         assert_eq!(step(&e, Some(e.len() - 1), true), Some(e.len() - 1));
+    }
+
+    #[test]
+    fn sender_lines_follow_their_rules() {
+        let n = SenderNotify { vip: false, muted: true, domain_muted: Some(false) };
+        let e = entries(false, false, &MailAction::Flag, &MailAction::MarkRead, &[], Some(n));
+        let at = e.iter().position(|x| *x == Entry::Vip).unwrap();
+        assert_eq!(e[at..at + 4], [Entry::Vip, Entry::Unmute, Entry::MuteDomain, Entry::Sep]);
+        let shared = SenderNotify { vip: true, muted: false, domain_muted: None };
+        let e = entries(false, false, &MailAction::Flag, &MailAction::MarkRead, &[], Some(shared));
+        assert!(e.contains(&Entry::Unvip) && e.contains(&Entry::Mute));
+        assert!(!e.contains(&Entry::MuteDomain) && !e.contains(&Entry::UnmuteDomain), "no gmail.com-wide mute");
+        let bulk = entries(true, false, &MailAction::Flag, &MailAction::MarkRead, &[], Some(n));
+        assert!(!bulk.contains(&Entry::Vip), "not for a selection");
     }
 
     #[test]

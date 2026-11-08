@@ -29,6 +29,7 @@ mod syskeys;
 mod themes;
 mod ui;
 mod updater;
+mod vip;
 mod web;
 mod week;
 

@@ -719,6 +719,78 @@ fn ZoomRow() -> Element {
     }
 }
 
+/// Settings › Notifications: VIP and muted senders, for every account.
+#[component]
+fn SenderRules() -> Element {
+    use crate::vip::{self, Rule};
+    let _rev = vip::REV.read();
+    let cur = prefs::get();
+    let mut draft = use_signal(String::new);
+    let typed = vip::key(&draft.read());
+    let rules: Vec<(String, Rule)> = cur
+        .notify_vips
+        .iter()
+        .map(|k| (k.clone(), Rule::Vip))
+        .chain(cur.notify_muted_senders.iter().map(|k| (k.clone(), Rule::Muted)))
+        .collect();
+    let mut add = move |rule: Rule| {
+        let k = vip::key(&draft.peek());
+        if let Some(k) = k {
+            vip::update(move |p| vip::set_rule(p, &k, Some(rule)));
+            draft.set(String::new());
+        }
+    };
+    rsx! {
+        Row { label: "VIPs and muted senders",
+            hint: "An address, or @domain for everyone there; a person's own setting wins over their domain's. Muting only stops alerts: the mail still arrives.",
+            stack: true,
+            div { class: "sender-rules",
+                div { class: "sender-rules__add",
+                    input { class: "input input--sm sender-rules__input", r#type: "text", spellcheck: "false",
+                        placeholder: "name@company.com or @company.com", "aria-label": "Address or domain",
+                        value: "{draft}",
+                        oninput: move |e| draft.set(e.value()),
+                        onkeydown: move |e| if e.key() == Key::Enter { add(Rule::Vip) },
+                    }
+                    button { class: "btn btn--secondary btn--sm", r#type: "button", disabled: typed.is_none(),
+                        onclick: move |_| add(Rule::Vip), Icon { name: "star", class: "icon--sm" } "Add VIP" }
+                    button { class: "btn btn--secondary btn--sm", r#type: "button", disabled: typed.is_none(),
+                        onclick: move |_| add(Rule::Muted), Icon { name: "bell-off", class: "icon--sm" } "Mute" }
+                }
+                if !rules.is_empty() {
+                    div { class: "bell-list",
+                        for (k, rule) in rules {
+                            {
+                                let (k1, k2, k3) = (k.clone(), k.clone(), k.clone());
+                                let (icon, look) = if rule == Rule::Vip { ("star", "icon--sm sender-rules__vip") } else { ("bell-off", "icon--sm t-3") };
+                                rsx! {
+                                    div { class: "bell-list__row", key: "{k}",
+                                        Icon { name: icon, class: look }
+                                        span { class: "bell-list__text",
+                                            span { class: "bell-list__name", dir: "ltr", "{k}" }
+                                        }
+                                        div { class: "segmented segmented--sm", role: "radiogroup", "aria-label": "Notifications from {k}",
+                                            button { r#type: "button", role: "radio", "aria-checked": "{rule == Rule::Vip}", "aria-selected": "{rule == Rule::Vip}",
+                                                onclick: move |_| { let k = k1.clone(); vip::update(move |p| vip::set_rule(p, &k, Some(Rule::Vip))) },
+                                                "VIP" }
+                                            button { r#type: "button", role: "radio", "aria-checked": "{rule == Rule::Muted}", "aria-selected": "{rule == Rule::Muted}",
+                                                onclick: move |_| { let k = k2.clone(); vip::update(move |p| vip::set_rule(p, &k, Some(Rule::Muted))) },
+                                                "Muted" }
+                                        }
+                                        button { class: "icon-btn icon-btn--sm", r#type: "button", "aria-label": "Remove {k}", title: "Remove",
+                                            onclick: move |_| { let k = k3.clone(); vip::update(move |p| vip::set_rule(p, &k, None)) },
+                                            Icon { name: "x", class: "icon--sm" } }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 const REMINDER_CHOICES: [u32; 5] = [0, 5, 10, 15, 30];
 
 /// Settings › Notifications: new mail, events, sounds.
@@ -783,46 +855,47 @@ pub fn Notifications() -> Element {
                         "Open Notification Settings" }
                 }
             }
-            Row { label: "Dock badge", hint: "The unread inbox count on Coo's icon. Muted accounts don't count.",
+            Row { label: "Dock badge", hint: "The unread inbox count on Coo's icon. Accounts set to Off don't count.",
                 input { class: "switch", r#type: "checkbox", checked: cur.dock_badge, "aria-label": "Dock badge",
                     onchange: move |_| {
                         set(|p| p.dock_badge = !p.dock_badge);
                         super::refresh_badge(s);
                     } }
             }
-            Row { label: "Accounts", hint: "Click a bell to mute an account. Muted accounts still sync; they just stay quiet.", stack: true,
+            Row { label: "Accounts", hint: "Only VIPs: the account stays quiet except for your VIPs. Off: nothing from it notifies you. Every account keeps syncing.", stack: true,
                 div { class: "bell-list",
                     for a in accounts {
                         {
                             let id = a.account.id.clone();
-                            let on = !cur.notify_accounts_muted.contains(&id);
+                            let mode = crate::vip::account_mode(&cur, &id);
                             let name = s.account_label(&a.account.id, &a.account.email);
-                            let tip = if on { "Notifying · click to mute" } else { "Muted · click to notify" };
                             let addr = (name != a.account.email).then(|| a.account.email.clone());
-                            let bell = if on { "bell" } else { "bell-off" };
                             rsx! {
-                                div { class: "bell-list__row", key: "{id}", "data-hue": "{a.hue}", "data-muted": (!on).then_some("true"),
+                                div { class: "bell-list__row", key: "{id}", "data-hue": "{a.hue}",
+                                    "data-muted": (mode == crate::vip::AccountMode::Off).then_some("true"),
                                     span { class: "dot" }
                                     span { class: "bell-list__text",
                                         span { class: "bell-list__name", dir: "auto", "{name}" }
                                         if let Some(addr) = addr { span { class: "bell-list__addr", "{addr}" } }
                                     }
-                                    if !on { span { class: "bell-list__state", "Muted" } }
-                                    button { class: "bell-list__bell", r#type: "button", "aria-pressed": "{on}",
-                                        "aria-label": "{name}: {tip}", title: "{tip}",
-                                        onclick: move |_| {
-                                            let id = id.clone();
-                                            prefs::update(move |x| {
-                                                if let Some(i) = x.notify_accounts_muted.iter().position(|m| *m == id) {
-                                                    x.notify_accounts_muted.remove(i);
-                                                } else {
-                                                    x.notify_accounts_muted.push(id);
+                                    div { class: "segmented segmented--sm", role: "radiogroup", "aria-label": "Notifications for {name}",
+                                        for m in crate::vip::AccountMode::ALL {
+                                            {
+                                                let id = id.clone();
+                                                rsx! {
+                                                    button { key: "{m.label()}", r#type: "button", role: "radio",
+                                                        "aria-checked": "{mode == m}", "aria-selected": "{mode == m}",
+                                                        onclick: move |_| {
+                                                            let id = id.clone();
+                                                            crate::vip::update(move |x| crate::vip::set_account_mode(x, &id, m));
+                                                            p.set(prefs::get());
+                                                            super::refresh_badge(s);
+                                                        },
+                                                        "{m.label()}"
+                                                    }
                                                 }
-                                            });
-                                            p.set(prefs::get());
-                                            super::refresh_badge(s);
-                                        },
-                                        Icon { name: bell, class: "icon--sm" }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -830,6 +903,7 @@ pub fn Notifications() -> Element {
                     }
                 }
             }
+            SenderRules {}
         }
         Group { title: "Events",
             Row { label: "Remind me", hint: "A reminder before meetings start, with Join.",

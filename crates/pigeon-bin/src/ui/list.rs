@@ -687,8 +687,13 @@ pub fn Row(
                 match h.from.clone().filter(|_| !h.is_draft) {
                     Some(from) => rsx! {
                         super::sender_card::Person { account_id: item.account_id().to_string(), message_id: Some(h.id.clone()),
-                            addr: from, sender: true, click_through: true, class: "row__who",
+                            addr: from.clone(), sender: true, click_through: true, class: "row__who",
                             span { dir: "auto", "{who}" }
+                        }
+                        match crate::vip::mark(&from.email) {
+                            Some(crate::vip::Rule::Vip) => rsx! { span { class: "row__vip", title: "VIP", role: "img", "aria-label": "VIP", Icon { name: "star", class: "icon--xs" } } },
+                            Some(crate::vip::Rule::Muted) => rsx! { span { class: "row__muted", title: "Notifications muted", role: "img", "aria-label": "Notifications muted", Icon { name: "bell-off", class: "icon--xs" } } },
+                            None => rsx! {},
                         }
                     },
                     None => rsx! { span { class: "row__who", dir: "auto", "{who}" } },

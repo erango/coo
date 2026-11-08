@@ -1,7 +1,8 @@
 //! Right-click menus on the sidebars' accounts and calendars.
 //!
 //! Mail sidebar, on an account header: a new message from that account,
-//! making it the default for new messages, muting its notifications, copying
+//! making it the default for new messages, how it notifies (all mail, only
+//! VIPs' or none), copying
 //! its address, and its settings. Calendar sidebar: on a calendar, a new
 //! event in it and making it the default for new events; on an account
 //! header, its calendars that take new events, to pick the default from.
@@ -18,6 +19,7 @@ use super::Icon;
 use super::event_editor::{account_calendar, chosen_calendar};
 use crate::send_cmd;
 use crate::state::AppState;
+use crate::vip::AccountMode;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AccountMenu {
@@ -56,8 +58,12 @@ pub enum Entry {
     IsDefault,
     /// Back to automatic (the top account).
     ClearDefault,
-    Mute,
-    Unmute,
+    /// A heading over the account's notification choices.
+    NotifyHead,
+    /// Notify about this account's mail this way.
+    Notify(AccountMode),
+    /// How the account notifies now: checked.
+    NotifyIs(AccountMode),
     CopyAddress,
     Settings,
     /// A new event in the right-clicked calendar.
@@ -96,8 +102,16 @@ impl Entry {
             Entry::SetDefault => ("Set as default for new messages", "send"),
             Entry::IsDefault => ("Default for new messages", "check"),
             Entry::ClearDefault => ("Use the top account instead", "undo"),
-            Entry::Mute => ("Mute notifications", "slash"),
-            Entry::Unmute => ("Unmute notifications", "bell"),
+            Entry::NotifyHead => ("Notifications", ""),
+            Entry::Notify(m) => (
+                m.label(),
+                match m {
+                    AccountMode::All => "bell",
+                    AccountMode::VipOnly => "star",
+                    AccountMode::Off => "bell-off",
+                },
+            ),
+            Entry::NotifyIs(m) => (m.label(), "check"),
             Entry::CopyAddress => ("Copy address", "copy"),
             Entry::Settings => ("Account settings…", "gear"),
             Entry::NewEventHere => ("New event in this calendar", "plus"),
@@ -129,26 +143,29 @@ impl Entry {
                 | Entry::ReadOnly
                 | Entry::NoWritable
                 | Entry::DefaultFor
+                | Entry::NotifyHead
+                | Entry::NotifyIs(_)
         )
     }
 
     /// Shown checked.
     fn checked(self) -> bool {
-        matches!(self, Entry::IsDefault | Entry::IsDefaultCal | Entry::PickedCal(_))
+        matches!(self, Entry::IsDefault | Entry::IsDefaultCal | Entry::PickedCal(_) | Entry::NotifyIs(_))
     }
 }
 
 /// The menu for an account: `chosen` = the user picked it as the default
 /// (the automatic top-account default can still be pinned explicitly).
-pub fn entries(chosen: bool, muted: bool) -> Vec<Entry> {
+pub fn entries(chosen: bool, notify: AccountMode) -> Vec<Entry> {
     let mut v = vec![Entry::NewFrom, Entry::Sep];
     if chosen {
         v.extend([Entry::IsDefault, Entry::ClearDefault]);
     } else {
         v.push(Entry::SetDefault);
     }
-    v.push(if muted { Entry::Unmute } else { Entry::Mute });
-    v.extend([Entry::CopyAddress, Entry::Sep, Entry::Settings]);
+    v.extend([Entry::CopyAddress, Entry::Sep, Entry::NotifyHead]);
+    v.extend(AccountMode::ALL.map(|m| if m == notify { Entry::NotifyIs(m) } else { Entry::Notify(m) }));
+    v.extend([Entry::Sep, Entry::Settings]);
     v
 }
 
@@ -202,7 +219,7 @@ pub fn step(entries: &[Entry], active: Option<usize>, down: bool) -> Option<usiz
 pub fn height(entries: &[Entry]) -> f64 {
     let px = |e: &Entry| match e {
         Entry::Sep => 11.0,
-        Entry::DefaultFor => 28.0,
+        Entry::DefaultFor | Entry::NotifyHead => 28.0,
         _ => 32.0,
     };
     12.0 + 28.0 + entries.iter().map(px).sum::<f64>()
@@ -224,8 +241,7 @@ fn entries_for(s: &AppState, m: &AccountMenu) -> Vec<Entry> {
     match &m.target {
         Target::Mail => {
             let chosen = s.chosen_default().as_deref() == Some(m.account_id.as_str());
-            let muted = crate::prefs::get().notify_accounts_muted.contains(&m.account_id);
-            entries(chosen, muted)
+            entries(chosen, crate::vip::account_mode(&crate::prefs::get(), &m.account_id))
         }
         Target::Calendar(id) => {
             let can = writable(s, &m.account_id).iter().any(|c| &c.id == id);
@@ -268,14 +284,8 @@ fn run(s: AppState, m: &AccountMenu, entry: Entry) {
         Entry::NewFrom => send_cmd(Cmd::NewDraft { from_account: Some(id), mailto: None }),
         Entry::SetDefault => s.set_default_account(Some(&id)),
         Entry::ClearDefault => s.set_default_account(None),
-        Entry::Mute | Entry::Unmute => {
-            let mute = entry == Entry::Mute;
-            crate::prefs::update(move |p| {
-                p.notify_accounts_muted.retain(|a| *a != id);
-                if mute {
-                    p.notify_accounts_muted.push(id);
-                }
-            });
+        Entry::Notify(mode) => {
+            crate::vip::update(move |p| crate::vip::set_account_mode(p, &id, mode));
             super::refresh_badge(s);
         }
         Entry::CopyAddress => {
@@ -323,6 +333,8 @@ fn run(s: AppState, m: &AccountMenu, entry: Entry) {
         | Entry::ReadOnly
         | Entry::NoWritable
         | Entry::DefaultFor
+        | Entry::NotifyHead
+        | Entry::NotifyIs(_)
         | Entry::Sep => {}
     }
 }
@@ -406,7 +418,7 @@ pub fn AccountMenuView() -> Element {
                 for (i, entry) in list.iter().copied().enumerate() {
                     if entry == Entry::Sep {
                         div { class: "menu-sep", key: "{i}", role: "separator" }
-                    } else if entry == Entry::DefaultFor {
+                    } else if matches!(entry, Entry::DefaultFor | Entry::NotifyHead) {
                         div { class: "menu__label account-menu__label", key: "{i}", "{entry.look().0}" }
                     } else {
                         {
@@ -449,26 +461,32 @@ mod tests {
     #[test]
     fn default_line_follows_the_choice() {
         assert_eq!(
-            entries(false, false),
+            entries(false, AccountMode::All),
             [
                 Entry::NewFrom,
                 Entry::Sep,
                 Entry::SetDefault,
-                Entry::Mute,
                 Entry::CopyAddress,
+                Entry::Sep,
+                Entry::NotifyHead,
+                Entry::NotifyIs(AccountMode::All),
+                Entry::Notify(AccountMode::VipOnly),
+                Entry::Notify(AccountMode::Off),
                 Entry::Sep,
                 Entry::Settings
             ]
         );
-        let chosen = entries(true, true);
+        let chosen = entries(true, AccountMode::Off);
         assert!(chosen.contains(&Entry::IsDefault) && chosen.contains(&Entry::ClearDefault));
         assert!(!chosen.contains(&Entry::SetDefault));
-        assert!(chosen.contains(&Entry::Unmute) && !chosen.contains(&Entry::Mute));
+        assert!(
+            chosen.contains(&Entry::NotifyIs(AccountMode::Off)) && chosen.contains(&Entry::Notify(AccountMode::All))
+        );
     }
 
     #[test]
     fn keyboard_skips_separators_and_the_checked_default() {
-        let e = entries(true, false);
+        let e = entries(true, AccountMode::All);
         // NewFrom, Sep, IsDefault, ClearDefault, …
         assert_eq!(step(&e, None, true), Some(0));
         assert_eq!(step(&e, Some(0), true), Some(3), "skips the separator and the checked line");

@@ -41,8 +41,14 @@ pub struct Prefs {
     pub last_mailbox: String,
     /// How long before an event the reminder fires.
     pub event_reminder_minutes: u32,
-    /// Account ids that never notify.
+    /// Account ids that never notify (vip.rs: Off).
     pub notify_accounts_muted: Vec<String>,
+    /// Account ids that notify only about mail from VIPs.
+    pub notify_accounts_vip_only: Vec<String>,
+    /// VIP senders: lowercased addresses, or `@domain` for everyone there.
+    pub notify_vips: Vec<String>,
+    /// Senders whose new mail never notifies, as `notify_vips`.
+    pub notify_muted_senders: Vec<String>,
     /// Load remote images in every message without asking.
     pub remote_images_always: bool,
     /// Senders (lowercased addresses) whose remote images always load.
@@ -196,6 +202,9 @@ impl Default for Prefs {
             last_mailbox: String::new(),
             event_reminder_minutes: 10,
             notify_accounts_muted: Vec::new(),
+            notify_accounts_vip_only: Vec::new(),
+            notify_vips: Vec::new(),
+            notify_muted_senders: Vec::new(),
             remote_images_always: false,
             remote_images_senders: Vec::new(),
             crash_reports: true,
@@ -279,6 +288,11 @@ fn load() -> Prefs {
         prefs.mail_alert = "background".into();
     }
     prefs
+}
+
+/// Read the current settings without copying them (hot paths: list rows).
+pub fn with<R>(f: impl FnOnce(&Prefs) -> R) -> R {
+    f(&cell().lock().unwrap_or_else(|p| p.into_inner()))
 }
 
 /// Current settings (loaded once, on first use).

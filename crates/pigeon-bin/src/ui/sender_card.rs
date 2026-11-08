@@ -194,6 +194,18 @@ pub fn SenderCard() -> Element {
     let left = card.x.max(8.0);
     let top = card.y + 6.0;
     let (copy_email, search_email) = (email.clone(), email.clone());
+    // Notifications from this sender (vip.rs): their own rule, else what
+    // their domain's says.
+    let _ = crate::vip::REV.read();
+    let prefs = crate::prefs::get();
+    let own_key = email.to_lowercase();
+    let own = crate::vip::rule_of(&prefs, &own_key);
+    let applied = crate::vip::rule_for(&prefs, &email);
+    let lower_domain = domain.to_ascii_lowercase();
+    let domain_key = format!("@{lower_domain}");
+    let domain_rule = crate::vip::rule_of(&prefs, &domain_key);
+    let offer_domain = !lower_domain.is_empty() && !crate::vip::is_shared_domain(&lower_domain);
+    let inherited = own.is_none().then_some(applied).flatten();
 
     rsx! {
         div { class: "popover sender-card", role: "dialog", "aria-label": "Sender details",
@@ -273,6 +285,46 @@ pub fn SenderCard() -> Element {
                     div { class: "sender-card__fact",
                         span { class: "sender-card__label", "History" }
                         span { class: "sender-card__value", if n == 1 { "1 message in this account" } else { "{n} messages in this account" } }
+                    }
+                }
+            }
+            div { class: "sender-card__notify",
+                span { class: "sender-card__label", "Notifications" }
+                div { class: "segmented segmented--sm", role: "radiogroup", "aria-label": "Notifications from this sender",
+                    for (rule, label) in [(Some(crate::vip::Rule::Vip), "VIP"), (None, "Normal"), (Some(crate::vip::Rule::Muted), "Muted")] {
+                        {
+                            let key = own_key.clone();
+                            let on = own == rule;
+                            rsx! {
+                                button { key: "{label}", r#type: "button", role: "radio", "aria-checked": "{on}", "aria-selected": "{on}",
+                                    onclick: move |_| {
+                                        let key = key.clone();
+                                        crate::vip::update(move |p| crate::vip::set_rule(p, &key, rule));
+                                    },
+                                    "{label}"
+                                }
+                            }
+                        }
+                    }
+                }
+                if let Some(r) = inherited {
+                    div { class: "sender-card__notify-note",
+                        if r == crate::vip::Rule::Vip { "Everyone at {lower_domain} is a VIP." } else { "Everyone at {lower_domain} is muted." }
+                    }
+                }
+                if offer_domain {
+                    {
+                        let key = domain_key.clone();
+                        let muted = domain_rule == Some(crate::vip::Rule::Muted);
+                        rsx! {
+                            button { class: "link-btn sender-card__notify-domain", r#type: "button",
+                                onclick: move |_| {
+                                    let key = key.clone();
+                                    crate::vip::update(move |p| crate::vip::set_rule(p, &key, if muted { None } else { Some(crate::vip::Rule::Muted) }));
+                                },
+                                if muted { "Unmute everyone at {lower_domain}" } else { "Mute everyone at {lower_domain}" }
+                            }
+                        }
                     }
                 }
             }

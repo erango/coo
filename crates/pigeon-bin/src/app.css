@@ -2450,3 +2450,19 @@ html[data-contrast="high"] .greet-card { box-shadow: 0 0 0 1.5px var(--line-stro
 .paste-bar__btn:hover { background: var(--bg-2); color: var(--text-1); }
 .paste-bar__btn[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: var(--fw-semibold); }
 @media (prefers-reduced-motion: reduce) { .paste-bar { animation: none; } }
+
+/* Who may notify (vip.rs): VIPs wear the warm accent, muted stays quiet. */
+.sender-card__notify {
+  display: grid; grid-template-columns: 92px 1fr; gap: 6px 8px; align-items: center;
+  padding: 10px 16px; box-shadow: inset 0 1px 0 var(--line); font-size: var(--fs-caption);
+}
+.sender-card__notify > .segmented { justify-self: start; }
+.sender-card__notify-note, .sender-card__notify-domain { grid-column: 2; justify-self: start; font-size: var(--fs-caption); }
+.sender-card__notify-note { color: var(--text-3); }
+.nav-section__notify { display: inline-flex; flex: none; color: var(--text-3); }
+.nav-section__notify--vip, .sender-rules__vip, .row__vip { color: var(--warning); }
+.row__muted { color: var(--text-3); }
+.row__vip, .row__muted { display: inline-flex; flex: none; vertical-align: -1px; margin-inline-start: 4px; }
+.sender-rules { display: flex; flex-direction: column; gap: 10px; }
+.sender-rules__add { display: flex; gap: 6px; align-items: center; }
+.sender-rules__input { flex: 1; min-width: 0; }

@@ -165,13 +165,17 @@ pub fn mail_notes(rows: &[MessageRow], prefs: &Prefs) -> Vec<Note> {
     if !prefs.notify_new_mail {
         return Vec::new();
     }
-    let rows: Vec<&MessageRow> = rows.iter().filter(|r| !prefs.notify_accounts_muted.contains(&r.account_id)).collect();
+    // Each account notifies about all its mail, only VIPs' or none; muted
+    // senders never do (vip.rs).
+    let alerts =
+        |r: &MessageRow| crate::vip::alerts(prefs, &r.account_id, r.header.from.as_ref().map(|a| a.email.as_str()));
+    let rows: Vec<(&MessageRow, bool)> = rows.iter().filter_map(|r| alerts(r).map(|vip| (r, vip))).collect();
     let who =
         |r: &MessageRow| r.header.from.as_ref().map(|a| a.display().to_string()).unwrap_or_else(|| "Someone".into());
     match rows.as_slice() {
         [] => Vec::new(),
-        [r] => vec![Note {
-            title: who(r),
+        [(r, vip)] => vec![Note {
+            title: if *vip { format!("★ {}", who(r)) } else { who(r) },
             body: if !prefs.notify_previews {
                 "New message".into()
             } else if r.header.subject.is_empty() {
@@ -190,7 +194,7 @@ pub fn mail_notes(rows: &[MessageRow], prefs: &Prefs) -> Vec<Note> {
         }],
         many => {
             let mut names: Vec<String> = Vec::new();
-            for r in many {
+            for (r, _) in many {
                 let n = who(r);
                 if !names.contains(&n) {
                     names.push(n);
@@ -645,6 +649,17 @@ mod tests {
         let private = Prefs { notify_previews: false, ..Prefs::default() };
         let n = mail_notes(&rows[..1], &private);
         assert_eq!((n[0].title.as_str(), n[0].body.as_str()), ("Ann", "New message"));
+
+        // Account b only for VIPs; Dee (5@x.com) is one, Ann (1@x.com) muted.
+        let mut p = Prefs::default();
+        crate::vip::set_account_mode(&mut p, "b", crate::vip::AccountMode::VipOnly);
+        crate::vip::set_rule(&mut p, "5@x.com", Some(crate::vip::Rule::Vip));
+        crate::vip::set_rule(&mut p, "1@x.com", Some(crate::vip::Rule::Muted));
+        let n = mail_notes(&rows[4..], &p);
+        assert_eq!(n[0].title, "★ Dee");
+        assert!(mail_notes(&rows[..1], &p).is_empty());
+        let n = mail_notes(&rows[..3], &p);
+        assert_eq!((n[0].title.as_str(), n[0].body.as_str()), ("2 new messages", "From Ben and Ann"));
     }
 
     fn ev(id: &str, start: i64, resp: Response, url: Option<&str>) -> EventRow {

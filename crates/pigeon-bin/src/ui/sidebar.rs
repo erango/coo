@@ -262,6 +262,15 @@ fn AccountSection(
         (true, false) => format!("{address} · Default for new messages (top account)"),
         _ => address.clone(),
     };
+    // How the account notifies, when not about all its mail (vip.rs).
+    let _ = crate::vip::REV.read();
+    let notify = match crate::vip::account_mode(&crate::prefs::get(), &id) {
+        crate::vip::AccountMode::All => None,
+        crate::vip::AccountMode::VipOnly => {
+            Some(("star", "nav-section__notify nav-section__notify--vip", "Notifies only for VIPs"))
+        }
+        crate::vip::AccountMode::Off => Some(("bell-off", "nav-section__notify", "Notifications off")),
+    };
     let menu_open = s
         .account_menu
         .read()
@@ -300,6 +309,9 @@ fn AccountSection(
             },
             if many { span { class: "pip", "{letter}" } } else { span { class: "dot" } }
             span { dir: "auto", style: "text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap", title: "{tip}", "{name}" }
+            if let Some((icon, look, what)) = notify {
+                span { class: "{look}", title: "{what}", role: "img", "aria-label": "{what}", Icon { name: icon, class: "icon--xs" } }
+            }
             if collapsed { super::bird::CountBadge { count: unread, class: "count nav-section__count" } }
             span { class: "nav-section__meta", title: "{meta}", dangerous_inner_html: provider_mark(nav.account.provider, meta) }
             if draggable { Icon { name: "grip", class: "icon--xs nav-section__grip" } }
