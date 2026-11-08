@@ -278,6 +278,9 @@ const DRAFT_SAVING: [(&str, &str); 2] = [("ask", "Ask when closing"), ("auto", "
 const AFTER_SENDING: [(bool, &str); 2] = [(false, "Keep in Inbox"), (true, "Archive")];
 /// Where replies open (prefs `reply_mode`).
 const REPLY_MODES: [(&str, &str); 2] = [("inline", "Inline in the conversation"), ("window", "In a separate window")];
+/// `Prefs::paste_style` choices, as the bar after a paste names them.
+const PASTE_STYLES: [(&str, &str); 3] =
+    [("match", "Match message"), ("original", "Keep original"), ("plain", "Plain text")];
 
 /// Settings › Writing: the composer, drafts and sending, signatures.
 #[component]
@@ -293,6 +296,8 @@ pub fn Writing() -> Element {
     let mut after_reply = use_signal(|| prefs::get().archive_after_reply);
     let mut after_forward = use_signal(|| prefs::get().archive_after_forward);
     let (cur_reply, cur_forward) = (*after_reply.read(), *after_forward.read());
+    let mut paste = use_signal(|| prefs::get().paste_style);
+    let current_paste = paste.read().clone();
 
     rsx! {
         div { class: "settings__title", "Writing" }
@@ -324,6 +329,26 @@ pub fn Writing() -> Element {
                 }
             }
             super::settings::DefaultFromField {}
+            Row { label: "Pasting formatted text",
+                hint: match current_paste.as_str() {
+                    "original" => "Pasted text keeps the fonts, sizes and colors it had where you copied it.",
+                    "plain" => "Pasted text comes in as plain text, in this message's look.",
+                    _ => "Pasted text takes this message's font, size and paragraph direction; bold, italic, underline, links and lists stay.",
+                },
+                div { class: "srow__inline",
+                    div { class: "segmented", role: "radiogroup", "aria-label": "How formatted text pastes",
+                        for (value, label) in PASTE_STYLES {
+                            button { role: "radio", "aria-checked": "{current_paste == value}", "aria-selected": "{current_paste == value}",
+                                onclick: move |_| {
+                                    prefs::update(|p| p.paste_style = value.to_string());
+                                    paste.set(value.to_string());
+                                },
+                                "{label}"
+                            }
+                        }
+                    }
+                }
+            }
         }
         Group { title: "Drafts and sending",
             Row { label: "Drafts",

@@ -2436,3 +2436,17 @@ html[data-contrast="high"] .greet-card { box-shadow: 0 0 0 1.5px var(--line-stro
 /* Settings › General and the tour: Coo is the default email app. */
 .default-mail__on { display: inline-flex; align-items: center; gap: 6px; height: 28px; font-size: 13px; color: var(--text-2); }
 .default-mail__on .icon { color: var(--success); }
+
+/* After pasting formatted text: how it came in (richtext.rs), switchable. */
+.paste-bar {
+  position: fixed; z-index: 70; display: flex; gap: 2px; padding: 3px;
+  border-radius: 9px; background: var(--bg-3); box-shadow: 0 0 0 1px var(--line-strong), 0 6px 18px rgba(0, 0, 0, 0.18);
+  animation: pg-pop-in var(--dur-base) var(--ease-standard);
+}
+.paste-bar__btn {
+  height: 26px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent;
+  font: inherit; font-size: 12.5px; color: var(--text-2); cursor: default; white-space: nowrap;
+}
+.paste-bar__btn:hover { background: var(--bg-2); color: var(--text-1); }
+.paste-bar__btn[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: var(--fw-semibold); }
+@media (prefers-reduced-motion: reduce) { .paste-bar { animation: none; } }

@@ -1105,7 +1105,7 @@ pub fn InlineReply(draft: Draft) -> Element {
             if attachments_on_top() { Attachments { top: true } }
             super::format_bar::FormatBar { editor: id.clone() }
             div { class: "inline-reply__editor", id: "{id}", contenteditable: "true", "data-editor": "true",
-                dir: "auto", "data-placeholder": "Write a reply…",
+                "data-paste": "{crate::prefs::get().paste_style}", dir: "auto", "data-placeholder": "Write a reply…",
                 dangerous_inner_html: "{body}",
             }
             div { style: "padding:0 16px", SignaturePreview {} }
@@ -1323,6 +1323,7 @@ pub fn Composer(draft: Draft, #[props(default)] docked: bool) -> Element {
                 div { class: "dropzone", Icon { name: "upload" } "Drop to attach" span { class: "dropzone__meta", "files are added to this message" } }
                 div { class: "composer__body",
                     div { class: "composer__editor", id: "{id}", contenteditable: "true", "data-editor": "true", dir: "auto",
+                        "data-paste": "{crate::prefs::get().paste_style}",
                         dangerous_inner_html: "{body}" }
                     SignaturePreview {}
                     if !current.html.is_empty() {

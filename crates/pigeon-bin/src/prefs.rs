@@ -122,6 +122,11 @@ pub struct Prefs {
     pub quotes_open: bool,
     /// Where replies open: "inline" (below the conversation) or "window".
     pub reply_mode: String,
+    /// How formatted text pastes into a message: "match" (this message's
+    /// font, size and paragraph direction; bold, italic, underline, links
+    /// and lists kept), "original" (as it looked where it was copied) or
+    /// "plain". A bar after each paste offers the other two.
+    pub paste_style: String,
     /// Show sender photos from Gravatar (sends a hash of each address).
     pub photos_gravatar: bool,
     /// Show sender photos from Google accounts' contacts (where allowed).
@@ -219,6 +224,7 @@ impl Default for Prefs {
             quote_style: "cards".into(),
             quotes_open: false,
             reply_mode: "inline".into(),
+            paste_style: "match".into(),
             photos_gravatar: false,
             photos_google: true,
             photos_microsoft: true,

@@ -688,6 +688,241 @@ const JS: &str = r##"
     refresh(ed);
   }, true);
 
+  // ---- Pasting formatted text ----
+  // Text copied from a web page, Word or Docs brings its own fonts, sizes,
+  // colors and spacing. By default ("match") it takes on this message's
+  // look and the direction of the paragraph it lands in, keeping only
+  // bold, italic, underline, strikethrough, links and lists. A small bar
+  // after the paste switches it to the original look or plain text
+  // (Settings › Writing sets the default: the editor's data-paste).
+  const PASTE_MODES = [['match', 'Match message'], ['original', 'Keep original'], ['plain', 'Plain text']];
+  const escHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const DROP = /^(SCRIPT|STYLE|HEAD|META|TITLE|LINK|NOSCRIPT|TEMPLATE|IMG|SVG|BUTTON|INPUT|SELECT|TEXTAREA|OBJECT|IFRAME|VIDEO|AUDIO|CANVAS)$/;
+  const BLOCKS = /^(P|DIV|H[1-6]|BLOCKQUOTE|PRE|SECTION|ARTICLE|HEADER|FOOTER|MAIN|ASIDE|NAV|TABLE|TBODY|THEAD|TFOOT|TR|DL|DT|DD|FIGURE|FIGCAPTION|ADDRESS|HR|CENTER)$/;
+  // Bold, italic, underline and strikethrough from `el` (tags or inline
+  // styles), on top of what it sits in. Docs wraps everything in
+  // <b style="font-weight:normal">, so a style can also take bold away.
+  function marksOf(el, m) {
+    const t = el.tagName, st = el.style || {};
+    const n = { ...m };
+    if (t === 'B' || t === 'STRONG') n.b = true;
+    if (t === 'I' || t === 'EM') n.i = true;
+    if (t === 'U' || t === 'INS') n.u = true;
+    if (t === 'S' || t === 'STRIKE' || t === 'DEL') n.s = true;
+    const w = st.fontWeight;
+    if (w) n.b = w === 'bold' || w === 'bolder' || parseInt(w, 10) >= 600;
+    if (st.fontStyle) n.i = st.fontStyle === 'italic' || st.fontStyle === 'oblique';
+    const d = (st.textDecorationLine || st.textDecoration || '');
+    if (d.includes('underline')) n.u = true;
+    if (d.includes('line-through')) n.s = true;
+    return n;
+  }
+  const wrap = (h, m) => {
+    if (m.s) h = '<strike>' + h + '</strike>';
+    if (m.u) h = '<u>' + h + '</u>';
+    if (m.i) h = '<i>' + h + '</i>';
+    if (m.b) h = '<b>' + h + '</b>';
+    return h;
+  };
+  const safeHref = (h) => /^(https?:|mailto:)/i.test(h || '') ? h : null;
+  // The pasted HTML in this message's look: `dir` for each paragraph.
+  // Returns inline HTML when the paste was a run of text (it joins the
+  // line the caret is on), else paragraphs.
+  function matchHtml(html, dir) {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const blocks = [];
+    let line = '', sawBlock = false, gap = false;
+    const dirAttr = ' dir="' + dir + '"';
+    const flush = (keepEmpty) => {
+      if (line.trim()) {
+        if (gap && blocks.length) blocks.push('<div' + dirAttr + '><br></div>');
+        blocks.push('<div' + dirAttr + '>' + line.trim() + '</div>');
+        gap = false;
+      } else if (keepEmpty) {
+        blocks.push('<div' + dirAttr + '><br></div>');
+      }
+      line = '';
+    };
+    const text = (s, m, pre) => {
+      if (!pre) { s = s.replace(/\s+/g, ' '); if (!line) s = s.replace(/^ /, ''); }
+      if (s) line += wrap(escHtml(s).replace(/\n/g, '<br>'), m);
+    };
+    function list(el, m) {
+      let out = '<' + el.tagName.toLowerCase() + '>';
+      for (const li of el.children) {
+        if (li.tagName !== 'LI') continue;
+        const saved = line; line = '';
+        inline(li, marksOf(li, m));
+        out += '<li dir="auto">' + (line.trim() || '<br>') + '</li>';
+        line = saved;
+      }
+      return out + '</' + el.tagName.toLowerCase() + '>';
+    }
+    // Inside a list item: blocks become line breaks, nested lists stay.
+    function inline(node, m) {
+      for (const c of node.childNodes) {
+        if (c.nodeType === 3) { text(c.data, m, false); continue; }
+        if (c.nodeType !== 1 || DROP.test(c.tagName)) continue;
+        if (c.tagName === 'UL' || c.tagName === 'OL') { line += list(c, m); continue; }
+        if (c.tagName === 'BR') { line += '<br>'; continue; }
+        if (c.tagName === 'A' && safeHref(c.getAttribute('href'))) {
+          const saved = line; line = '';
+          inline(c, marksOf(c, m));
+          line = saved + '<a href="' + escHtml(c.getAttribute('href')) + '">' + line + '</a>';
+          continue;
+        }
+        if (BLOCKS.test(c.tagName) && line && !line.endsWith('<br>')) line += '<br>';
+        inline(c, marksOf(c, m));
+      }
+    }
+    function walk(node, m, pre) {
+      for (const c of node.childNodes) {
+        if (c.nodeType === 3) { text(c.data, m, pre); continue; }
+        if (c.nodeType !== 1 || DROP.test(c.tagName)) continue;
+        const t = c.tagName;
+        if (t === 'BR') { flush(true); continue; }
+        if (t === 'UL' || t === 'OL') { sawBlock = true; flush(false); blocks.push(list(c, m)); continue; }
+        if (t === 'A' && safeHref(c.getAttribute('href'))) {
+          const saved = line; line = '';
+          inline(c, marksOf(c, m));
+          line = saved + '<a href="' + escHtml(c.getAttribute('href')) + '">' + line + '</a>';
+          continue;
+        }
+        if (t === 'TD' || t === 'TH') { walk(c, marksOf(c, m), pre); line += ' '; continue; }
+        if (BLOCKS.test(t) || t === 'LI') {
+          sawBlock = true;
+          flush(false);
+          walk(c, marksOf(c, m), pre || t === 'PRE');
+          flush(false);
+          // Paragraphs were set apart by margins: keep a blank line between.
+          if (t === 'P' || /^H[1-6]$/.test(t)) gap = true;
+          continue;
+        }
+        walk(c, marksOf(c, m), pre);
+      }
+    }
+    walk(doc.body, {}, false);
+    if (!sawBlock && blocks.length === 0) return line.trim() ? line.replace(/\s+$/, '') : '';
+    flush(false);
+    return blocks.join('');
+  }
+  // The original HTML, minus what can't go in a message.
+  function originalHtml(html) {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    for (const el of doc.body.querySelectorAll('script,style,meta,link,title,iframe,object,embed,noscript,template')) el.remove();
+    const walk = doc.createTreeWalker(doc.body, NodeFilter.SHOW_COMMENT);
+    const comments = [];
+    while (walk.nextNode()) comments.push(walk.currentNode);
+    for (const c of comments) c.remove();
+    for (const el of doc.body.querySelectorAll('*')) {
+      for (const a of [...el.attributes]) if (/^on/i.test(a.name)) el.removeAttribute(a.name);
+    }
+    return doc.body.innerHTML;
+  }
+  const pasteDefault = (ed) => {
+    const holder = ed.closest('[data-paste]') || document.querySelector('[data-paste]');
+    const v = holder && holder.dataset.paste;
+    return PASTE_MODES.some(([m]) => m === v) ? v : 'match';
+  };
+  // The paragraph direction where the paste lands: the block's own dir,
+  // else the editor's ("auto": each paragraph by its first letter).
+  function pasteDir(ed) {
+    const b = blockAt(ed, caretNode());
+    const d = (b && b.getAttribute('dir')) || ed.getAttribute('dir') || 'auto';
+    return d === 'rtl' || d === 'ltr' ? d : 'auto';
+  }
+  function insertPaste(ed, p, mode) {
+    if (mode === 'plain') exec('insertText', p.text);
+    else if (mode === 'original') exec('insertHTML', originalHtml(p.html));
+    else {
+      const h = matchHtml(p.html, p.dir);
+      if (h) exec('insertHTML', h); else exec('insertText', p.text);
+    }
+    p.mode = mode;
+    changed(ed);
+  }
+  let lastPaste = null;
+  function closePasteBar(link) {
+    const bar = document.querySelector('.paste-bar');
+    if (bar) bar.remove();
+    const p = lastPaste;
+    lastPaste = null;
+    // Addresses in the paste become links once its look is settled (doing
+    // it earlier would get in the way of undoing the paste).
+    if (link && p && p.ed.isConnected) {
+      const walk = p.ed.ownerDocument.createTreeWalker(p.ed, NodeFilter.SHOW_TEXT);
+      const nodes = [];
+      while (walk.nextNode()) nodes.push(walk.currentNode);
+      for (const n of nodes) askLinks(n, 0, n.length);
+    }
+  }
+  function showPasteBar(p) {
+    closePasteBar(false);
+    lastPaste = p;
+    const sel = D.getSelection();
+    let rect = null;
+    if (sel.rangeCount) {
+      const rs = sel.getRangeAt(0).getClientRects();
+      rect = rs.length ? rs[rs.length - 1] : null;
+    }
+    if (!rect || (!rect.width && !rect.height)) rect = p.ed.getBoundingClientRect();
+    // A quote edited in place sits in its own frame: move into the window's
+    // coordinates.
+    const fe = D.defaultView && D.defaultView.frameElement;
+    const off = fe ? fe.getBoundingClientRect() : { left: 0, top: 0 };
+    const bar = document.createElement('div');
+    bar.className = 'paste-bar';
+    bar.setAttribute('role', 'toolbar');
+    bar.setAttribute('aria-label', 'Paste as');
+    for (const [mode, label] of PASTE_MODES) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'paste-bar__btn';
+      b.textContent = label;
+      b.setAttribute('aria-pressed', String(mode === p.mode));
+      b.addEventListener('mousedown', (e) => e.preventDefault());
+      b.addEventListener('click', () => {
+        if (!lastPaste || mode === lastPaste.mode) return;
+        const q = lastPaste;
+        D = q.ed.ownerDocument;
+        exec('undo');
+        insertPaste(q.ed, q, mode);
+        showPasteBar(q);
+      });
+      bar.appendChild(b);
+    }
+    document.body.appendChild(bar);
+    const w = bar.offsetWidth, h = bar.offsetHeight;
+    let left = off.left + rect.left, top = off.top + rect.bottom + 8;
+    left = Math.max(8, Math.min(left, innerWidth - w - 8));
+    if (top + h > innerHeight - 8) top = off.top + rect.top - h - 8;
+    bar.style.left = left + 'px';
+    bar.style.top = Math.max(8, top) + 'px';
+  }
+  onDoc('paste', (e) => {
+    if (e.defaultPrevented) return;
+    const ed = editorOf(caretNode());
+    const cd = e.clipboardData;
+    if (!ed || !cd) return;
+    const html = cd.getData('text/html');
+    // Plain text has no look to choose; images and files go their own way.
+    if (!html || (cd.files && cd.files.length)) return;
+    e.preventDefault();
+    const p = { ed, html, text: cd.getData('text/plain') || '', dir: pasteDir(ed), mode: null };
+    insertPaste(ed, p, pasteDefault(ed));
+    showPasteBar(p);
+  }, true);
+  // The bar goes once you carry on: typing, clicking elsewhere, Esc.
+  onDoc('keydown', (e) => {
+    if (!lastPaste || /^(Shift|Meta|Control|Alt|CapsLock)$/.test(e.key)) return;
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); }
+    closePasteBar(true);
+  }, true);
+  onDoc('mousedown', (e) => {
+    if (lastPaste && !(e.target.closest && e.target.closest('.paste-bar'))) closePasteBar(true);
+  }, true);
+  window.__cooPasteMatch = matchHtml; // tests
+
   // ---- List autoformat and list keys ----
   // `auto` remembers the list Space just made, so an immediate Backspace
   // turns it back into the typed text (like Word).
@@ -954,7 +1189,7 @@ const JS: &str = r##"
     if (ed && found.length) changed(ed);
   };
   onDoc('input', (e) => {
-    if (e.inputType !== 'insertFromPaste') return;
+    if (e.inputType !== 'insertFromPaste' || lastPaste) return;
     const ed = e.target.closest && e.target.closest('[data-editor]');
     if (!ed) return;
     const walk = D.createTreeWalker(ed, NodeFilter.SHOW_TEXT);
