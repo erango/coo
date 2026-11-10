@@ -855,22 +855,65 @@ fn Body(account_id: String, message_id: String, sender: String, body: StoredBody
     };
 
     let on_top = prefs.attachments_position != "bottom";
+    // Several attachments can be ticked (a circle on each, ⌘- or Shift-click,
+    // or a box dragged around them: bridge.rs) and saved, opened or dragged
+    // out together.
+    let all_ids: Vec<String> = attachments.iter().map(|a| a.meta.id.clone()).collect();
+    let s_all_ids = all_ids.clone();
+    let many_files = attachments.len() > 1;
+    let picked = super::attachments::selected(&s, &message_id);
+    let picked_files: Vec<super::attachments::File> = files.iter().filter(|f| picked.contains(&f.0)).cloned().collect();
+    let (sel_m1, sel_m2, sel_m3, sel_all) =
+        (message_id.clone(), message_id.clone(), message_id.clone(), all_ids.clone());
+    let (open_account, open_message, open_ids) = (account_id.clone(), message_id.clone(), picked.clone());
+    let (pick_account, pick_message) = (account_id.clone(), message_id.clone());
     let files_view = rsx! {
-        if attachments.len() > 1 {
+        if attachments.len() > 1 && picked.is_empty() {
             div { class: "attachments__head",
                 Icon { name: "clip", class: "icon--sm" }
                 span { class: "attachments__count", "{attachments.len()} attachments" }
                 if total > 0 { span { class: "attachments__total", "· {format::size(total)}" } }
-                button { class: "attachments__save", r#type: "button", title: "Save every attachment to a folder",
+                button { class: "attachments__save", r#type: "button", title: "Tick every attachment",
+                    onclick: move |_| super::attachments::select(s, &sel_m1, sel_all.clone()),
+                    "Select all"
+                }
+                button { class: "attachments__save attachments__save--all", r#type: "button", title: "Save every attachment to a folder",
                     onclick: move |_| super::attachments::save_all(save_account.clone(), save_message.clone(), save_files.clone()),
                     Icon { name: "download", class: "icon--sm" }
                     "Save all…"
                 }
             }
         }
+        if !picked.is_empty() {
+            div { class: "attachments__bar", role: "toolbar", "aria-label": "Selected attachments",
+                span { class: "attachments__bar-count", "{picked.len()} selected" }
+                span { class: "spacer" }
+                button { class: "attachments__bar-btn attachments__bar-btn--main", r#type: "button", title: "Save the selected attachments to a folder",
+                    onclick: move |_| super::attachments::save_all(pick_account.clone(), pick_message.clone(), picked_files.clone()),
+                    "Save…"
+                }
+                button { class: "attachments__bar-btn", r#type: "button",
+                    onclick: move |_| for id in open_ids.iter() {
+                        send_cmd(Cmd::OpenAttachment {
+                            account_id: open_account.clone(), message_id: open_message.clone(), attachment_id: id.clone(),
+                            how: Default::default(),
+                        });
+                    },
+                    "Open"
+                }
+                button { class: "attachments__bar-btn", r#type: "button",
+                    onclick: move |_| super::attachments::select(s, &sel_m2, all_ids.clone()),
+                    "All"
+                }
+                button { class: "attachments__bar-btn attachments__bar-x", r#type: "button", "aria-label": "Clear selection", title: "Clear selection",
+                    onclick: move |_| super::attachments::select(s, &sel_m3, Vec::new()),
+                    Icon { name: "x", class: "icon--sm" }
+                }
+            }
+        }
         if !attachments.is_empty() {
             super::attachments::AttachmentMenu { account_id: account_id.clone(), message_id: message_id.clone(), all: files.clone(), menu: att_menu }
-            div { class: "attachments",
+            div { class: "attachments", "data-message": "{message_id}", "data-selecting": (!picked.is_empty()).then_some("true"),
                 for a in attachments {
                     {
                         let kind = match a.meta.content_type.as_deref().unwrap_or_default() {
@@ -885,6 +928,9 @@ fn Body(account_id: String, message_id: String, sender: String, body: StoredBody
                         let file = (a.meta.id.clone(), a.meta.name.clone());
                         let mut menu = att_menu;
                         let ringed = menu.read().as_ref().is_some_and(|m| m.file.0 == a.meta.id);
+                        let on = picked.contains(&a.meta.id);
+                        let (tick_m, tick_id, tick_all) = (message_id.clone(), a.meta.id.clone(), s_all_ids.clone());
+                        let (click_m, click_id, click_all) = (message_id.clone(), a.meta.id.clone(), s_all_ids.clone());
                         let drag = serde_json::json!({
                             "account_id": account_id, "message_id": message_id,
                             "attachment_id": a.meta.id, "name": a.meta.name,
@@ -893,16 +939,36 @@ fn Body(account_id: String, message_id: String, sender: String, body: StoredBody
                         rsx! {
                             div { class: "attachment", key: "{a.meta.id}", title: "Open, or drag to a folder to save",
                                 "data-drag-out": "{drag}",
+                                "data-att-id": "{a.meta.id}",
+                                "data-selected": on.then_some("true"),
                                 "data-context": ringed.then_some("true"),
                                 oncontextmenu: move |e| {
                                     e.prevent_default();
                                     let p = e.client_coordinates();
                                     menu.set(Some(super::attachments::Menu { x: p.x, y: p.y, file: file.clone() }));
                                 },
-                                onclick: move |_| send_cmd(Cmd::OpenAttachment {
-                                    account_id: account_id.clone(), message_id: message_id.clone(), attachment_id: attachment_id.clone(),
-                                    how: Default::default(),
-                                }),
+                                // ⌘-click ticks it, Shift-click ticks up to it; a plain click opens.
+                                onclick: move |e| {
+                                    let m = e.modifiers();
+                                    if m.meta() || m.shift() {
+                                        super::attachments::tick(s, &click_m, &click_all, &click_id, m.shift());
+                                    } else {
+                                        send_cmd(Cmd::OpenAttachment {
+                                            account_id: account_id.clone(), message_id: message_id.clone(), attachment_id: attachment_id.clone(),
+                                            how: Default::default(),
+                                        });
+                                    }
+                                },
+                                if many_files {
+                                    button { class: "attachment__tick", r#type: "button", role: "checkbox", "aria-checked": "{on}",
+                                        "aria-label": if on { "Deselect {a.meta.name}" } else { "Select {a.meta.name}" },
+                                        onclick: move |e| {
+                                            e.stop_propagation();
+                                            super::attachments::tick(s, &tick_m, &tick_all, &tick_id, e.modifiers().shift());
+                                        },
+                                        Icon { name: "check", class: "icon--xs" }
+                                    }
+                                }
                                 span { class: "attachment__icon", "data-kind": "{kind}", Icon { name: icon, class: "icon--sm" } }
                                 div { style: "min-width:0",
                                     div { class: "attachment__name", dir: "auto", "{a.meta.name}" }

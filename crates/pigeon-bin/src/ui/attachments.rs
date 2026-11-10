@@ -54,6 +54,61 @@ pub fn save_all(account_id: String, message_id: String, files: Vec<File>) {
     });
 }
 
+/// The attachments ticked in message `message_id`.
+pub fn selected(s: &crate::state::AppState, message_id: &str) -> Vec<String> {
+    let sel = s.att_sel.read();
+    if sel.0 == message_id { sel.1.clone() } else { Vec::new() }
+}
+
+/// Tick exactly these attachments of `message_id` (none: clear).
+pub fn select(s: crate::state::AppState, message_id: &str, ids: Vec<String>) {
+    let mut sel = s.att_sel;
+    sel.set((message_id.to_string(), ids));
+}
+
+/// A click on attachment `id`: toggle it, or with `range` (Shift) tick
+/// everything from the last ticked one to it, in the order of `all`.
+pub fn tick(s: crate::state::AppState, message_id: &str, all: &[String], id: &str, range: bool) {
+    let mut now = selected(&s, message_id);
+    let at = |x: &str| all.iter().position(|a| a == x);
+    match (range, now.last().and_then(|l| at(l)), at(id)) {
+        (true, Some(from), Some(to)) => {
+            for a in &all[from.min(to)..=from.max(to)] {
+                if !now.contains(a) {
+                    now.push(a.clone());
+                }
+            }
+        }
+        _ => match now.iter().position(|a| a == id) {
+            Some(i) => {
+                now.remove(i);
+            }
+            None => now.push(id.to_string()),
+        },
+    }
+    select(s, message_id, now);
+}
+
+/// The bridge's `attach-select` (a box dragged around attachments):
+/// `{m: message id, ids: [...], add: bool}`.
+pub fn select_from_bridge(s: crate::state::AppState, json: &str) {
+    #[derive(serde::Deserialize)]
+    struct Boxed {
+        m: String,
+        ids: Vec<String>,
+        #[serde(default)]
+        add: bool,
+    }
+    let Ok(b) = serde_json::from_str::<Boxed>(json) else { return };
+    let mut ids = if b.add { selected(&s, &b.m) } else { Vec::new() };
+    for id in b.ids {
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    select(s, &b.m, ids);
+}
+
 /// The open right-click menu: pointer position and which attachment.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Menu {

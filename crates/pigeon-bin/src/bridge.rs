@@ -805,7 +805,11 @@ pub const JS: &str = r#"
     const move = (m) => {
       if (Math.hypot(m.clientX - x0, m.clientY - y0) < 5) return;
       done();
-      send('attach-drag', chip.dataset.dragOut);
+      // A ticked attachment brings the other ticked ones along.
+      const box = chip.closest('.attachments');
+      const picked = chip.dataset.selected && box ? [...box.querySelectorAll('.attachment[data-selected][data-drag-out]')] : [];
+      if (picked.length > 1) send('attach-drag', '[' + picked.map((c) => c.dataset.dragOut).join(',') + ']');
+      else send('attach-drag', chip.dataset.dragOut);
     };
     const done = () => {
       document.removeEventListener('mousemove', move, true);
@@ -813,6 +817,47 @@ pub const JS: &str = r#"
     };
     document.addEventListener('mousemove', move, true);
     document.addEventListener('mouseup', done, true);
+  }, true);
+
+  // ---- Attachments: drag a box around several to tick them. Starts in
+  // the space around the chips (a press on a chip drags that file out);
+  // ⌘ or Shift adds to what's ticked; a plain click there clears.
+  document.addEventListener('mousedown', (e) => {
+    const box = e.button === 0 && e.target.closest && e.target.closest('.attachments[data-message]');
+    if (!box || e.target.closest('.attachment')) return;
+    e.preventDefault();
+    const x0 = e.clientX, y0 = e.clientY, add = e.metaKey || e.shiftKey;
+    const z = parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
+    const chips = () => [...box.querySelectorAll('.attachment[data-att-id]')];
+    const rectTo = (m) => ({ left: Math.min(x0, m.clientX), right: Math.max(x0, m.clientX), top: Math.min(y0, m.clientY), bottom: Math.max(y0, m.clientY) });
+    const inside = (r) => chips().filter((c) => {
+      const b = c.getBoundingClientRect();
+      return b.left < r.right && b.right > r.left && b.top < r.bottom && b.bottom > r.top;
+    });
+    let band = null;
+    const move = (m) => {
+      if (!band) {
+        if (Math.hypot(m.clientX - x0, m.clientY - y0) < 4) return;
+        band = document.createElement('div');
+        band.className = 'attach-band';
+        document.body.appendChild(band);
+      }
+      const r = rectTo(m);
+      band.style.left = r.left / z + 'px'; band.style.top = r.top / z + 'px';
+      band.style.width = (r.right - r.left) / z + 'px'; band.style.height = (r.bottom - r.top) / z + 'px';
+      const hit = new Set(inside(r));
+      for (const c of chips()) c.toggleAttribute('data-banded', hit.has(c));
+    };
+    const up = (m) => {
+      document.removeEventListener('mousemove', move, true);
+      document.removeEventListener('mouseup', up, true);
+      const ids = band ? inside(rectTo(m)).map((c) => c.dataset.attId) : [];
+      if (band) band.remove();
+      for (const c of chips()) c.removeAttribute('data-banded');
+      if (band || !add) send('attach-select', JSON.stringify({ m: box.dataset.message, ids, add }));
+    };
+    document.addEventListener('mousemove', move, true);
+    document.addEventListener('mouseup', up, true);
   }, true);
 
   // A click into a message moves keyboard focus into its frame, where the

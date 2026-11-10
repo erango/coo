@@ -449,6 +449,7 @@ async fn bridge_loop(s: AppState, item: ListItem) {
             "mention" => super::sender_card::hover_mention(s, item.account_id().to_string(), &msg.v),
             "ctx-img" => crate::ctxmenu::set_image(&msg.v),
             "attach-drag" => crate::dragout::start(&msg.v),
+            "attach-select" => super::attachments::select_from_bridge(s, &msg.v),
             "autolink" => crate::richtext::autolink(&msg.v),
             "link" => super::open_link(&s, &msg.v),
             _ => {}

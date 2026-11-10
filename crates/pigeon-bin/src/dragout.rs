@@ -62,9 +62,13 @@ pub fn start_mail(files: Vec<MailFile>) {
 }
 
 /// Start the native drag for the bridge's `attach-drag` message (JSON).
+/// One attachment, or a list of them (ticked attachments dragged together).
 pub fn start(json: &str) {
-    match serde_json::from_str::<Drag>(json) {
-        Ok(d) => mac::start(d),
+    let drags =
+        serde_json::from_str::<Vec<Drag>>(json).or_else(|_| serde_json::from_str::<Drag>(json).map(|d| vec![d]));
+    match drags {
+        Ok(d) if !d.is_empty() => mac::start(d),
+        Ok(_) => {}
         Err(e) => tracing::warn!(error = %e, "bad attachment drag"),
     }
 }
@@ -87,6 +91,9 @@ mod mac {
     use pigeon_engine::service::Cmd;
 
     use super::{Drag, MailFile};
+
+    /// A drag of attachments under way: its promised files and its source.
+    type FileDrag = (Vec<Retained<Promise>>, Retained<Source>);
 
     /// How long Finder's drop may wait on the download.
     const WRITE_TIMEOUT: Duration = Duration::from_secs(300);
@@ -155,7 +162,7 @@ mod mac {
 
     thread_local! {
         // The provider holds its delegate weakly: keep the last drag's alive.
-        static LIVE: RefCell<Option<(Retained<Promise>, Retained<Source>)>> = const { RefCell::new(None) };
+        static LIVE: RefCell<Option<FileDrag>> = const { RefCell::new(None) };
     }
 
     /// No folders or Finder-hidden names.
@@ -350,7 +357,7 @@ mod mac {
         LIVE_MAIL.with(|l| *l.borrow_mut() = Some((promises, source)));
     }
 
-    pub fn start(d: Drag) {
+    pub fn start(drags: Vec<Drag>) {
         let Some(mtm) = MainThreadMarker::new() else { return };
         // Only while the button is still held (the message can trail the mouse).
         if NSEvent::pressedMouseButtons() & 1 == 0 {
@@ -378,44 +385,52 @@ mod mac {
         });
         let Some(event) = event else { return };
 
-        let ext =
-            std::path::Path::new(&d.name).extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default();
-        let promise: Retained<Promise> = {
-            let this = Promise::alloc().set_ivars(d);
+        let source: Retained<Source> = {
+            let this = Source::alloc(mtm).set_ivars(());
             // SAFETY: NSObject's init on a freshly allocated instance.
             unsafe { msg_send![super(this), init] }
         };
-        let source: Retained<Source> = {
-            let this = Source::alloc(mtm).set_ivars(());
-            // SAFETY: as above.
-            unsafe { msg_send![super(this), init] }
-        };
-        let provider = NSFilePromiseProvider::initWithFileType_delegate(
-            NSFilePromiseProvider::alloc(),
-            &NSString::from_str("public.data"),
-            ProtocolObject::from_ref(&*promise),
-        );
-        let item =
-            NSDraggingItem::initWithPasteboardWriter(NSDraggingItem::alloc(), ProtocolObject::from_ref(&*provider));
-        // The extension's Finder icon (the content-type variant needs the
-        // UniformTypeIdentifiers bindings for just this).
-        #[allow(deprecated)]
-        let icon = NSWorkspace::sharedWorkspace().iconForFileType(&NSString::from_str(&ext));
         let local = view.convertPoint_fromView(at, None);
-        let frame = NSRect::new(NSPoint::new(local.x - 16.0, local.y - 16.0), NSSize::new(32.0, 32.0));
-        // SAFETY: NSImage is a valid drag image.
-        unsafe { item.setDraggingFrame_contents(frame, Some(&icon)) };
+        let mut promises = Vec::new();
+        let mut items = Vec::new();
+        // One promised file each; their icons fan out a little.
+        for (i, d) in drags.into_iter().enumerate() {
+            let ext =
+                std::path::Path::new(&d.name).extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default();
+            let promise: Retained<Promise> = {
+                let this = Promise::alloc().set_ivars(d);
+                // SAFETY: as above.
+                unsafe { msg_send![super(this), init] }
+            };
+            let provider = NSFilePromiseProvider::initWithFileType_delegate(
+                NSFilePromiseProvider::alloc(),
+                &NSString::from_str("public.data"),
+                ProtocolObject::from_ref(&*promise),
+            );
+            let item =
+                NSDraggingItem::initWithPasteboardWriter(NSDraggingItem::alloc(), ProtocolObject::from_ref(&*provider));
+            // The extension's Finder icon (the content-type variant needs the
+            // UniformTypeIdentifiers bindings for just this).
+            #[allow(deprecated)]
+            let icon = NSWorkspace::sharedWorkspace().iconForFileType(&NSString::from_str(&ext));
+            let off = (i.min(4) * 6) as f64;
+            let frame = NSRect::new(NSPoint::new(local.x - 16.0 + off, local.y - 16.0 - off), NSSize::new(32.0, 32.0));
+            // SAFETY: NSImage is a valid drag image.
+            unsafe { item.setDraggingFrame_contents(frame, Some(&icon)) };
+            promises.push(promise);
+            items.push(item);
+        }
         view.beginDraggingSessionWithItems_event_source(
-            &NSArray::from_retained_slice(&[item]),
+            &NSArray::from_retained_slice(&items),
             &event,
             ProtocolObject::from_ref(&*source),
         );
-        LIVE.with(|l| *l.borrow_mut() = Some((promise, source)));
+        LIVE.with(|l| *l.borrow_mut() = Some((promises, source)));
     }
 }
 
 #[cfg(not(target_os = "macos"))]
 mod mac {
-    pub fn start(_: super::Drag) {}
+    pub fn start(_: Vec<super::Drag>) {}
     pub fn start_mail(_: Vec<super::MailFile>) {}
 }

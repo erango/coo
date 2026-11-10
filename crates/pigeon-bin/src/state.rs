@@ -268,6 +268,9 @@ pub struct AppState {
     pub sender_seen: Signal<HashMap<(String, String), u32>>,
     /// Conversations opened in the message list (row keys), and their
     /// messages by (account id, thread id), oldest first.
+    /// Attachments ticked in the open message: (message id, attachment
+    /// ids). One message's at a time.
+    pub att_sel: Signal<(String, Vec<String>)>,
     pub threads_open: Signal<std::collections::HashSet<String>>,
     pub thread_rows: Signal<HashMap<(String, String), Vec<pigeon_core::model::MessageHeader>>>,
     /// Sender photos by lowercased address: None = asked / none (initials).
@@ -425,6 +428,7 @@ impl AppState {
             next_up: Signal::new(Vec::new()),
             senders: Signal::new(Vec::new()),
             sender_seen: Signal::new(HashMap::new()),
+            att_sel: Signal::new((String::new(), Vec::new())),
             threads_open: Signal::new(std::collections::HashSet::new()),
             thread_rows: Signal::new(HashMap::new()),
             sender_card: Signal::new(None),

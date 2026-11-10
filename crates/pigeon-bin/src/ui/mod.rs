@@ -303,6 +303,17 @@ pub fn App() -> Element {
                         }
                     }
                 }
+                // att-sel:<account_id>|<thread_id>|<message_id>|<attachment id>,<id> — open
+                // a conversation with those attachments of a message ticked
+                "att-sel" => {
+                    let p: Vec<&str> = arg.split('|').collect();
+                    if let [account_id, thread_id, message_id, ids] = p[..] {
+                        let mut sel = s.selected;
+                        sel.set(Some(format!("{account_id}|{thread_id}")));
+                        send_cmd(Cmd::OpenThread { account_id: account_id.into(), thread_id: thread_id.into() });
+                        attachments::select(s, message_id, ids.split(',').map(str::to_string).collect());
+                    }
+                }
                 // card:<account_id>|<thread_id>|<message_id>|<name>|<email> — open a
                 // thread and pin its sender card open (screenshots)
                 "card" => {
@@ -1138,6 +1149,7 @@ async fn bridge_loop(s: AppState) {
             }
             "ctx-img" => crate::ctxmenu::set_image(&msg.v),
             "attach-drag" => crate::dragout::start(&msg.v),
+            "attach-select" => attachments::select_from_bridge(s, &msg.v),
             "list-band" => multi::on_band(s, &msg.v),
             "shortcut-rec" => settings_sections::on_shortcut_recorded(&msg.v),
             "pane" => *LIST_FOCUS.write() = msg.v == "list",

@@ -2520,3 +2520,33 @@ html[data-contrast="high"] .greet-card { box-shadow: 0 0 0 1.5px var(--line-stro
 .thread-kid__time { flex: none; font-size: var(--fs-caption); color: var(--text-3); }
 button.conversation-link { border: 0; width: 100%; font: inherit; text-align: start; cursor: pointer; }
 @media (prefers-reduced-motion: reduce) { .row__thread-pill > .icon { transition: none; } }
+
+/* Ticking several attachments (reader.rs, bridge.rs). The circles show
+   while the pointer is over the attachments, and stay once one is ticked. */
+.attachments[data-message] { padding: 8px; margin: -8px; }
+.attachments .attachment { position: relative; }
+.attachment__tick {
+  /* Inside the chip (it clips its overflow), at its far top corner. */
+  position: absolute; top: 5px; inset-inline-end: 5px; width: 18px; height: 18px; padding: 0; display: flex; align-items: center; justify-content: center;
+  border: 1.5px solid var(--text-3); border-radius: 9px; background: var(--bg-0); color: transparent; cursor: pointer;
+  opacity: 0; transition: opacity 120ms ease;
+}
+.attachments:hover .attachment__tick, .attachments[data-selecting] .attachment__tick, .attachment__tick:focus-visible { opacity: 1; }
+.attachment[data-selected] .attachment__tick { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
+.attachment[data-selected], .attachment[data-banded] { background: var(--selection); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.attachments__save--all { margin-left: 0; }
+.attachments__bar {
+  display: flex; align-items: center; gap: 4px; height: 34px; margin: 2px 0 0; padding: 0 4px 0 12px; border-radius: 9px;
+  background: var(--toast-bg, var(--bg-3)); color: var(--toast-fg, var(--text-1)); font-size: 12.5px;
+}
+.attachments__bar-count { font-weight: var(--fw-semibold); }
+.attachments__bar-btn {
+  height: 26px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: inherit;
+  font: inherit; font-weight: var(--fw-semibold); cursor: pointer; display: inline-flex; align-items: center;
+}
+.attachments__bar-btn:hover { background: color-mix(in srgb, currentColor 14%, transparent); }
+.attachments__bar-btn--main { background: var(--accent); color: var(--on-accent); }
+.attachments__bar-btn--main:hover { background: var(--accent); filter: brightness(1.08); }
+.attachments__bar-x { padding: 0 6px; }
+.attach-band { position: fixed; z-index: 80; pointer-events: none; border-radius: 3px; background: color-mix(in srgb, var(--accent) 14%, transparent); box-shadow: inset 0 0 0 1px var(--accent); }
+@media (prefers-reduced-motion: reduce) { .attachment__tick { transition: none; } }
