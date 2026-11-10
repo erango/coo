@@ -628,7 +628,19 @@ const JS: &str = r##"
     if (!btn) return;
     const bar = btn.closest('.fmt-bar');
     const last = bar._ed, live = last && last.isContentEditable && last.ownerDocument.defaultView;
-    const ed = live ? last : document.getElementById(bar.dataset.for);
+    // The quoted original is edited in its own frame, which runs no script:
+    // none of its events (selectionchange among them) reach this script, so
+    // `_ed` never names it. When the caret is in that frame, the buttons
+    // format the quote.
+    const fe = document.activeElement;
+    const quote = fe && fe.tagName === 'IFRAME' && fe.dataset.editFor === bar.dataset.for && fe.contentDocument
+      ? fe.contentDocument.body : null;
+    const ed = quote && quote.isContentEditable ? quote : live ? last : document.getElementById(bar.dataset.for);
+    if (ed === quote) {
+      // Remembered for the menus (link, color, size) that take focus away.
+      const qs = quote.ownerDocument.getSelection();
+      if (qs.rangeCount) quote._pgRange = qs.getRangeAt(0).cloneRange();
+    }
     if (pop && pop._for === btn) { closePop(); return; }
     run(ed, btn.dataset.fmt, null, btn);
     if (pop) pop._for = btn;
