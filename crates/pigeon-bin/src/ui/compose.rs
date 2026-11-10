@@ -558,7 +558,11 @@ fn FromPicker() -> Element {
                 Icon { name: "chev-down", class: "icon--xs" }
             }
             if *open.read() {
-                div { class: "from-menu",
+                // A click anywhere else (or Esc) closes the menu.
+                div { class: "from-menu-scrim", onclick: move |_| open.set(false) }
+                div { class: "from-menu", tabindex: "-1",
+                    onmounted: move |e| { let el = e.data(); spawn(async move { let _ = el.set_focus(true).await; }); },
+                    onkeydown: move |e| if e.key() == Key::Escape { e.stop_propagation(); e.prevent_default(); open.set(false) },
                     if senders.is_empty() { div { class: "from-menu__group", "Loading addresses…" } }
                     for a in accounts {
                         {
@@ -575,8 +579,9 @@ fn FromPicker() -> Element {
                                             button { class: "from-menu__item", r#type: "button", "data-hue": "{a.hue}",
                                                 "aria-selected": "{selected}",
                                                 onclick: move |_| {
-                                                    if let Some(d) = draft.write().as_mut() { d.switch_from(sender.clone()); }
+                                                    // Closed first: the write below redraws the composer.
                                                     open.set(false);
+                                                    if let Some(d) = draft.write().as_mut() { d.switch_from(sender.clone()); }
                                                 },
                                                 span { class: "dot" }
                                                 span { dir: "auto", "{name}" }

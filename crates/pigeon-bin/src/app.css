@@ -8,7 +8,8 @@
 .composer-overlay > .composer { width: min(760px, 92vw); height: min(640px, 88vh); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow-overlay); }
 
 /* From picker menu */
-.from-menu { position: absolute; z-index: 30; min-width: 280px; max-height: 320px; overflow-y: auto; padding: 6px; border-radius: 10px; background: var(--bg-3); box-shadow: var(--shadow-overlay); }
+.from-menu-scrim { position: fixed; inset: 0; z-index: 29; }
+.from-menu { position: absolute; z-index: 30; outline: 0; min-width: 280px; max-height: 320px; overflow-y: auto; padding: 6px; border-radius: 10px; background: var(--bg-3); box-shadow: var(--shadow-overlay); }
 .from-menu__group { padding: 6px 8px 2px; font-size: 11px; font-weight: var(--fw-semibold); color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; }
 .from-menu__item { width: 100%; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: 7px; background: transparent; color: var(--text-1); font-size: 13px; text-align: left; }
 .from-menu__item:hover, .from-menu__item[aria-selected="true"] { background: var(--bg-2); }
@@ -459,7 +460,12 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
    grows as you type (capped, then scrolls), and a short open transition. */
 .inline-reply--open {
   background: var(--bg-3); box-shadow: var(--shadow-popover), inset 0 0 0 1px var(--line-strong);
-  max-height: 62vh; animation: pg-reply-open 180ms var(--ease-standard, ease-out);
+  /* Viewport units ignore the text-size zoom: at a bigger size 62vh was
+     taller than the window, and the quoted message and the Send row fell
+     off its bottom. If the fixed parts alone don't fit (a short window),
+     the card scrolls rather than hiding Send. */
+  max-height: calc(62vh / var(--ui-zoom, 1)); overflow-y: auto;
+  animation: pg-reply-open 180ms var(--ease-standard, ease-out);
 }
 .inline-reply--open:focus-within { box-shadow: var(--shadow-popover), inset 0 0 0 var(--ring) var(--focus-ring), 0 0 0 4px var(--focus-halo); }
 .inline-reply--open .inline-reply__editor {
@@ -471,13 +477,13 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
    button); restore puts it back under the thread. */
 .inline-reply--max {
   position: absolute; inset: var(--toolbar-h) 0 0 0; z-index: 25;
-  max-height: none; border-radius: 0; animation: none;
+  max-height: none; overflow-y: visible; border-radius: 0; animation: none;
 }
 .inline-reply--max .inline-reply__editor { min-height: calc(var(--lh-body, 24px) * 4); }
 /* A long reply (an edited draft brings its whole quoted thread) scrolls in
    the editor; the head, format bar and Send row always stay in the box. */
 .inline-reply--open > :not(.inline-reply__editor):not(.composer-quote) { flex: none; }
-.inline-reply--open .inline-reply__editor { min-height: min(calc(var(--lh-body, 24px) * 8), 18vh); }
+.inline-reply--open .inline-reply__editor { min-height: min(calc(var(--lh-body, 24px) * 8), calc(18vh / var(--ui-zoom, 1))); }
 /* The quoted original, unfolded from "•••" (read-only mail frame). */
 .inline-reply__quoted[aria-expanded="true"] { background: var(--selection); color: var(--accent); }
 .composer-quote { flex: 0 1 auto; min-height: 96px; overflow-y: auto; margin: 0 16px 8px; }
