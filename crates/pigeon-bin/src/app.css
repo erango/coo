@@ -2466,3 +2466,10 @@ html[data-contrast="high"] .greet-card { box-shadow: 0 0 0 1.5px var(--line-stro
 .sender-rules { display: flex; flex-direction: column; gap: 10px; }
 .sender-rules__add { display: flex; gap: 6px; align-items: center; }
 .sender-rules__input { flex: 1; min-width: 0; }
+
+/* "@" in a message: the people to mention (richtext.rs). */
+.mention-pop { position: fixed; z-index: 70; min-width: 220px; max-width: 340px; animation: pg-pop-in var(--dur-base) var(--ease-standard); }
+.mention-pop__item { display: flex; align-items: baseline; gap: 8px; cursor: default; }
+.mention-pop__name { font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mention-pop__addr { margin-left: auto; font-size: var(--fs-caption); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (prefers-reduced-motion: reduce) { .mention-pop { animation: none; } }

@@ -74,6 +74,35 @@ pub fn close_after(s: AppState, delay: Duration) {
     });
 }
 
+/// The pointer came onto (or left) an @mention in a message's text
+/// (bridge.rs): `json` is `{e, n, x, y}`, the address, the name as written
+/// and where the mention is; empty when the pointer left it.
+pub fn hover_mention(s: AppState, account_id: String, json: &str) {
+    #[derive(serde::Deserialize, Default)]
+    #[serde(default)]
+    struct At {
+        e: String,
+        n: String,
+        x: f64,
+        y: f64,
+    }
+    let at: At = serde_json::from_str(json).unwrap_or_default();
+    if !at.e.contains('@') {
+        return close_after(s, CLOSE_DELAY);
+    }
+    let name = Some(at.n.trim().to_string()).filter(|n| !n.is_empty());
+    let card = CardState {
+        account_id,
+        message_id: None,
+        addr: Address::new(name.as_deref(), &at.e),
+        sender: false,
+        x: at.x,
+        y: at.y,
+        window: Some(dioxus::desktop::window().id()),
+    };
+    open_after(s, None, card, OPEN_DELAY);
+}
+
 /// Keep the card open (pointer moved onto it).
 fn keep_open() {
     GEN.fetch_add(1, Ordering::SeqCst);

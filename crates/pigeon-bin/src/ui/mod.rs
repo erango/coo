@@ -1100,6 +1100,12 @@ async fn bridge_loop(s: AppState) {
                 os.set(msg.v == "dark");
             }
             "win" => window_action(&msg.v),
+            "mention" => {
+                let account = s.selected.peek().as_ref().and_then(|k| k.split_once('|').map(|(a, _)| a.to_string()));
+                if let Some(account) = account {
+                    sender_card::hover_mention(s, account, &msg.v);
+                }
+            }
             "sidebar-w" => {
                 let px: u32 = msg.v.parse().unwrap_or(0);
                 crate::prefs::update(|p| {

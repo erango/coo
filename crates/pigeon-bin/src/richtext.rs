@@ -912,8 +912,9 @@ const JS: &str = r##"
     insertPaste(ed, p, pasteDefault(ed));
     showPasteBar(p);
   }, true);
-  // The bar goes once you carry on: typing, clicking elsewhere, Esc.
-  onDoc('keydown', (e) => {
+  // The bar goes once you carry on: typing, clicking elsewhere, Esc. On the
+  // window, ahead of the app's own keys, so Esc closes only the bar.
+  addEventListener('keydown', (e) => {
     if (!lastPaste || /^(Shift|Meta|Control|Alt|CapsLock)$/.test(e.key)) return;
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); }
     closePasteBar(true);
@@ -922,6 +923,116 @@ const JS: &str = r##"
     if (lastPaste && !(e.target.closest && e.target.closest('.paste-bar'))) closePasteBar(true);
   }, true);
   window.__cooPasteMatch = matchHtml; // tests
+
+  // ---- @mentions ----
+  // "@" then a few letters offers the message's To and Cc people (the
+  // editor's data-people); picking one puts in "@First", a mailto: link to
+  // them, the way other mail apps write a mention, so it reads as one there
+  // too. Arrows move, Enter or Tab picks, Esc closes.
+  const MENTION_STYLE = 'color:#1a66d6;text-decoration:none';
+  let mention = null; // { ed, node, start, items, active, el }
+  const peopleOf = (ed) => { try { return JSON.parse(ed.dataset.people || '[]'); } catch (_) { return []; } };
+  const firstName = (p) => ((p.n || '').trim().split(/\s+/)[0]) || p.e.split('@')[0];
+  // The "@query" the caret is at the end of: after a space or at the start
+  // of a line, letters only (no spaces), and not inside a link or code.
+  function mentionAt() {
+    const sel = D.getSelection();
+    if (D !== document || !sel.rangeCount || !sel.isCollapsed) return null;
+    const node = sel.anchorNode;
+    const ed = editorOf(node);
+    if (!ed || !node || node.nodeType !== 3 || (node.parentElement && node.parentElement.closest('a, code, pre'))) return null;
+    const before = node.data.slice(0, sel.anchorOffset);
+    const m = /(^|[\s\u00a0(])@([^\s@]{0,30})$/.exec(before);
+    if (!m) return null;
+    return { ed, node, start: before.length - m[2].length - 1, query: m[2].toLowerCase() };
+  }
+  function closeMention() {
+    if (mention && mention.el) mention.el.remove();
+    mention = null;
+  }
+  function pickMention(i) {
+    const mn = mention;
+    const p = mn && mn.items[i];
+    if (!p) return closeMention();
+    const sel = D.getSelection();
+    const r = D.createRange();
+    if (!mn.node.isConnected) return closeMention();
+    r.setStart(mn.node, mn.start);
+    r.setEnd(mn.node, Math.min(mn.node.length, sel.anchorNode === mn.node ? sel.anchorOffset : mn.node.length));
+    sel.removeAllRanges(); sel.addRange(r);
+    closeMention();
+    exec('insertHTML', '<a href="mailto:' + escHtml(p.e) + '" style="' + MENTION_STYLE + '">@' + escHtml(firstName(p)) + '</a>&nbsp;');
+    changed(mn.ed);
+  }
+  function drawMention() {
+    const mn = mention;
+    if (!mn.el) {
+      mn.el = document.createElement('div');
+      mn.el.className = 'menu mention-pop';
+      mn.el.setAttribute('role', 'listbox');
+      mn.el.setAttribute('aria-label', 'Mention someone');
+      mn.el.addEventListener('mousedown', (e) => e.preventDefault());
+      document.body.appendChild(mn.el);
+    }
+    mn.el.textContent = '';
+    mn.items.forEach((p, i) => {
+      const row = document.createElement('div');
+      row.className = 'menu-item mention-pop__item';
+      row.setAttribute('role', 'option');
+      row.setAttribute('aria-selected', String(i === mn.active));
+      row.dataset.active = String(i === mn.active);
+      const name = document.createElement('span');
+      name.className = 'mention-pop__name'; name.dir = 'auto';
+      name.textContent = p.n || p.e;
+      row.appendChild(name);
+      if (p.n) {
+        const addr = document.createElement('span');
+        addr.className = 'mention-pop__addr';
+        addr.textContent = p.e;
+        row.appendChild(addr);
+      }
+      row.addEventListener('mouseenter', () => { if (mention) { mention.active = i; drawMention(); } });
+      row.addEventListener('click', () => pickMention(i));
+      mn.el.appendChild(row);
+    });
+    const r = D.createRange();
+    r.setStart(mn.node, mn.start); r.setEnd(mn.node, mn.start + 1);
+    const rect = r.getBoundingClientRect();
+    const w = mn.el.offsetWidth, h = mn.el.offsetHeight;
+    let top = rect.bottom + 6;
+    if (top + h > innerHeight - 8) top = rect.top - h - 6;
+    mn.el.style.left = Math.max(8, Math.min(rect.left, innerWidth - w - 8)) + 'px';
+    mn.el.style.top = Math.max(8, top) + 'px';
+  }
+  function refreshMention() {
+    const at = mentionAt();
+    if (!at) return closeMention();
+    const q = at.query;
+    const items = peopleOf(at.ed).filter((p) => {
+      const n = (p.n || '').toLowerCase();
+      return !q || n.split(/\s+/).some((w) => w.startsWith(q)) || p.e.toLowerCase().startsWith(q);
+    }).slice(0, 8);
+    if (!items.length) return closeMention();
+    const el = mention && mention.el;
+    const active = mention ? Math.min(mention.active, items.length - 1) : 0;
+    mention = { ed: at.ed, node: at.node, start: at.start, items, active, el };
+    drawMention();
+  }
+  onDoc('input', () => refreshMention(), true);
+  onDoc('selectionchange', () => { if (mention) refreshMention(); });
+  onDoc('mousedown', (e) => { if (mention && !(e.target.closest && e.target.closest('.mention-pop'))) closeMention(); }, true);
+  // On the window, ahead of the editor's and the app's keys.
+  addEventListener('keydown', (e) => {
+    if (!mention) return;
+    const stop = () => { e.preventDefault(); e.stopPropagation(); };
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      stop();
+      const n = mention.items.length;
+      mention.active = (mention.active + (e.key === 'ArrowDown' ? 1 : n - 1)) % n;
+      drawMention();
+    } else if ((e.key === 'Enter' || e.key === 'Tab') && !e.metaKey) { stop(); pickMention(mention.active); }
+    else if (e.key === 'Escape') { stop(); closeMention(); }
+  }, true);
 
   // ---- List autoformat and list keys ----
   // `auto` remembers the list Space just made, so an immediate Backspace

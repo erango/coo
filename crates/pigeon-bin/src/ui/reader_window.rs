@@ -446,6 +446,7 @@ async fn bridge_loop(s: AppState, item: ListItem) {
             }
             // Drag by the toolbar, double-click it to zoom.
             "win" => super::window_action(&msg.v),
+            "mention" => super::sender_card::hover_mention(s, item.account_id().to_string(), &msg.v),
             "ctx-img" => crate::ctxmenu::set_image(&msg.v),
             "attach-drag" => crate::dragout::start(&msg.v),
             "autolink" => crate::richtext::autolink(&msg.v),

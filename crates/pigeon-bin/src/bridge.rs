@@ -723,6 +723,29 @@ pub const JS: &str = r#"
             if (a && !d.body.isContentEditable) { e.preventDefault(); send('link', a.href); }
             else if (a) e.preventDefault(); // editing: a click places the caret
           });
+          // @mentions: a mailto: link whose text is "@Name" (how mail apps
+          // write them). They read as a name, and hovering one shows who it
+          // is (the contact card, as for senders).
+          const mentionOf = (t) => {
+            const a = t && t.closest && t.closest('a[href^="mailto:"]');
+            return a && a.textContent.trim().startsWith('@') ? a : null;
+          };
+          for (const a of d.querySelectorAll('a[href^="mailto:"]')) {
+            if (!mentionOf(a)) continue;
+            a.style.textDecoration = 'none';
+            a.style.borderRadius = '4px';
+            a.style.padding = '0 3px';
+            a.style.background = 'color-mix(in srgb, currentColor 12%, transparent)';
+          }
+          d.addEventListener('mouseover', (e) => {
+            const a = mentionOf(e.target);
+            if (!a || d.body.isContentEditable) return;
+            let email = a.getAttribute('href').slice(7).split('?')[0];
+            try { email = decodeURIComponent(email); } catch (_) {}
+            const fr = f.getBoundingClientRect(), r = a.getBoundingClientRect();
+            send('mention', JSON.stringify({ e: email, n: a.textContent.trim().slice(1), x: fr.left + r.left, y: fr.top + r.bottom }));
+          });
+          d.addEventListener('mouseout', (e) => { if (mentionOf(e.target)) send('mention', '{}'); });
           // A composer's quoted original: editable in place. Edits autosave
           // with the draft (Rust reads them back through __pigeonQuote). Its
           // `input` events didn't reach listeners added from here (the frame

@@ -452,6 +452,27 @@ pub async fn with_editor_content(mut d: Draft) -> Draft {
     d
 }
 
+/// The people an "@" in the message offers (richtext.rs): its To and Cc,
+/// as JSON `[{n: name, e: address}]`.
+fn mention_people(d: &Draft) -> String {
+    let mut seen = Vec::new();
+    let people: Vec<serde_json::Value> =
+        d.to.iter()
+            .chain(d.cc.iter())
+            .filter(|a| {
+                let e = a.email.to_lowercase();
+                let new = e.contains('@') && !seen.contains(&e);
+                seen.push(e);
+                new
+            })
+            .map(|a| {
+                let name = a.name.clone().filter(|n| !n.trim().is_empty() && !n.eq_ignore_ascii_case(&a.email));
+                serde_json::json!({ "n": name.unwrap_or_default(), "e": a.email })
+            })
+            .collect();
+    serde_json::Value::Array(people).to_string()
+}
+
 /// An inline reply moves to its own compose window, as written so far.
 fn pop_out(s: AppState, slot: ComposeSlot) {
     let Some(d) = slot.draft.peek().clone() else { return };
@@ -1105,7 +1126,7 @@ pub fn InlineReply(draft: Draft) -> Element {
             if attachments_on_top() { Attachments { top: true } }
             super::format_bar::FormatBar { editor: id.clone() }
             div { class: "inline-reply__editor", id: "{id}", contenteditable: "true", "data-editor": "true",
-                "data-paste": "{crate::prefs::get().paste_style}", dir: "auto", "data-placeholder": "Write a reply…",
+                "data-paste": "{crate::prefs::get().paste_style}", "data-people": "{mention_people(&current)}", dir: "auto", "data-placeholder": "Write a reply…",
                 dangerous_inner_html: "{body}",
             }
             div { style: "padding:0 16px", SignaturePreview {} }
@@ -1323,7 +1344,7 @@ pub fn Composer(draft: Draft, #[props(default)] docked: bool) -> Element {
                 div { class: "dropzone", Icon { name: "upload" } "Drop to attach" span { class: "dropzone__meta", "files are added to this message" } }
                 div { class: "composer__body",
                     div { class: "composer__editor", id: "{id}", contenteditable: "true", "data-editor": "true", dir: "auto",
-                        "data-paste": "{crate::prefs::get().paste_style}",
+                        "data-paste": "{crate::prefs::get().paste_style}", "data-people": "{mention_people(&current)}",
                         dangerous_inner_html: "{body}" }
                     SignaturePreview {}
                     if !current.html.is_empty() {
