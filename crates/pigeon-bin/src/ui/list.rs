@@ -246,7 +246,10 @@ pub fn MailList() -> Element {
             let same_view = m.view == view;
             let list_top = (*scroll_top.peek() - out_h).max(0.0);
             let at_top = list_top < metrics.row_h / 2.0;
-            let old_layout = vlist::layout(m.items.iter().map(|i| format::group(i.header().received_at, now)), metrics);
+            let old_layout = vlist::layout_with(
+                m.items.iter().map(|i| (format::group(i.header().received_at, now), kids_height(&s, i))),
+                metrics,
+            );
             let first_visible = vlist::first_visible_item(&old_layout, list_top).unwrap_or(0);
             let plan = super::list_motion::plan(&m.keys, &keys, same_view, at_top, first_visible);
             let ghosts: Vec<(usize, ListItem)> = plan.ghosts.iter().map(|&g| (g, m.items[g].clone())).collect();
@@ -259,8 +262,10 @@ pub fn MailList() -> Element {
                     .position(|i| AppState::key(i) == anchor)
                     .and_then(|i| vlist::item_span(&old_layout, i));
                 let merged = merged_items(&items, &order, &ghosts);
-                let new_layout =
-                    vlist::layout(merged.iter().map(|(i, _)| format::group(i.header().received_at, now)), metrics);
+                let new_layout = vlist::layout_with(
+                    merged.iter().map(|(i, _)| (format::group(i.header().received_at, now), kids_height(&s, i))),
+                    metrics,
+                );
                 let new_top = merged
                     .iter()
                     .position(|(i, _)| AppState::key(i) == anchor)
@@ -303,7 +308,10 @@ pub fn MailList() -> Element {
         (merged_items(&items, &m.order, &m.ghosts), m.entering.clone())
     };
 
-    let layout = vlist::layout(display.iter().map(|(i, _)| format::group(i.header().received_at, now)), metrics);
+    let layout = vlist::layout_with(
+        display.iter().map(|(i, _)| (format::group(i.header().received_at, now), kids_height(&s, i))),
+        metrics,
+    );
     // A date group whose rows are all leaving collapses with them, instead
     // of vanishing once they're gone.
     let live_groups: std::collections::HashSet<&'static str> =
@@ -608,6 +616,28 @@ pub fn Row(
         ),
     };
     let who = if h.is_draft { "Draft".to_string() } else { who };
+    // A conversation that opens in the list (Settings › Reading): its count
+    // is a pill on the preview line that shows its messages under the row.
+    let thread = match &item {
+        ListItem::Thread(t) if t.message_count > 1 && crate::prefs::with(|p| p.threads_in_list) => Some((
+            t.account_id.clone(),
+            t.thread_id.clone(),
+            format!("{}|{}|{}", t.latest.id, t.message_count, t.unread_count),
+        )),
+        _ => None,
+    };
+    let expanded = thread.is_some() && s.threads_open.read().contains(&key);
+    // One of its messages is open by itself: that row is the selected one.
+    let kid_open = thread.as_ref().and_then(|(a, t, _)| {
+        s.reader
+            .read()
+            .as_ref()
+            .filter(|v| v.single && &v.account_id == a && &v.thread_id == t)
+            .map(|v| v.focus.clone())
+    });
+    let open = open && kid_open.is_none();
+    let selected = selected && kid_open.is_none();
+    let pill_key = key.clone();
     let letter = s
         .accounts
         .read()
@@ -701,7 +731,7 @@ pub fn Row(
                 // A draft waits in this conversation (the row of a draft itself
                 // already reads "Draft").
                 if has_draft && !h.is_draft { span { class: "row__draft", "Draft" } }
-                if let Some(n) = count { span { class: "row__count", "{n}" } }
+                if let Some(n) = count.filter(|_| thread.is_none() || row_invite.is_some()) { span { class: "row__count", "{n}" } }
                 span { class: "row__meta",
                     super::bird::FlagIcon { flagged }
                     if h.has_attachments { Icon { name: "clip" } }
@@ -746,7 +776,102 @@ pub fn Row(
                 Some(inv) => rsx! { super::invite::RowInvite { invite: inv, event: row_event } },
                 // The text gets its own shrinkable box: the snippet row is a flex
                 // container, and RTL text there overflowed past the edge.
-                None => rsx! { div { class: "row__snippet", dir: "auto", span { class: "row__snippet-text", dir: "auto", "{h.snippet}" } } },
+                None => rsx! {
+                    div { class: "row__snippet", dir: "auto",
+                        span { class: "row__snippet-text", dir: "auto", "{h.snippet}" }
+                        if thread.is_some() && let Some(n) = count {
+                            button { class: "row__thread-pill", r#type: "button", "aria-expanded": "{expanded}",
+                                "aria-label": if expanded { "Hide the {n} messages" } else { "Show the {n} messages" },
+                                title: if expanded { "Hide the messages" } else { "Show the messages" },
+                                ondoubleclick: move |e| e.stop_propagation(),
+                                onclick: move |e| {
+                                    e.stop_propagation();
+                                    let mut open = s.threads_open;
+                                    let mut open = open.write();
+                                    if !open.remove(&pill_key) { open.insert(pill_key.clone()); }
+                                },
+                                "{n}"
+                                Icon { name: "chev-right", class: "icon--xs" }
+                            }
+                        }
+                    }
+                },
+            }
+        }
+        if expanded && let Some((account_id, thread_id, stamp)) = thread {
+            ThreadKids { account_id, thread_id, stamp, row_key: key.clone(), open_id: kid_open }
+        }
+    }
+}
+
+/// Heights of a conversation's rows under its list row (app.css sizes
+/// `.thread-kid` and `.thread-kids` to match).
+const KID_H: f64 = 38.0;
+const KIDS_PAD: f64 = 12.0;
+
+/// The height under `item`'s row: its messages, when it's a conversation
+/// opened in the list (the virtual list needs it exactly).
+fn kids_height(s: &AppState, item: &ListItem) -> f64 {
+    let ListItem::Thread(t) = item else { return 0.0 };
+    if t.message_count < 2
+        || !s.threads_open.read().contains(&AppState::key(item))
+        || !crate::prefs::with(|p| p.threads_in_list)
+    {
+        return 0.0;
+    }
+    let loaded = s.thread_rows.read().get(&(t.account_id.clone(), t.thread_id.clone())).map(Vec::len);
+    KIDS_PAD + KID_H * loaded.unwrap_or(t.message_count as usize) as f64
+}
+
+/// A conversation's messages under its row, newest first; a click opens
+/// that message by itself in the reader.
+#[component]
+fn ThreadKids(
+    account_id: String,
+    thread_id: String,
+    stamp: String,
+    row_key: String,
+    open_id: Option<String>,
+) -> Element {
+    let s = use_context::<AppState>();
+    // Asked for when first shown and whenever the conversation changes
+    // (`stamp`: its newest message, its size, what's unread).
+    let asked = use_hook(|| std::rc::Rc::new(std::cell::RefCell::new(String::new())));
+    if *asked.borrow() != stamp {
+        *asked.borrow_mut() = stamp.clone();
+        send_cmd(Cmd::ThreadRows { account_id: account_id.clone(), thread_id: thread_id.clone() });
+    }
+    let messages = s.thread_rows.read().get(&(account_id.clone(), thread_id.clone())).cloned().unwrap_or_default();
+    let now = chrono::Local::now();
+    rsx! {
+        div { class: "thread-kids", role: "group", "aria-label": "Messages in this conversation",
+            for m in messages.iter().rev() {
+                {
+                    let who = if m.is_draft {
+                        "Draft".to_string()
+                    } else {
+                        m.from.as_ref().map(|a| a.display().to_string()).unwrap_or_default()
+                    };
+                    let (account, id, row_key) = (account_id.clone(), m.id.clone(), row_key.clone());
+                    let on = open_id.as_deref() == Some(m.id.as_str());
+                    rsx! {
+                        div { class: "thread-kid", key: "{m.id}", role: "option", tabindex: "-1",
+                            "aria-selected": "{on}", "data-unread": (!m.is_read).then_some("true"),
+                            onclick: move |e| {
+                                e.stop_propagation();
+                                super::compose::leave_docked(s);
+                                let (mut sel, mut multi) = (s.selected, s.multi);
+                                multi.set(Vec::new());
+                                sel.set(Some(row_key.clone()));
+                                send_cmd(Cmd::OpenMessage { account_id: account.clone(), message_id: id.clone() });
+                            },
+                            span { class: "thread-kid__dot" }
+                            span { class: "thread-kid__who", dir: "auto", "{who}" }
+                            span { class: "thread-kid__snip", dir: "auto", "{m.snippet}" }
+                            time { class: "thread-kid__time", "{format::row_time(m.received_at, now)}" }
+                        }
+                    }
+                }
             }
         }
     }

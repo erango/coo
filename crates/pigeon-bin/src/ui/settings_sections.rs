@@ -160,6 +160,7 @@ pub fn DefaultMailButton(state: Signal<Option<bool>>) -> Element {
 /// archive or delete, where attachments sit.
 #[component]
 pub fn Reading() -> Element {
+    let s = use_context::<AppState>();
     let mut after = use_signal(|| prefs::get().after_remove);
     let after_now = after.read().clone();
     let mut att = use_signal(|| prefs::get().attachments_position);
@@ -169,6 +170,8 @@ pub fn Reading() -> Element {
     let mut quotes = use_signal(|| prefs::get().quote_style);
     let quotes_now = quotes.read().clone();
     let mut quotes_open = use_signal(|| prefs::get().quotes_open);
+    let mut in_list = use_signal(|| prefs::get().threads_in_list);
+    let in_list_now = *in_list.read();
     rsx! {
         div { class: "settings__title", "Reading" }
         Group { title: "Opening messages",
@@ -216,6 +219,28 @@ pub fn Reading() -> Element {
                             onclick: move |_| {
                                 prefs::update(move |p| p.attachments_position = value.to_string());
                                 att.set(value.to_string());
+                            },
+                            "{label}"
+                        }
+                    }
+                }
+            }
+        }
+        Group { title: "Conversations",
+            Row { label: "Conversations in the message list",
+                hint: if in_list_now {
+                    "Click a conversation's count to see its messages under it, newest first, and open any one of them."
+                } else {
+                    "A conversation is one row; it opens whole in the reading pane."
+                },
+                div { class: "segmented", role: "radiogroup", "aria-label": "Conversations in the message list",
+                    for (value, label) in [(true, "Open in the list"), (false, "As one row")] {
+                        button { role: "radio", key: "{label}", "aria-checked": "{in_list_now == value}", "aria-selected": "{in_list_now == value}",
+                            onclick: move |_| {
+                                prefs::update(move |p| p.threads_in_list = value);
+                                in_list.set(value);
+                                let mut open = s.threads_open;
+                                open.write().clear();
                             },
                             "{label}"
                         }

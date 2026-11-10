@@ -128,6 +128,10 @@ pub struct Prefs {
     pub quotes_open: bool,
     /// Where replies open: "inline" (below the conversation) or "window".
     pub reply_mode: String,
+    /// Conversations open in the message list: a click on a row's count
+    /// shows its messages under it, each one clickable (like iOS Mail).
+    /// Off: a conversation is one row, opened whole in the reader.
+    pub threads_in_list: bool,
     /// How formatted text pastes into a message: "match" (this message's
     /// font, size and paragraph direction; bold, italic, underline, links
     /// and lists kept), "original" (as it looked where it was copied) or
@@ -234,6 +238,7 @@ impl Default for Prefs {
             quotes_open: false,
             reply_mode: "inline".into(),
             paste_style: "match".into(),
+            threads_in_list: true,
             photos_gravatar: false,
             photos_google: true,
             photos_microsoft: true,

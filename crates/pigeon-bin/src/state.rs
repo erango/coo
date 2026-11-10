@@ -266,6 +266,10 @@ pub struct AppState {
     /// Messages already received from (account id, lowercased address),
     /// for the sender card's "first time" warning.
     pub sender_seen: Signal<HashMap<(String, String), u32>>,
+    /// Conversations opened in the message list (row keys), and their
+    /// messages by (account id, thread id), oldest first.
+    pub threads_open: Signal<std::collections::HashSet<String>>,
+    pub thread_rows: Signal<HashMap<(String, String), Vec<pigeon_core::model::MessageHeader>>>,
     /// Sender photos by lowercased address: None = asked / none (initials).
     pub photos: Signal<HashMap<String, Option<String>>>,
     /// Sender card open on hover: (anchor key, card data).
@@ -421,6 +425,8 @@ impl AppState {
             next_up: Signal::new(Vec::new()),
             senders: Signal::new(Vec::new()),
             sender_seen: Signal::new(HashMap::new()),
+            threads_open: Signal::new(std::collections::HashSet::new()),
+            thread_rows: Signal::new(HashMap::new()),
             sender_card: Signal::new(None),
             photos: Signal::new(HashMap::new()),
             draft: Signal::new(None),
@@ -956,6 +962,9 @@ fn apply(s: &mut AppState, delta: Delta) {
                 s.calendar.set(CalendarData { from, to, events, calendars })
             }
             Delta::Senders(v) => s.senders.set(v),
+            Delta::ThreadRows { account_id, thread_id, messages } => {
+                s.thread_rows.write().insert((account_id, thread_id), messages);
+            }
             Delta::SenderSeen { account_id, email, count } => {
                 s.sender_seen.write().insert((account_id, email.to_lowercase()), count);
             }

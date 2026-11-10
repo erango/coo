@@ -2491,3 +2491,32 @@ html[data-contrast="high"] .greet-card { box-shadow: 0 0 0 1.5px var(--line-stro
 /* "Mark unread from here" on a folded row: there on hover, out of the way. */
 .msg-collapsed__unread { flex: none; color: var(--text-3); opacity: 0; }
 .msg-collapsed:hover .msg-collapsed__unread, .msg-collapsed__unread:focus-visible { opacity: 1; }
+
+/* Conversations that open in the message list (list.rs). The count is a
+   pill at the end of the preview line, clear of the hover buttons on the
+   top line; the messages sit under the row, in rows of a fixed height the
+   virtual list counts on (KID_H, KIDS_PAD). */
+.row__thread-pill {
+  flex: none; display: inline-flex; align-items: center; gap: 1px; height: 20px; padding: 0 3px 0 8px; margin-inline-start: 8px;
+  border: 0; border-radius: 10px; background: var(--bg-2); color: var(--text-2);
+  font: inherit; font-size: 11.5px; font-weight: var(--fw-semibold); line-height: 20px; cursor: pointer;
+}
+.row__thread-pill:hover { background: color-mix(in oklab, var(--bg-2), var(--text-1) 10%); color: var(--text-1); }
+.row__thread-pill > .icon { transition: transform 150ms var(--ease-standard, ease); }
+.row__thread-pill[aria-expanded="true"] { background: var(--accent); color: var(--on-accent); }
+.row__thread-pill[aria-expanded="true"] > .icon { transform: rotate(90deg); }
+.thread-kids { box-sizing: border-box; padding: 2px 12px 10px 40px; display: flex; flex-direction: column; }
+.thread-kid {
+  height: 38px; flex: none; box-sizing: border-box; display: flex; align-items: center; gap: 8px; padding: 0 10px;
+  border-radius: 8px; font-size: var(--fs-snippet); color: var(--text-2); cursor: default;
+}
+.thread-kid:hover { background: var(--bg-1); }
+.thread-kid[aria-selected="true"] { background: var(--selection); box-shadow: inset 0 0 0 1px var(--accent); }
+.thread-kid__dot { width: 6px; height: 6px; flex: none; border-radius: 3px; }
+.thread-kid[data-unread] .thread-kid__dot { background: var(--accent); }
+.thread-kid__who { flex: 0 0 34%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-1); unicode-bidi: plaintext; }
+.thread-kid[data-unread] .thread-kid__who { font-weight: var(--fw-semibold); }
+.thread-kid__snip { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-3); unicode-bidi: plaintext; }
+.thread-kid__time { flex: none; font-size: var(--fs-caption); color: var(--text-3); }
+button.conversation-link { border: 0; width: 100%; font: inherit; text-align: start; cursor: pointer; }
+@media (prefers-reduced-motion: reduce) { .row__thread-pill > .icon { transition: none; } }

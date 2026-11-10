@@ -33,13 +33,16 @@ pub struct Layout {
     pub slots: Vec<(Slot, f64)>,
     pub total: f64,
     pub metrics: Metrics,
+    /// Extra height under each item's row (a conversation's messages shown
+    /// under it), by item index.
+    pub extras: Vec<f64>,
 }
 
 impl Layout {
     fn height(&self, s: Slot) -> f64 {
         match s {
             Slot::Group(_) => self.metrics.group_h,
-            Slot::Item(_) => self.metrics.row_h,
+            Slot::Item(i) => self.metrics.row_h + self.extras.get(i).copied().unwrap_or(0.0),
         }
     }
 
@@ -61,19 +64,26 @@ impl Layout {
 /// Lay out items given each item's group label, inserting a header whenever
 /// the label changes.
 pub fn layout<'a>(groups: impl IntoIterator<Item = &'static str> + 'a, metrics: Metrics) -> Layout {
+    layout_with(groups.into_iter().map(|g| (g, 0.0)), metrics)
+}
+
+/// `layout`, each item also giving the extra height under its row.
+pub fn layout_with<'a>(items: impl IntoIterator<Item = (&'static str, f64)> + 'a, metrics: Metrics) -> Layout {
     let mut slots = Vec::new();
+    let mut extras = Vec::new();
     let mut y = 0.0;
     let mut last = None;
-    for (i, g) in groups.into_iter().enumerate() {
+    for (i, (g, extra)) in items.into_iter().enumerate() {
         if last != Some(g) {
             slots.push((Slot::Group(g), y));
             y += metrics.group_h;
             last = Some(g);
         }
         slots.push((Slot::Item(i), y));
-        y += metrics.row_h;
+        y += metrics.row_h + extra;
+        extras.push(extra);
     }
-    Layout { slots, total: y, metrics }
+    Layout { slots, total: y, metrics, extras }
 }
 
 /// Visible slot range `[start, end)` for a scroll position, plus the spacer
@@ -98,14 +108,14 @@ pub fn window(l: &Layout, scroll_top: f64, viewport: f64) -> (usize, usize, f64,
 /// The first item at least partly visible at `scroll_top`.
 pub fn first_visible_item(l: &Layout, scroll_top: f64) -> Option<usize> {
     l.slots.iter().find_map(|(s, top)| match s {
-        Slot::Item(i) if top + l.metrics.row_h > scroll_top => Some(*i),
+        Slot::Item(i) if top + l.height(*s) > scroll_top => Some(*i),
         _ => None,
     })
 }
 
 /// Top and bottom offsets of item `i`.
 pub fn item_span(l: &Layout, i: usize) -> Option<(f64, f64)> {
-    l.slots.iter().find(|(s, _)| *s == Slot::Item(i)).map(|(_, t)| (*t, t + l.metrics.row_h))
+    l.slots.iter().find(|(s, _)| *s == Slot::Item(i)).map(|(s, t)| (*t, t + l.height(*s)))
 }
 
 /// Scroll position that brings `[top, bottom)` into view, or None if it is.
@@ -126,6 +136,16 @@ mod tests {
     fn sample(n: usize) -> Layout {
         // 3 "Today", then the rest "Older".
         layout((0..n).map(|i| if i < 3 { "Today" } else { "Older" }), CLASSIC)
+    }
+
+    #[test]
+    fn open_conversations_push_the_rows_below_them() {
+        let l = layout_with([("Today", 0.0), ("Today", 92.0), ("Today", 0.0)], CLASSIC);
+        assert_eq!(item_span(&l, 1), Some((GROUP_H + ROW_H, GROUP_H + 2.0 * ROW_H + 92.0)));
+        assert_eq!(item_span(&l, 2).unwrap().0, GROUP_H + 2.0 * ROW_H + 92.0);
+        assert_eq!(l.total, GROUP_H + 3.0 * ROW_H + 92.0);
+        // Scrolled into the open conversation's messages: it's still the first visible item.
+        assert_eq!(first_visible_item(&l, GROUP_H + 2.0 * ROW_H + 40.0), Some(1));
     }
 
     #[test]

@@ -277,6 +277,12 @@ pub enum Cmd {
         account_id: String,
         email: Option<String>,
     },
+    /// A conversation's messages, for its rows under it in the message
+    /// list. Answered with `Delta::ThreadRows`.
+    ThreadRows {
+        account_id: String,
+        thread_id: String,
+    },
     /// How many messages from `email` this account already has (sender
     /// card's "first time" check). Answered with `Delta::SenderSeen`.
     SenderSeen {
@@ -589,6 +595,12 @@ pub enum Delta {
         calendars: Vec<(String, Calendar)>,
     },
     Senders(Vec<Sender>),
+    /// A conversation's messages, oldest first.
+    ThreadRows {
+        account_id: String,
+        thread_id: String,
+        messages: Vec<MessageHeader>,
+    },
     SenderSeen {
         account_id: String,
         email: String,
@@ -1489,6 +1501,10 @@ impl Service {
                 self.send(Delta::Senders(self.app.senders().await?));
                 self.publish().await;
                 r?;
+            }
+            Cmd::ThreadRows { account_id, thread_id } => {
+                let messages = self.app.store().thread_messages(&account_id, &thread_id)?;
+                self.send(Delta::ThreadRows { account_id, thread_id, messages });
             }
             Cmd::SenderSeen { account_id, email } => {
                 let count = self.app.store().messages_from(&account_id, &email)?;

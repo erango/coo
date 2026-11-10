@@ -283,6 +283,26 @@ pub fn App() -> Element {
                         send_cmd(Cmd::OpenThread { account_id: account_id.into(), thread_id: thread_id.into() });
                     }
                 }
+                // kids:<account_id>|<thread_id>[|<message_id>] — show a conversation's
+                // messages under its row; with a message id, open that one alone
+                "kids" => {
+                    let p: Vec<&str> = arg.split('|').collect();
+                    if let [account_id, thread_id, ref rest @ ..] = p[..] {
+                        let key = format!("{account_id}|{thread_id}");
+                        let mut open = s.threads_open;
+                        open.write().insert(key.clone());
+                        let mut sel = s.selected;
+                        sel.set(Some(key));
+                        match rest.first() {
+                            Some(m) => {
+                                send_cmd(Cmd::OpenMessage { account_id: account_id.into(), message_id: (*m).into() })
+                            }
+                            None => {
+                                send_cmd(Cmd::OpenThread { account_id: account_id.into(), thread_id: thread_id.into() })
+                            }
+                        }
+                    }
+                }
                 // card:<account_id>|<thread_id>|<message_id>|<name>|<email> — open a
                 // thread and pin its sender card open (screenshots)
                 "card" => {

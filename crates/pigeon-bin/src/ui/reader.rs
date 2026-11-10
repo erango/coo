@@ -349,6 +349,22 @@ pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Elem
                     }
                 }
             }
+            // One message of a conversation, opened from its rows in the list.
+            if view.single
+                && let Some(n) = s.thread_rows.read().get(&(view.account_id.clone(), view.thread_id.clone())).map(Vec::len).filter(|n| *n > 1)
+            {
+                {
+                    let (account_id, thread_id) = (view.account_id.clone(), view.thread_id.clone());
+                    rsx! {
+                        button { class: "conversation-link", r#type: "button",
+                            onclick: move |_| send_cmd(Cmd::OpenThread { account_id: account_id.clone(), thread_id: thread_id.clone() }),
+                            Icon { name: "lines" }
+                            span { "One message of {n} in this conversation" }
+                            span { class: "conversation-link__action", "Show all" }
+                        }
+                    }
+                }
+            }
             div { class: "thread",
                 for m in ordered.iter() {
                     if count == 1 || is_open(&m.id) {
