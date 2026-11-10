@@ -2488,3 +2488,6 @@ html[data-contrast="high"] .greet-card { box-shadow: 0 0 0 1.5px var(--line-stro
 
 /* A conversation message folds to a row on a click on its header. */
 .msg-head[data-foldable] { cursor: pointer; }
+/* "Mark unread from here" on a folded row: there on hover, out of the way. */
+.msg-collapsed__unread { flex: none; color: var(--text-3); opacity: 0; }
+.msg-collapsed:hover .msg-collapsed__unread, .msg-collapsed__unread:focus-visible { opacity: 1; }

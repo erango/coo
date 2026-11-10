@@ -354,10 +354,12 @@ pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Elem
                     if count == 1 || is_open(&m.id) {
                         {
                             let id = m.id.clone();
+                            let (account, here) = (view.account_id.clone(), from_here(&view.messages, &m.id));
                             rsx! {
                                 Message { key: "{m.id}", account_id: view.account_id.clone(), header: m.clone(), windowed,
                                     foldable: count > 1,
                                     on_fold: move |_| { folded.write().insert(id.clone()); },
+                                    on_unread: move |_| unread_from(s, &account, here.clone()),
                                 }
                             }
                         }
@@ -365,6 +367,7 @@ pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Elem
                         {
                             let id = m.id.clone();
                             let who = m.from.as_ref().map(|a| a.display().to_string()).unwrap_or_default();
+                            let (account, here) = (view.account_id.clone(), from_here(&view.messages, &m.id));
                             rsx! {
                                 div { class: "msg-collapsed", key: "{m.id}",
                                     onclick: move |_| { folded.write().remove(&id); expanded.write().insert(id.clone()); },
@@ -372,6 +375,11 @@ pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Elem
                                     span { class: "msg-collapsed__who", dir: "auto", "{who}" }
                                     span { class: "msg-collapsed__snip", dir: "auto", "{m.snippet}" }
                                     span { class: "msg-collapsed__time", "{format::row_time(m.received_at, chrono::Local::now())}" }
+                                    button { class: "icon-btn icon-btn--sm msg-collapsed__unread", r#type: "button",
+                                        "aria-label": UNREAD_FROM_HERE, title: UNREAD_FROM_HERE,
+                                        onclick: move |e| { e.stop_propagation(); unread_from(s, &account, here.clone()) },
+                                        Icon { name: "mail" }
+                                    }
                                 }
                             }
                         }
@@ -431,6 +439,35 @@ pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Elem
     }
 }
 
+const UNREAD_FROM_HERE: &str = "Mark unread from here";
+
+/// The ids of message `id` and every newer one in a conversation
+/// (`messages` run oldest first).
+fn from_here(messages: &[MessageHeader], id: &str) -> Vec<String> {
+    let at = messages.iter().find(|m| m.id == id).map(|m| m.received_at);
+    messages.iter().filter(|m| at.is_some_and(|t| m.received_at >= t)).map(|m| m.id.clone()).collect()
+}
+
+/// Mark those messages unread: the conversation counts only them, so you
+/// can come back to where you stopped reading.
+fn unread_from(s: AppState, account_id: &str, ids: Vec<String>) {
+    if ids.is_empty() {
+        return;
+    }
+    let n = ids.len();
+    send_cmd(Cmd::Act {
+        account_id: account_id.to_string(),
+        ids,
+        thread_id: None,
+        action: MailAction::MarkUnread,
+        label: String::new(),
+    });
+    s.local_toast(
+        if n == 1 { "Marked 1 message unread".to_string() } else { format!("Marked {n} messages unread") },
+        false,
+    );
+}
+
 #[component]
 fn Message(
     account_id: String,
@@ -440,6 +477,9 @@ fn Message(
     #[props(default)]
     foldable: bool,
     #[props(default)] on_fold: EventHandler<()>,
+    /// In a conversation: mark this message and the newer ones unread.
+    #[props(default)]
+    on_unread: EventHandler<()>,
 ) -> Element {
     let s = use_context::<AppState>();
     let key = (account_id.clone(), header.id.clone());
@@ -479,6 +519,12 @@ fn Message(
                     }
                 }
                 span { class: "msg-head__time", "{time}" }
+                if foldable {
+                    button { class: "icon-btn icon-btn--sm msg-head__btn", r#type: "button", "aria-label": UNREAD_FROM_HERE, title: UNREAD_FROM_HERE,
+                        onclick: move |e| { e.stop_propagation(); on_unread.call(()) },
+                        Icon { name: "mail" }
+                    }
+                }
                 if !header.is_draft {
                     {
                         let (account_id, message_id) = (account_id.clone(), header.id.clone());
