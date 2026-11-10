@@ -51,7 +51,8 @@ pub fn open(s: AppState, draft: Draft) {
     let mut window = WindowBuilder::new()
         .with_title(title(&draft.subject))
         .with_inner_size(LogicalSize::new(760.0, 680.0))
-        .with_min_inner_size(LogicalSize::new(520.0, 420.0));
+        .with_min_inner_size(LogicalSize::new(520.0, 420.0))
+        .with_resizable(true);
     #[cfg(target_os = "macos")]
     {
         use dioxus::desktop::tao::platform::macos::WindowBuilderExtMacOS;
@@ -179,6 +180,8 @@ async fn bridge_loop(s: AppState, slot: ComposeSlot) {
                 "zoom-reset" => super::zoom::change(s, super::zoom::Step::Reset),
                 _ => {}
             },
+            // Dragging the title strip moves the window; a double-click zooms it.
+            "win" => super::window_action(&msg.v),
             "draft-input" => compose::autosave(slot, &msg.v),
             "ctx-img" => crate::ctxmenu::set_image(&msg.v),
             "autolink" => crate::richtext::autolink(&msg.v),
