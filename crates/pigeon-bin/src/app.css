@@ -2485,3 +2485,6 @@ html[data-contrast="high"] .greet-card { box-shadow: 0 0 0 1.5px var(--line-stro
 .mention-pop__name { font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mention-pop__addr { margin-left: auto; font-size: var(--fs-caption); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @media (prefers-reduced-motion: reduce) { .mention-pop { animation: none; } }
+
+/* A conversation message folds to a row on a click on its header. */
+.msg-head[data-foldable] { cursor: pointer; }

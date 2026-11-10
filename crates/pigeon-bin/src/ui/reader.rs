@@ -239,7 +239,10 @@ pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Elem
     // then miss it and show every message collapsed.
     let latest_id = latest_message_id(&view.messages).unwrap_or_default();
     let mut expanded = use_signal(|| HashSet::from([view.focus.clone()]));
-    let is_open = |id: &str| id == latest_id || expanded.read().contains(id);
+    // Messages folded back to a row by a click on their header (the newest
+    // one too, to see the whole conversation's rows at a glance).
+    let mut folded = use_signal(HashSet::<String>::new);
+    let is_open = |id: &str| (id == latest_id || expanded.read().contains(id)) && !folded.read().contains(id);
     let hue = s.hue(&view.account_id);
     let account_email = s
         .accounts
@@ -349,13 +352,22 @@ pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Elem
             div { class: "thread",
                 for m in ordered.iter() {
                     if count == 1 || is_open(&m.id) {
-                        Message { key: "{m.id}", account_id: view.account_id.clone(), header: m.clone(), windowed }
+                        {
+                            let id = m.id.clone();
+                            rsx! {
+                                Message { key: "{m.id}", account_id: view.account_id.clone(), header: m.clone(), windowed,
+                                    foldable: count > 1,
+                                    on_fold: move |_| { folded.write().insert(id.clone()); },
+                                }
+                            }
+                        }
                     } else {
                         {
                             let id = m.id.clone();
                             let who = m.from.as_ref().map(|a| a.display().to_string()).unwrap_or_default();
                             rsx! {
-                                div { class: "msg-collapsed", key: "{m.id}", onclick: move |_| { expanded.write().insert(id.clone()); },
+                                div { class: "msg-collapsed", key: "{m.id}",
+                                    onclick: move |_| { folded.write().remove(&id); expanded.write().insert(id.clone()); },
                                     super::avatar::Avatar { email: m.from.as_ref().map(|a| a.email.clone()).unwrap_or_default(), label: who.clone() }
                                     span { class: "msg-collapsed__who", dir: "auto", "{who}" }
                                     span { class: "msg-collapsed__snip", dir: "auto", "{m.snippet}" }
@@ -420,7 +432,15 @@ pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Elem
 }
 
 #[component]
-fn Message(account_id: String, header: MessageHeader, #[props(default)] windowed: bool) -> Element {
+fn Message(
+    account_id: String,
+    header: MessageHeader,
+    #[props(default)] windowed: bool,
+    /// In a conversation: a click on the header folds the message to a row.
+    #[props(default)]
+    foldable: bool,
+    #[props(default)] on_fold: EventHandler<()>,
+) -> Element {
     let s = use_context::<AppState>();
     let key = (account_id.clone(), header.id.clone());
     let body = s.bodies.read().get(&key).cloned();
@@ -430,7 +450,10 @@ fn Message(account_id: String, header: MessageHeader, #[props(default)] windowed
 
     rsx! {
         article { class: "msg",
-            div { class: "msg-head",
+            div { class: "msg-head", "data-foldable": foldable.then_some("true"),
+                title: if foldable { "Click to fold this message" } else { "" },
+                // Names and buttons in the header keep their own clicks.
+                onclick: move |_| if foldable { on_fold.call(()) },
                 super::avatar::Avatar { email: from.email.clone(), label: from.display().to_string(), class: "avatar--32 avatar--ring" }
                 div {
                     div { class: "msg-head__from", dir: "auto",
@@ -461,7 +484,8 @@ fn Message(account_id: String, header: MessageHeader, #[props(default)] windowed
                         let (account_id, message_id) = (account_id.clone(), header.id.clone());
                         rsx! {
                             button { class: "icon-btn icon-btn--sm msg-head__btn", r#type: "button", "aria-label": tip("Reply", Do::Reply),
-                                onclick: move |_| {
+                                onclick: move |e| {
+                                    e.stop_propagation();
                                     let (account_id, message_id) = (account_id.clone(), message_id.clone());
                                     if windowed {
                                         super::reader_window::reply_here(s, account_id, message_id, ReplyKind::Reply)
@@ -476,9 +500,12 @@ fn Message(account_id: String, header: MessageHeader, #[props(default)] windowed
                 }
                 if !windowed {
                     button { class: "icon-btn icon-btn--sm msg-head__btn", r#type: "button", "aria-label": "More",
-                        onclick: move |e| if let Some(i) = selected_item(&s) {
-                            let p = e.client_coordinates();
-                            super::row_menu::open(s, &i, p.x - 8.0, p.y + 14.0);
+                        onclick: move |e| {
+                            e.stop_propagation();
+                            if let Some(i) = selected_item(&s) {
+                                let p = e.client_coordinates();
+                                super::row_menu::open(s, &i, p.x - 8.0, p.y + 14.0);
+                            }
                         },
                         Icon { name: "more" }
                     }
@@ -538,7 +565,7 @@ fn Recipients(
                 }
             }
             if more > 0 {
-                button { class: "link-btn msg-head__more", r#type: "button", onclick: move |_| open.set(true), "+{more} more" }
+                button { class: "link-btn msg-head__more", r#type: "button", onclick: move |e| { e.stop_propagation(); open.set(true) }, "+{more} more" }
             }
         }
     }
