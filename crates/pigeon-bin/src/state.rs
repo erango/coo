@@ -673,7 +673,9 @@ impl AppState {
         let id = t.id;
         toasts.write().push(t);
         let mut list = toasts;
-        spawn(async move {
+        // Outlives whatever asked: a toast from a menu that closes right
+        // away (its scope's tasks are dropped with it) used to stay forever.
+        dioxus::core::spawn_forever(async move {
             tokio::time::sleep(std::time::Duration::from_secs(7)).await;
             list.write().retain(|x| x.id != id);
         });

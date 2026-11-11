@@ -261,10 +261,8 @@ fn run(s: AppState, m: &RowMenu, entry: Entry) {
         Entry::Watch => {
             let h = item.header();
             super::settings_watches::watch_thread(item.account_id(), &h.thread_id, &h.subject);
-            return s.push_toast(pigeon_engine::service::Toast {
-                message: "Watching this conversation: replies show in Needs you".into(),
-                ..Default::default()
-            });
+            return s
+                .local_toast("New replies to this conversation will be listed under Needs you, in the sidebar", false);
         }
         Entry::Move | Entry::Label => {
             let label = entry == Entry::Label;
