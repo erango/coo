@@ -854,9 +854,23 @@ fn ThreadKids(
                     };
                     let (account, id, row_key) = (account_id.clone(), m.id.clone(), row_key.clone());
                     let on = open_id.as_deref() == Some(m.id.as_str());
+                    // This one message, for its own actions (the conversation's
+                    // row acts on all of them).
+                    let one = ListItem::Message(pigeon_core::model::MessageRow { account_id: account_id.clone(), header: m.clone() });
+                    let (menu_item, read_item) = (one.clone(), one);
+                    let unread = !m.is_read;
+                    let read_tip = if unread { "Mark as read" } else { "Mark as unread" };
+                    let menu_on = s.row_menu.read().as_ref().is_some_and(|r| !r.bulk && r.item == menu_item);
                     rsx! {
                         div { class: "thread-kid", key: "{m.id}", role: "option", tabindex: "-1",
                             "aria-selected": "{on}", "data-unread": (!m.is_read).then_some("true"),
+                            "data-context": menu_on.then_some("true"),
+                            oncontextmenu: move |e| {
+                                e.prevent_default();
+                                e.stop_propagation();
+                                let p = e.client_coordinates();
+                                super::row_menu::open(s, &menu_item, p.x, p.y);
+                            },
                             onclick: move |e| {
                                 e.stop_propagation();
                                 super::compose::leave_docked(s);
@@ -869,6 +883,14 @@ fn ThreadKids(
                             span { class: "thread-kid__who", dir: "auto", "{who}" }
                             span { class: "thread-kid__snip", dir: "auto", "{m.snippet}" }
                             time { class: "thread-kid__time", "{format::row_time(m.received_at, now)}" }
+                            button { class: "icon-btn icon-btn--sm thread-kid__read", r#type: "button", "aria-label": read_tip, title: read_tip,
+                                onclick: move |e| {
+                                    e.stop_propagation();
+                                    let action = if unread { pigeon_engine::MailAction::MarkRead } else { pigeon_engine::MailAction::MarkUnread };
+                                    super::act(s, &read_item, action);
+                                },
+                                super::bird::EnvelopeIcon { open: unread }
+                            }
                         }
                     }
                 }

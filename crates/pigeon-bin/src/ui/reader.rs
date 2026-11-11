@@ -387,6 +387,17 @@ pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Elem
                             rsx! {
                                 div { class: "msg-collapsed", key: "{m.id}",
                                     onclick: move |_| { folded.write().remove(&id); expanded.write().insert(id.clone()); },
+                                    // Right-click: this one message's actions.
+                                    oncontextmenu: {
+                                        let one = one_message(&view.account_id, m);
+                                        move |e: Event<MouseData>| {
+                                            if count > 1 && !windowed {
+                                                e.prevent_default();
+                                                let p = e.client_coordinates();
+                                                super::row_menu::open(s, &one, p.x, p.y);
+                                            }
+                                        }
+                                    },
                                     super::avatar::Avatar { email: m.from.as_ref().map(|a| a.email.clone()).unwrap_or_default(), label: who.clone() }
                                     span { class: "msg-collapsed__who", dir: "auto", "{who}" }
                                     span { class: "msg-collapsed__snip", dir: "auto", "{m.snippet}" }
@@ -457,6 +468,14 @@ pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Elem
 
 const UNREAD_FROM_HERE: &str = "Mark unread from here";
 
+/// One message of a conversation as a list item, for its own menu.
+fn one_message(account_id: &str, header: &MessageHeader) -> pigeon_engine::service::ListItem {
+    pigeon_engine::service::ListItem::Message(pigeon_core::model::MessageRow {
+        account_id: account_id.to_string(),
+        header: header.clone(),
+    })
+}
+
 /// The ids of message `id` and every newer one in a conversation
 /// (`messages` run oldest first).
 fn from_here(messages: &[MessageHeader], id: &str) -> Vec<String> {
@@ -510,6 +529,17 @@ fn Message(
                 title: if foldable { "Click to fold this message" } else { "" },
                 // Names and buttons in the header keep their own clicks.
                 onclick: move |_| if foldable { on_fold.call(()) },
+                // Right-click in a conversation: this one message's actions.
+                oncontextmenu: {
+                    let one = one_message(&account_id, &header);
+                    move |e: Event<MouseData>| {
+                        if foldable && !windowed {
+                            e.prevent_default();
+                            let p = e.client_coordinates();
+                            super::row_menu::open(s, &one, p.x, p.y);
+                        }
+                    }
+                },
                 super::avatar::Avatar { email: from.email.clone(), label: from.display().to_string(), class: "avatar--32 avatar--ring" }
                 div {
                     div { class: "msg-head__from", dir: "auto",
