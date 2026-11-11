@@ -503,6 +503,10 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 .composer__editor > *, .inline-reply__editor > * { margin-top: 0; margin-bottom: 6px; }
 .composer__editor > * { width: 100%; max-width: var(--composer-measure, 680px); box-sizing: border-box; }
 .composer__editor > :dir(rtl) { align-self: flex-end; }
+/* A block whose own direction came out wrong for its text (one that only
+   wraps a list: richtext.rs sideBlocks). */
+.composer__editor > [data-side="rtl"] { align-self: flex-end; }
+.composer__editor > [data-side="ltr"] { align-self: flex-start; }
 /* The reader pane takes focus back from a clicked message frame (bridge):
    no ring for that. */
 .pane--reader:focus-visible { outline: none; }
@@ -561,6 +565,10 @@ input:disabled, label:has(> input:disabled) { cursor: default; }
 [data-editor] [style*="font-size: medium"] { font-size: inherit !important; }
 [data-editor] ul, [data-editor] ol { padding-inline-start: 1.7em; }
 [data-editor] li { text-align: start; }
+/* An item aligned by hand (left, center, right): its number or bullet
+   goes with the text. Outside, it stayed at the list's edge, far from the
+   text or off the block altogether, and looked gone. */
+[data-editor] li[style*="text-align"] { list-style-position: inside; }
 /* An item against its list's direction gets room for its own marker. */
 [data-editor] :is(ul, ol):dir(rtl) > li:dir(ltr) { margin-left: 1.7em; }
 [data-editor] :is(ul, ol):dir(ltr) > li:dir(rtl) { margin-right: 1.7em; }

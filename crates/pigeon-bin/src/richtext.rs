@@ -1257,8 +1257,26 @@ const JS: &str = r##"
       const first = l.querySelector('li'), d = first && itemDir(first);
       if (d && l.getAttribute('dir') !== d) l.setAttribute('dir', d);
     }
+    sideBlocks(ed);
     scrub(ed);
   }, true);
+  // The composer caps each top-level block at a reading width and sets it
+  // on the side its direction says (app.css). A block that only wraps a
+  // list (or other blocks with a dir of their own) has no text for
+  // dir="auto" to go by, so it came out left-to-right: a Hebrew list, and
+  // whatever was typed after it, jumped to the left. Such a block is told
+  // its side by its first strong letter (data-side; not sent with the mail).
+  function sideBlocks(ed) {
+    for (const b of ed.children) {
+      const m = b.textContent.match(STRONG);
+      const rtl = !!m && m[0] >= '\u0590';
+      const off = !!m && rtl !== (getComputedStyle(b).direction === 'rtl');
+      const want = off ? (rtl ? 'rtl' : 'ltr') : null;
+      if (b.getAttribute('data-side') !== want) {
+        if (want) b.setAttribute('data-side', want); else b.removeAttribute('data-side');
+      }
+    }
+  }
   // WebKit keeps the look of text it moves (lists, quotes, insertHTML) by
   // copying the styles around it onto a span: our CSS variables, which mean
   // nothing in the recipient's mail, and the theme's text color, which would
