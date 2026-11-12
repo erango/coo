@@ -93,6 +93,15 @@ pub const JS: &str = r#"
     return true;
   }
   // Settings › Keyboard shortcuts records the next key pressed (Esc cancels).
+  // A Ctrl+Shift press waiting for its keys to come up (below).
+  let pendingDir = null;
+  document.addEventListener('keyup', (e) => {
+    if (!pendingDir || (e.key !== 'Shift' && e.key !== 'Control')) return;
+    const { ed, dir } = pendingDir;
+    pendingDir = null;
+    if (!e.metaKey && !e.altKey && ed.isConnected) setBlockDir(ed, dir);
+  }, true);
+  addEventListener('blur', () => { pendingDir = null; });
   let recording = false;
   window.__cooRecordKey = (on) => { recording = !!on; };
   document.addEventListener('keydown', (e) => {
@@ -105,15 +114,21 @@ pub const JS: &str = r#"
       return;
     }
     // RTL/LTR paragraph override, Outlook style: Ctrl + Right Shift = RTL, Ctrl + Left Shift = LTR.
+    // It takes effect when the two keys are let go with nothing else
+    // pressed in between: Ctrl+Shift is also how longer shortcuts start
+    // (⌃⇧⌘4, a screenshot to the clipboard), and those must not flip the
+    // paragraph on their way.
     if (e.key === 'Shift') lastShift = e.location;
     const ed = e.target.closest && e.target.closest('[data-editor]');
     if (ed && !e.metaKey && !e.altKey &&
         ((e.key === 'Shift' && e.ctrlKey) || (e.key === 'Control' && e.shiftKey))) {
       const side = e.key === 'Shift' ? e.location : lastShift;
       const dir = side === 2 ? 'rtl' : side === 1 ? 'ltr' : null;
-      if (dir) { setBlockDir(ed, dir); e.preventDefault(); }
+      pendingDir = dir ? { ed, dir } : null;
+      if (dir) e.preventDefault();
       return;
     }
+    pendingDir = null;
     // Text size: always handled, even in editors and inputs. `code` covers
     // layouts where + / - / 0 sit elsewhere.
     if (e.metaKey && !e.ctrlKey && !e.altKey) {
