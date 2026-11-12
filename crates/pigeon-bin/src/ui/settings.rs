@@ -42,7 +42,7 @@ pub const PAGES: &[(&str, &str, &str)] = &[
     (
         "Writing",
         "edit",
-        "composing compose new message reply replies window docked draft drafts save autosave ask undo send archive after replying reply forwarding forward default from sender signature signatures sign-off footer paste pasting formatting plain text original match style",
+        "composing compose new message reply replies window docked draft drafts save autosave ask undo send archive after replying reply forwarding forward default from sender signature signatures sign-off footer paste pasting formatting plain text original match style direction rtl ltr right-to-left hebrew arabic ctrl shift outlook paragraph",
     ),
     (
         "Calendar",

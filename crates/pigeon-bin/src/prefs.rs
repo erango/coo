@@ -132,6 +132,10 @@ pub struct Prefs {
     /// shows its messages under it, each one clickable (like iOS Mail).
     /// Off: a conversation is one row, opened whole in the reader.
     pub threads_in_list: bool,
+    /// Ctrl + Right/Left Shift sets the paragraph's direction while
+    /// writing (as in Outlook). Off unless turned on: the keys are easy
+    /// to hit by accident, and the toolbar has the same buttons.
+    pub dir_shortcuts: bool,
     /// How formatted text pastes into a message: "match" (this message's
     /// font, size and paragraph direction; bold, italic, underline, links
     /// and lists kept), "original" (as it looked where it was copied) or
@@ -238,6 +242,7 @@ impl Default for Prefs {
             quotes_open: false,
             reply_mode: "inline".into(),
             paste_style: "match".into(),
+            dir_shortcuts: false,
             threads_in_list: true,
             photos_gravatar: false,
             photos_google: true,

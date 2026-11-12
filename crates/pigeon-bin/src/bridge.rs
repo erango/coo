@@ -120,7 +120,8 @@ pub const JS: &str = r#"
     // paragraph on their way.
     if (e.key === 'Shift') lastShift = e.location;
     const ed = e.target.closest && e.target.closest('[data-editor]');
-    if (ed && !e.metaKey && !e.altKey &&
+    // Only when turned on (Settings › Writing: the editor's data-dir-keys).
+    if (ed && ed.dataset.dirKeys === 'true' && !e.metaKey && !e.altKey &&
         ((e.key === 'Shift' && e.ctrlKey) || (e.key === 'Control' && e.shiftKey))) {
       const side = e.key === 'Shift' ? e.location : lastShift;
       const dir = side === 2 ? 'rtl' : side === 1 ? 'ltr' : null;

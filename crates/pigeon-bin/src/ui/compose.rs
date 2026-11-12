@@ -5,7 +5,8 @@
 //!
 //! The editor holds only what the user types; the quoted original lives in
 //! `draft.html` (editable in its own frame) and is appended at send time. Every editor block carries
-//! `dir="auto"` (set by the bridge), and Ctrl+Right/Left Shift force RTL/LTR.
+//! `dir="auto"` (set by the bridge); Ctrl+Right/Left Shift force RTL/LTR when
+//! turned on in Settings › Writing.
 //! Formatting (toolbar, shortcuts, autoformat, emoji) is `crate::richtext`.
 
 use chrono::{DateTime, Datelike, Duration, Local, NaiveTime, TimeZone, Weekday};
@@ -1131,7 +1132,7 @@ pub fn InlineReply(draft: Draft) -> Element {
             if attachments_on_top() { Attachments { top: true } }
             super::format_bar::FormatBar { editor: id.clone() }
             div { class: "inline-reply__editor", id: "{id}", contenteditable: "true", "data-editor": "true",
-                "data-paste": "{crate::prefs::get().paste_style}", "data-people": "{mention_people(&current)}", dir: "auto", "data-placeholder": "Write a reply…",
+                "data-paste": "{crate::prefs::get().paste_style}", "data-people": "{mention_people(&current)}", "data-dir-keys": "{crate::prefs::get().dir_shortcuts}", dir: "auto", "data-placeholder": "Write a reply…",
                 dangerous_inner_html: "{body}",
             }
             div { style: "padding:0 16px", SignaturePreview {} }
@@ -1350,6 +1351,7 @@ pub fn Composer(draft: Draft, #[props(default)] docked: bool) -> Element {
                 div { class: "composer__body",
                     div { class: "composer__editor", id: "{id}", contenteditable: "true", "data-editor": "true", dir: "auto",
                         "data-paste": "{crate::prefs::get().paste_style}", "data-people": "{mention_people(&current)}",
+                        "data-dir-keys": "{crate::prefs::get().dir_shortcuts}",
                         dangerous_inner_html: "{body}" }
                     SignaturePreview {}
                     if !current.html.is_empty() {

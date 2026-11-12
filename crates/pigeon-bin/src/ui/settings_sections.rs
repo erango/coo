@@ -321,6 +321,7 @@ pub fn Writing() -> Element {
     let mut after_reply = use_signal(|| prefs::get().archive_after_reply);
     let mut after_forward = use_signal(|| prefs::get().archive_after_forward);
     let (cur_reply, cur_forward) = (*after_reply.read(), *after_forward.read());
+    let mut dir_keys = use_signal(|| prefs::get().dir_shortcuts);
     let mut paste = use_signal(|| prefs::get().paste_style);
     let current_paste = paste.read().clone();
 
@@ -371,6 +372,18 @@ pub fn Writing() -> Element {
                                 "{label}"
                             }
                         }
+                    }
+                }
+            }
+        }
+        Group { title: "Text direction",
+            Row { label: "Ctrl + Shift sets the paragraph's direction",
+                hint: "As in Outlook: Ctrl + Right Shift for right-to-left, Ctrl + Left Shift for left-to-right. The toolbar's direction buttons work either way. Applies to messages you open from now on.",
+                input { class: "switch", r#type: "checkbox", checked: *dir_keys.read(), "aria-label": "Ctrl + Shift sets the paragraph's direction",
+                    onchange: move |_| {
+                        let now = !*dir_keys.peek();
+                        dir_keys.set(now);
+                        prefs::update(move |p| p.dir_shortcuts = now);
                     }
                 }
             }
