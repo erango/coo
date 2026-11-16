@@ -481,9 +481,36 @@ const JS: &str = r##"
   const DEFAULT_LINE = '1.4', DEFAULT_GAP = '6px';
   // `id` may also be the editor element. Odd pasted blocks never stop the
   // export: a block that can't take the spacing goes out as it is.
+  // What goes out never has a bare web or email address in it: anything
+  // the as-you-type linking hasn't reached yet (it asks Rust and may not
+  // have heard back) is linked here, in the copy being exported. Only the
+  // unmistakable forms: a scheme, www., or name@domain.tld.
+  const PLAIN_LINK = /\b(?:https?:\/\/|www\.)[^\s<>"'\u201c\u201d]+|[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g;
+  function linkPlain(root) {
+    const doc = root.ownerDocument;
+    const walk = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while (walk.nextNode()) nodes.push(walk.currentNode);
+    for (const n of nodes) {
+      if (!n.parentElement || n.parentElement.closest('a, code, pre')) continue;
+      const hits = [...n.data.matchAll(PLAIN_LINK)];
+      for (const m of hits.reverse()) {
+        // Sentence punctuation after the address isn't part of it.
+        const text = m[0].replace(/[.,;:!?)\]}]+$/, '');
+        const href = normalizeUrl(text);
+        if (!href || !text) continue;
+        const r = doc.createRange();
+        r.setStart(n, m.index); r.setEnd(n, m.index + text.length);
+        const a = doc.createElement('a');
+        a.setAttribute('href', href);
+        r.surroundContents(a);
+      }
+    }
+  }
   window.__pigeonExport = (id) => {
     const ed = typeof id === 'string' ? document.getElementById(id) : id; if (!ed) return null;
     const c = ed.cloneNode(true);
+    linkPlain(c);
     for (const b of c.children) {
       try {
         if (b.hasAttribute('data-coo-signature') || !b.style) continue;
@@ -505,7 +532,7 @@ const JS: &str = r##"
       i.dataset.suggestOpen = 'true'; // Escape closes this, not the composer
       el.appendChild(i); return i;
     };
-    const text = (!a && range && range.collapsed) ? field('Text to show') : null;
+    const text = a ? field('Text to show', a.textContent) : (range && range.collapsed) ? field('Text to show') : null;
     const url = field('Address: https://… or name@example.com', a ? a.getAttribute('href') : '');
     const row = document.createElement('div'); row.className = 'fmt-link__row';
     const mk = (label, cls, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn btn--sm ' + cls; b.textContent = label; b.addEventListener('click', fn); row.appendChild(b); return b; };
@@ -514,7 +541,13 @@ const JS: &str = r##"
       const href = normalizeUrl(url.value);
       if (!href) { url.setAttribute('aria-invalid', 'true'); url.focus(); return; }
       back();
-      if (a) { const r = D.createRange(); r.selectNodeContents(a); sel.removeAllRanges(); sel.addRange(r); exec('createLink', href); }
+      if (a) {
+        const r = D.createRange(); r.selectNodeContents(a); sel.removeAllRanges(); sel.addRange(r);
+        const shown = text ? text.value.trim() : '';
+        // New words for the link go in as the link, in one step (⌘Z takes it back).
+        if (shown && shown !== a.textContent) exec('insertHTML', '<a href="' + esc(href) + '">' + esc(shown) + '</a>');
+        else exec('createLink', href);
+      }
       else if (range && range.collapsed) exec('insertHTML', '<a href="' + esc(href) + '">' + esc((text && text.value.trim()) || url.value.trim()) + '</a>');
       else exec('createLink', href);
       refresh(ed);
@@ -528,7 +561,38 @@ const JS: &str = r##"
       else if (e.key === 'Escape') { e.preventDefault(); back(); }
     });
     openPop(btn, el);
-    (text || url).focus();
+    (a ? url : (text || url)).focus();
+  }
+  // A click on a link in a message being written: a small menu under it to
+  // open it, edit it (the form above), copy its address or take the link
+  // off. The click still puts the caret there, and ⌘-click opens at once.
+  function linkMenu(ed, a) {
+    const href = a.getAttribute('href') || '';
+    const el = document.createElement('div');
+    el.className = 'fmt-linkmenu';
+    const addr = document.createElement('div');
+    addr.className = 'fmt-linkmenu__addr'; addr.dir = 'ltr';
+    addr.textContent = href.replace(/^mailto:/i, '');
+    addr.title = href;
+    el.appendChild(addr);
+    const row = document.createElement('div'); row.className = 'fmt-link__row';
+    const mk = (label, cls, fn) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'btn btn--sm ' + cls; b.textContent = label;
+      b.addEventListener('click', fn); row.appendChild(b);
+    };
+    const inLink = () => {
+      D = ed.ownerDocument; ed.focus();
+      const sel = D.getSelection(), r = D.createRange();
+      r.selectNodeContents(a); sel.removeAllRanges(); sel.addRange(r);
+    };
+    mk(/^mailto:/i.test(href) ? 'Write' : 'Open', 'btn--primary', () => { closePop(); dioxus.send({ k: 'link', v: a.href }); });
+    mk('Edit', 'btn--secondary', () => { if (!a.isConnected) return closePop(); inLink(); linkPop(ed, a); });
+    mk('Copy', 'btn--secondary', () => { closePop(); try { navigator.clipboard.writeText(href.replace(/^mailto:/i, '')); } catch (_) {} });
+    mk('Remove', 'btn--ghost', () => { closePop(); if (!a.isConnected) return; inLink(); exec('unlink'); refresh(ed); });
+    el.appendChild(row);
+    openPop(a, el);
+    pop._link = a;
   }
   // Emoji: sections plus "Frequently used" (this Mac only), a search box,
   // arrow keys through the grid, Enter inserts, Esc closes.
@@ -1338,12 +1402,31 @@ const JS: &str = r##"
     while (walk.nextNode()) nodes.push(walk.currentNode);
     for (const n of nodes) askLinks(n, 0, n.length);
   }, true);
-  // Links in the editor are text to edit; ⌘-click opens one.
+  // ⌘-click opens a link in the editor; a plain click shows its menu
+  // (only in the message itself: a quote's frame runs no script).
   onDoc('click', (e) => {
-    const a = e.metaKey && e.target.closest && e.target.closest('a[href]');
-    if (!a || !editorOf(a)) return;
+    const a = e.target.closest && e.target.closest('a[href]');
+    const ed = a && editorOf(a);
+    if (!ed) return;
     e.preventDefault();
-    dioxus.send({ k: 'link', v: a.href });
+    if (e.metaKey) return dioxus.send({ k: 'link', v: a.href });
+    if (D === document && D.getSelection().isCollapsed) linkMenu(ed, a);
+  }, true);
+  // Typing closes the link's menu.
+  onDoc('keydown', (e) => {
+    if (pop && pop._link && !pop.contains(e.target) && !['Shift', 'Meta', 'Control', 'Alt'].includes(e.key)) closePop();
+  }, true);
+  // Leaving the message links the addresses still plain in it: the last
+  // word typed has no space or Enter after it to set that off.
+  function linkAll(ed) {
+    const walk = ed.ownerDocument.createTreeWalker(ed, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while (walk.nextNode()) nodes.push(walk.currentNode);
+    for (const n of nodes) askLinks(n, 0, n.length);
+  }
+  onDoc('focusout', (e) => {
+    const ed = e.target.closest && e.target.closest('[data-editor]');
+    if (ed && !lastPaste) linkAll(ed);
   }, true);
 
   window.__pigeonFormatDemo = (edId) => { // debug screenshots only
