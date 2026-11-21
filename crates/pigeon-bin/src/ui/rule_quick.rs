@@ -253,6 +253,18 @@ fn QuickSheet(q: Quick) -> Element {
 #[component]
 pub fn NudgeBar() -> Element {
     let mut s = use_context::<AppState>();
+    // Gone on its own after a while (unless a newer one replaced it).
+    // Hooks before the early return: their order must not change.
+    use_effect(move || {
+        let mut nudge = s.rule_nudge;
+        let Some(shown) = nudge.read().clone() else { return };
+        dioxus::core::spawn_forever(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+            if nudge.peek().as_ref() == Some(&shown) {
+                nudge.set(None);
+            }
+        });
+    });
     let Some(n) = s.rule_nudge.read().clone() else { return rsx! {} };
     let q = n.quick.clone();
     let email = q.email.clone();
@@ -261,14 +273,6 @@ pub fn NudgeBar() -> Element {
         k => format!("{k}th"),
     };
     let offer = format!("Always {} them", q.kind.verb());
-    // Gone on its own after a while.
-    use_effect(move || {
-        let mut nudge = s.rule_nudge;
-        dioxus::core::spawn_forever(async move {
-            tokio::time::sleep(std::time::Duration::from_secs(12)).await;
-            nudge.set(None);
-        });
-    });
     rsx! {
         div { class: "rule-nudge", role: "status",
             span { class: "rule-nudge__text", dir: "auto",

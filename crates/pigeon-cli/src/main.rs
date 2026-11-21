@@ -12,6 +12,7 @@ mod guide;
 mod mcp;
 mod ops;
 mod out;
+mod rules;
 mod watch;
 
 use std::process::ExitCode;
@@ -238,6 +239,42 @@ enum Cmd {
     },
     /// Saved watches and running `watch` streams.
     Watches,
+    /// Make a mail rule: new mail that matches is handled as it arrives.
+    /// Saved as a Gmail filter or Outlook rule when the server can run it,
+    /// else applied by Coo. Repeat a condition flag to match any of its
+    /// values; different flags must all match.
+    RuleAdd {
+        #[arg(long, default_value = "")]
+        name: String,
+        /// One account (id or address); all accounts when left out.
+        #[arg(long)]
+        account: Option<String>,
+        /// Sender address, `@domain`, or part of an address or name.
+        #[arg(long)]
+        from: Vec<String>,
+        #[arg(long)]
+        to: Vec<String>,
+        #[arg(long)]
+        subject: Vec<String>,
+        /// Words in the subject or message.
+        #[arg(long)]
+        words: Vec<String>,
+        #[arg(long)]
+        has_attachment: bool,
+        /// archive | read | star | trash | quiet | needs_you (repeatable).
+        #[arg(long = "do", required = true)]
+        actions: Vec<String>,
+        /// Add this label (Gmail) or move to this folder.
+        #[arg(long)]
+        label: Option<String>,
+        /// Also do it now to matching mail in the inbox.
+        #[arg(long)]
+        apply_now: bool,
+    },
+    /// Mail rules, with where each runs.
+    Rules,
+    /// Remove a mail rule (and its Gmail filter or Outlook rule).
+    RuleRemove { id: String },
     /// Remove a saved watch or stop a running stream by id, or stop every
     /// stream with --all.
     Unwatch {
@@ -541,6 +578,31 @@ async fn run(cli: Cli) -> pigeon_core::Result<()> {
             let until = days.map(|d| pigeon_core::now_ms() + d.max(1) * 86_400_000);
             let w = watch::add_watch(&app, &name, filters, &note, notify, until, "Your assistant")?;
             emit(json, &w, |w| println!("Watching: {} ({})", w.name, w.id));
+        }
+        Cmd::RuleAdd { name, account, from, to, subject, words, has_attachment, actions, label, apply_now } => {
+            let spec =
+                rules::Spec { name, account, from, to, subject, words, has_attachment, actions, label, apply_now };
+            let v = rules::add(&app, w, &spec, "Your assistant").await?;
+            emit(json, &v, |v| {
+                println!(
+                    "Rule saved: {} ({}), runs as: {}",
+                    v["rule"]["name"].as_str().unwrap_or_default(),
+                    v["rule"]["id"].as_str().unwrap_or_default(),
+                    v["rule"]["runs"].as_str().unwrap_or_default()
+                );
+                if let Some(n) = v["applied_now"].as_u64().filter(|n| *n > 0) {
+                    println!("Also done to {n} messages in the inbox.");
+                }
+            });
+        }
+        Cmd::Rules => emit(json, &rules::list(&app)?, |v| {
+            for r in v {
+                println!("{}  {}  [{}]  {} → {}", r.id, r.name, r.runs, r.when, r.then);
+            }
+        }),
+        Cmd::RuleRemove { id } => {
+            let v = rules::remove(&app, w, &id).await?;
+            emit(json, &v, |_| println!("Removed {id}"));
         }
         Cmd::Watches => {
             let all = watch::all(&app)?;

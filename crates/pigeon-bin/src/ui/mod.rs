@@ -509,6 +509,30 @@ pub fn App() -> Element {
                         settings::show_page(s, arg);
                     }
                 }
+                // rule-new:<account>|<from> — the rule editor; rule-quick and
+                // rule-nudge:<account>|<email>|<name> — the confirm, the nudge
+                "rule-new" | "rule-quick" | "rule-nudge" => {
+                    let mut p = arg.split('|');
+                    let (account, email) = (p.next().unwrap_or_default().to_string(), p.next().unwrap_or_default());
+                    let who = p.next().unwrap_or(email).to_string();
+                    let quick = rule_quick::Quick {
+                        account_id: account.clone(),
+                        email: email.into(),
+                        who,
+                        kind: rule_quick::Kind::Archive,
+                    };
+                    match what {
+                        "rule-new" => rule_quick::open_editor(s, &quick),
+                        "rule-quick" => {
+                            let mut q = s.quick_rule;
+                            q.set(Some(quick));
+                        }
+                        _ => {
+                            let mut n = s.rule_nudge;
+                            n.set(Some(rule_quick::Nudge { quick, count: 3, what: "archived" }));
+                        }
+                    }
+                }
                 // menubar-hint — hide into the menu bar and show the one-time hint
                 "menubar-hint" => {
                     spawn(async {

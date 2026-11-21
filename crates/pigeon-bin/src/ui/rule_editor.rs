@@ -248,7 +248,11 @@ fn Sheet(editing: Editing) -> Element {
                         div { class: "rule-where", "data-server": matches!(where_, Runs::Server(_)).then_some("true"),
                             div { class: "rule-where__title",
                                 Icon { name: where_icon, class: "icon--sm" }
-                                {if matches!(where_, Runs::Server(_)) { format!("Saved as {}", where_.label().to_lowercase()) } else { "Runs in Coo".to_string() }}
+                                {match where_ {
+                                    Runs::Server(ProviderKind::Google) => "Runs in Gmail",
+                                    Runs::Server(_) => "Runs in Outlook",
+                                    Runs::Coo(_) => "Runs in Coo",
+                                }}
                             }
                             p { "{where_.explain()}" }
                             if where_ == Runs::Coo(Why::Permission) {

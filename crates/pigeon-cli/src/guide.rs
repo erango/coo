@@ -31,6 +31,13 @@ const COMMANDS: &[(&str, &str, &str)] = &[
     ("done", "coo --json done <id> --note \"Drafted a reply\"", "mark a Needs-you item handled"),
     ("watches", "coo --json watches", "saved watches and running streams"),
     ("unwatch", "coo --json unwatch <watch_id>", "remove a saved watch or stop a stream (--all: every stream)"),
+    (
+        "rule-add",
+        "coo --json --yes rule-add --from @rescana.com --do archive --do read --account <account> --apply-now",
+        "make a mail rule (a Gmail filter or Outlook rule where possible, else Coo applies it)",
+    ),
+    ("rules", "coo --json rules", "mail rules and where each runs"),
+    ("rule-remove", "coo --json --yes rule-remove <rule_id>", "remove a mail rule and its server copy"),
     ("senders", "coo --json senders", "every address the user can send from"),
     (
         "reply",
@@ -97,6 +104,10 @@ pub fn agent_help() -> String {
          Needs you while Coo runs, with no agent running. When the user asks what needs them, read `coo needs-you` \
          (MCP needs_you): each item has the message and the watch's note saying what they want done; act, then \
          `coo done <id> --note \"what you did\"`.\n\n\
+         RULES\nTo handle mail automatically (\"always archive mail from X\"), make a rule: `coo rule-add --from \
+         @x.com --do archive [--do read] [--label NAME --account ACCOUNT] [--apply-now]` (MCP add_rule; a write). \
+         It's saved as a Gmail filter or Outlook rule when the server can run it, else Coo applies it. `coo rules` \
+         lists them, `coo rule-remove <id>` removes one. Watches surface mail; rules hide or file it.\n\n\
          MCP\n`coo mcp` serves the same operations as tools on stdio (read-only; add --allow-write for writes). \
          `coo mcp-config --client claude-code|claude-code-desktop|claude-desktop` prints a ready config with the \
          absolute path and env.\n"

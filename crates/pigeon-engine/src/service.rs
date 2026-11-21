@@ -1013,10 +1013,10 @@ impl Service {
             self.send(Delta::Watches(store.watches().unwrap_or_default()));
             self.send(Delta::RuleLog(store.rule_log(300, now).unwrap_or_default()));
         }
-        self.send(Delta::Rules {
-            rules: self.app.store().rules().unwrap_or_default(),
-            outlook_allowed: self.app.outlook_rule_accounts(),
-        });
+        // One at a time: both take the store lock.
+        let rules = self.app.store().rules().unwrap_or_default();
+        let outlook_allowed = self.app.outlook_rule_accounts();
+        self.send(Delta::Rules { rules, outlook_allowed });
         self.send(Delta::NextUp(next_up.into_iter().filter(|e| !e.event.all_day).take(3).collect()));
         if let Some((from, to, events, calendars)) = cal {
             self.send(Delta::Events { from, to, events, calendars });

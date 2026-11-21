@@ -116,6 +116,45 @@ fn tools() -> Vec<Tool> {
             write: false,
         },
         Tool {
+            name: "add_rule",
+            description: "Make a mail rule: new mail that matches is handled automatically as it arrives (\"always \
+                archive mail from Rescana\", \"mark newsletters read and file them\"). When the account's server can \
+                run it, it's saved as a Gmail filter or Outlook rule and works even with Coo closed; otherwise Coo \
+                applies it. Each list matches any of its values; the lists given must all match. Show the user the \
+                rule before adding it. To surface mail rather than hide it, use add_watch.",
+            schema: s(
+                json!({
+                    "name": str_("A short name the user will recognize (left out: named after the sender)."),
+                    "account": str_("One account (id or address). Left out: all accounts (then it always runs in Coo)."),
+                    "from": strs("Sender addresses, \"@domain\" for everyone there, or part of a name."),
+                    "to": strs("Recipient (To or Cc) addresses or domains."),
+                    "subject": strs("Text the subject contains."),
+                    "words": strs("Words in the subject or message."),
+                    "has_attachment": bool_("Only mail with attachments.", false),
+                    "actions": json!({"type": "array", "items": {"type": "string", "enum": ["archive", "read", "star", "trash", "quiet", "needs_you"]},
+                        "description": "What to do: archive (skip the inbox), read, star (flag in Outlook), trash, quiet (no notification), needs_you."}),
+                    "label": str_("Add this Gmail label, or move to this folder (needs account)."),
+                    "apply_now": bool_("Also do it now to matching mail already in the inbox.", false),
+                }),
+                &["actions"],
+            ),
+            write: true,
+        },
+        Tool {
+            name: "list_rules",
+            description: "The user's mail rules: conditions, actions, whether each runs as a Gmail filter, an Outlook \
+                rule or in Coo, and how many messages it handled.",
+            schema: s(json!({}), &[]),
+            write: false,
+        },
+        Tool {
+            name: "remove_rule",
+            description: "Remove a mail rule (and its Gmail filter or Outlook rule) by its id from list_rules. Only when \
+                the user asks.",
+            schema: s(json!({"id": str_("The rule id.")}), &["id"]),
+            write: true,
+        },
+        Tool {
             name: "list_folders",
             description: "Folders/labels of one account with unread and total counts. Use it to find a folder \
                 name for list_messages, or to answer \"how many unread in X\".",
@@ -382,6 +421,23 @@ async fn call(app: &Pigeon, w: Writes, name: &str, a: &Value) -> pigeon_core::Re
             )?)
         }
         "list_watches" => j(&crate::watch::all(app)?),
+        "add_rule" => {
+            let spec = crate::rules::Spec {
+                name: arg(a, "name").unwrap_or_default().to_string(),
+                account: arg(a, "account").map(String::from),
+                from: strings(a, "from"),
+                to: strings(a, "to"),
+                subject: strings(a, "subject"),
+                words: strings(a, "words"),
+                has_attachment: flag(a, "has_attachment", false),
+                actions: strings(a, "actions"),
+                label: arg(a, "label").map(String::from),
+                apply_now: flag(a, "apply_now", false),
+            };
+            crate::rules::add(app, w, &spec, &client_name()).await?
+        }
+        "list_rules" => j(&crate::rules::list(app)?),
+        "remove_rule" => crate::rules::remove(app, w, need(a, "id")?).await?,
         "remove_watch" => j(&crate::watch::remove(app, Some(need(a, "id")?))?),
         "list_messages" => {
             let limit = num(a, "limit", 30, 300) as u32;
