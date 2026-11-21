@@ -22,6 +22,7 @@ pub mod photos;
 pub mod provider;
 pub mod provider_detect;
 pub mod quotes;
+pub mod rules;
 pub mod search;
 pub mod search_complete;
 pub mod store;

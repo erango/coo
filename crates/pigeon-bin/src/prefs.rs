@@ -49,6 +49,13 @@ pub struct Prefs {
     pub notify_vips: Vec<String>,
     /// Senders whose new mail never notifies, as `notify_vips`.
     pub notify_muted_senders: Vec<String>,
+    /// Muted senders were moved to mail rules (once).
+    pub muted_are_rules: bool,
+    /// Offer a rule after you archive, delete or mark read a sender's mail
+    /// a few times without opening it.
+    pub rule_suggestions: bool,
+    /// Senders whose rule offer was dismissed (lowercased addresses).
+    pub rule_nudge_dismissed: Vec<String>,
     /// Load remote images in every message without asking.
     pub remote_images_always: bool,
     /// Senders (lowercased addresses) whose remote images always load.
@@ -213,6 +220,9 @@ impl Default for Prefs {
             notify_accounts_vip_only: Vec::new(),
             notify_vips: Vec::new(),
             notify_muted_senders: Vec::new(),
+            muted_are_rules: false,
+            rule_suggestions: true,
+            rule_nudge_dismissed: Vec::new(),
             remote_images_always: false,
             remote_images_senders: Vec::new(),
             crash_reports: true,

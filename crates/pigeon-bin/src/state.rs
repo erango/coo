@@ -188,6 +188,11 @@ pub struct DrivePicked {
     pub files: Vec<pigeon_core::drive::DriveFile>,
 }
 
+/// Gmail filters and Outlook rules made elsewhere, per account id.
+pub type ServerRules = Vec<(String, Vec<pigeon_core::rules::ServerRule>)>;
+/// A rule's matches: (question key, total, in the inbox, newest few).
+pub type RuleMatches = (u64, usize, usize, Vec<MessageRow>);
+
 #[derive(Clone, Copy)]
 pub struct AppState {
     pub move_picker: Signal<Option<MovePicker>>,
@@ -335,6 +340,24 @@ pub struct AppState {
     pub needs: Signal<Vec<pigeon_core::watches::NeedsItem>>,
     /// Saved watches (Settings › Watches).
     pub watches: Signal<Vec<pigeon_core::watches::Watch>>,
+    /// Mail rules (Settings › Rules).
+    pub rules: Signal<Vec<pigeon_core::rules::Rule>>,
+    /// Microsoft accounts that let Coo save Outlook rules.
+    pub outlook_rules_allowed: Signal<Vec<String>>,
+    /// What rules did lately, newest first.
+    pub rule_log: Signal<Vec<pigeon_core::rules::Logged>>,
+    /// Filters and rules made in Gmail or Outlook, per account; None until
+    /// read.
+    pub server_rules: Signal<Option<ServerRules>>,
+    /// Answer to the last match count asked for: (key, total, in inbox,
+    /// samples).
+    pub rule_matches: Signal<Option<RuleMatches>>,
+    /// The rule editor sheet, when open.
+    pub rule_editor: Signal<Option<crate::ui::rule_editor::Editing>>,
+    /// The quick "Always … mail from X?" confirm, when open.
+    pub quick_rule: Signal<Option<crate::ui::rule_quick::Quick>>,
+    /// The offer of a rule after clearing a sender's mail unopened.
+    pub rule_nudge: Signal<Option<crate::ui::rule_quick::Nudge>>,
     /// The one-time "archive after replying/forwarding?" offer on screen.
     pub archive_offer: Signal<Option<crate::ui::archive_offer::ArchiveOffer>>,
     /// The welcome tour is open (ui/tour.rs).
@@ -468,6 +491,14 @@ impl AppState {
             drafts_done: Signal::new(Vec::new()),
             needs: Signal::new(Vec::new()),
             watches: Signal::new(Vec::new()),
+            rules: Signal::new(Vec::new()),
+            outlook_rules_allowed: Signal::new(Vec::new()),
+            rule_log: Signal::new(Vec::new()),
+            server_rules: Signal::new(None),
+            rule_matches: Signal::new(None),
+            rule_editor: Signal::new(None),
+            quick_rule: Signal::new(None),
+            rule_nudge: Signal::new(None),
             archive_offer: Signal::new(None),
             tour_open: Signal::new(false),
             welcome_in: Signal::new(false),
@@ -787,6 +818,22 @@ fn apply(s: &mut AppState, delta: Delta) {
                     s.watches.set(w);
                 }
             }
+            Delta::Rules { rules, outlook_allowed } => {
+                if *s.rules.peek() != rules {
+                    crate::vip::set_rules(&rules);
+                    s.rules.set(rules);
+                }
+                if *s.outlook_rules_allowed.peek() != outlook_allowed {
+                    s.outlook_rules_allowed.set(outlook_allowed);
+                }
+            }
+            Delta::RuleLog(log) => {
+                if *s.rule_log.peek() != log {
+                    s.rule_log.set(log);
+                }
+            }
+            Delta::ServerRules(list) => s.server_rules.set(Some(list)),
+            Delta::RuleMatches { key, total, inbox, samples } => s.rule_matches.set(Some((key, total, inbox, samples))),
             Delta::Caught(caught) => {
                 let mut sound = crate::prefs::get().mail_sound && crate::sound::take_alert(crate::sound::Kind::Mail);
                 for (watch, m) in caught {
@@ -885,7 +932,10 @@ fn apply(s: &mut AppState, delta: Delta) {
                     s.list.set(items);
                 }
             }
-            Delta::Reader(r) => s.reader.set(Some(r)),
+            Delta::Reader(r) => {
+                crate::ui::rule_quick::opened(&r.account_id, r.messages.iter().map(|m| m.id.clone()));
+                s.reader.set(Some(r));
+            }
             Delta::DraftsDone(ids) => {
                 if s.draft.peek().as_ref().is_some_and(|d| ids.contains(&d.id)) {
                     s.draft.set(None);

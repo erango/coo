@@ -169,7 +169,8 @@ pub fn mail_notes(rows: &[MessageRow], prefs: &Prefs) -> Vec<Note> {
     // senders never do (vip.rs).
     let alerts =
         |r: &MessageRow| crate::vip::alerts(prefs, &r.account_id, r.header.from.as_ref().map(|a| a.email.as_str()));
-    let rows: Vec<(&MessageRow, bool)> = rows.iter().filter_map(|r| alerts(r).map(|vip| (r, vip))).collect();
+    let rows: Vec<(&MessageRow, bool)> =
+        rows.iter().filter(|r| !crate::vip::quiet_by_rule(r)).filter_map(|r| alerts(r).map(|vip| (r, vip))).collect();
     let who =
         |r: &MessageRow| r.header.from.as_ref().map(|a| a.display().to_string()).unwrap_or_else(|| "Someone".into());
     match rows.as_slice() {

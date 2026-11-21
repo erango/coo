@@ -55,6 +55,11 @@ pub const PAGES: &[(&str, &str, &str)] = &[
         "notify sound sounds alert banner reminder reminders meeting focus do not disturb mute muted volume dock badge unread count icon test preview previews subject hide private privacy vip vips important sender senders domain only quiet",
     ),
     (
+        "Rules",
+        "filter",
+        "rule rules filter filters automatic auto archive mark read label folder move trash delete mute muted quiet sender senders domain gmail outlook suggest suggestions activity undo",
+    ),
+    (
         "Watches",
         "eye",
         "watch watches needs you rule rules filter catch notify alert supplier sender subject conversation assistant agent",
@@ -221,6 +226,7 @@ pub fn Settings() -> Element {
                     "Calendar" => rsx! { super::settings_sections::CalendarSettings {} },
                     "Notifications" => rsx! { super::settings_sections::Notifications {} },
                     "Privacy" => rsx! { super::settings_sections::Privacy {} },
+                    "Rules" => rsx! { super::settings_rules::Rules {} },
                     "Watches" => rsx! { super::settings_watches::Watches {} },
                     "Keyboard shortcuts" => rsx! { super::settings_sections::Shortcuts {} },
                     _ => rsx! { super::settings_sections::General {} },

@@ -8,6 +8,7 @@ mod calendar;
 mod calendar_write;
 mod drafts;
 pub mod drive;
+pub mod filters;
 mod gmail;
 pub mod people;
 pub mod picker;

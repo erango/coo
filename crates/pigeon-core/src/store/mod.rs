@@ -14,6 +14,7 @@ use crate::{Error, Result, now_ms, text};
 mod contact_photos;
 mod contacts;
 mod outbox;
+mod rules;
 mod search;
 mod send_addresses;
 mod services;
@@ -37,6 +38,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("014_contact_photos.sql"),
     include_str!("015_draft_tombstones.sql"),
     include_str!("016_watches.sql"),
+    include_str!("017_rules.sql"),
 ];
 
 /// Which folder a list query reads.

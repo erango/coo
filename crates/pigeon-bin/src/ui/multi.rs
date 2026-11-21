@@ -265,6 +265,7 @@ pub fn act_many(s: AppState, items: &[ListItem], action: MailAction) {
     if action.leaves() {
         clear(s);
     }
+    super::rule_quick::acted(s, items, &action);
     let items = items
         .iter()
         .map(|i| ActItem {

@@ -14,6 +14,7 @@ mod contact_photos_ms;
 pub mod detect;
 pub mod drive;
 pub mod notify;
+pub mod rules;
 pub mod service;
 pub mod telemetry;
 mod zoom;

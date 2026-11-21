@@ -3,6 +3,11 @@
 //! everyone there) can be VIPs or muted, the same for every account; a
 //! person's own setting wins over their domain's. Muting only stops alerts:
 //! the mail still arrives and counts as unread.
+//!
+//! Muted senders are mail rules ("Don't notify me", all accounts; see
+//! `pigeon_core::rules`). `Prefs::notify_muted_senders` mirrors the simple
+//! ones (one sender, nothing else) so these checks stay plain functions;
+//! [`update`] turns changes to it into rule saves and deletes.
 
 use dioxus::prelude::*;
 
@@ -111,9 +116,80 @@ pub fn set_rule(p: &mut Prefs, key: &str, rule: Option<Rule>) {
     }
 }
 
-/// Change prefs through `f` and redraw the marks.
+/// The rules, as last sent by the engine.
+static RULES: std::sync::Mutex<Vec<pigeon_core::rules::Rule>> = std::sync::Mutex::new(Vec::new());
+
+/// The sender key of a muted-sender rule: no notification and nothing
+/// else, every account, one sender.
+fn muted_key(r: &pigeon_core::rules::Rule) -> Option<String> {
+    let w = &r.when;
+    let simple = r.enabled
+        && r.account_id.is_none()
+        && r.then.only_quiet()
+        && w.from.len() == 1
+        && w.to.is_empty()
+        && w.subject.is_empty()
+        && w.words.is_empty()
+        && !w.has_attachment;
+    simple.then(|| key(&w.from[0])).flatten()
+}
+
+fn mute_rule(k: &str) -> pigeon_core::rules::Rule {
+    let when = pigeon_core::rules::When { from: vec![k.to_string()], ..Default::default() };
+    let then = pigeon_core::rules::Then { quiet: true, ..Default::default() };
+    pigeon_core::rules::Rule::new(&format!("Mute {k}"), None, when, then, pigeon_core::now_ms())
+}
+
+/// The engine sent the rules: mirror the muted senders. The first time,
+/// senders muted before muting became rules turn into rules.
+pub fn set_rules(rules: &[pigeon_core::rules::Rule]) {
+    *RULES.lock().unwrap_or_else(|p| p.into_inner()) = rules.to_vec();
+    let keys: Vec<String> = rules.iter().filter_map(muted_key).collect();
+    let p = crate::prefs::get();
+    let mut mirror = keys.clone();
+    if !p.muted_are_rules {
+        for k in &p.notify_muted_senders {
+            if !keys.contains(k) {
+                crate::send_cmd(pigeon_engine::service::Cmd::SaveRule { rule: mute_rule(k), apply_now: false });
+                mirror.push(k.clone());
+            }
+        }
+    }
+    if mirror != p.notify_muted_senders || !p.muted_are_rules {
+        crate::prefs::update(|p| {
+            p.notify_muted_senders = mirror;
+            p.muted_are_rules = true;
+        });
+    }
+    *REV.write() += 1;
+}
+
+/// Whether a rule other than a plain muted sender silences `m` (say, a
+/// newsletter rule that also says "Don't notify me").
+pub fn quiet_by_rule(m: &pigeon_core::model::MessageRow) -> bool {
+    RULES.lock().unwrap_or_else(|p| p.into_inner()).iter().any(|r| {
+        r.enabled && r.then.quiet && muted_key(r).is_none() && r.applies_to(&m.account_id) && r.when.matches(m)
+    })
+}
+
+/// Change prefs through `f` and redraw the marks. Senders muted or
+/// unmuted on the way are saved as rules.
 pub fn update(f: impl FnOnce(&mut Prefs)) {
+    let before = crate::prefs::get().notify_muted_senders;
     crate::prefs::update(f);
+    let after = crate::prefs::get().notify_muted_senders;
+    for k in after.iter().filter(|k| !before.contains(k)) {
+        crate::send_cmd(pigeon_engine::service::Cmd::SaveRule { rule: mute_rule(k), apply_now: false });
+    }
+    let gone: Vec<&String> = before.iter().filter(|k| !after.contains(k)).collect();
+    if !gone.is_empty() {
+        let rules = RULES.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        for r in rules {
+            if muted_key(&r).is_some_and(|k| gone.contains(&&k)) {
+                crate::send_cmd(pigeon_engine::service::Cmd::DeleteRule { id: r.id.clone() });
+            }
+        }
+    }
     *REV.write() += 1;
 }
 

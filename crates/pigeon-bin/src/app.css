@@ -2577,3 +2577,76 @@ button.conversation-link { border: 0; width: 100%; font: inherit; text-align: st
 .thread-kid:hover .thread-kid__read, .thread-kid__read:focus-visible { display: inline-flex; }
 .thread-kid:hover .thread-kid__time { display: none; }
 .thread-kid[data-context] { box-shadow: inset 0 0 0 1px var(--line-strong); background: var(--bg-1); }
+
+/* Settings › Rules (settings_rules.rs), the rule editor (rule_editor.rs),
+   the quick "Always … mail from X?" confirm and the nudge (rule_quick.rs). */
+.settings__title-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.settings__title-row .settings__title { flex: 1; margin: 0 !important; font-size: 24px; line-height: 30px; font-weight: 700; letter-spacing: -0.015em; }
+.rule-banner {
+  display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 10px;
+  background: var(--warning-soft); color: var(--text-1); font-size: var(--fs-ui); line-height: 18px;
+}
+.rule-banner > span { flex: 1; }
+.rule-row { gap: 14px; }
+.rule-row[data-off] .srow__text, .rule-row[data-off] .rule-chip { opacity: 0.55; }
+.rule-row .srow__hint { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rule-row .srow__text { min-width: 0; flex: 1; }
+.rule-row__problem { color: var(--error); white-space: normal !important; }
+.rule-row__seen { flex: none; font-size: 12px; color: var(--text-3); white-space: nowrap; }
+.rule-chip {
+  flex: none; max-width: 260px; height: 22px; display: inline-flex; align-items: center; padding: 0 9px; border-radius: 11px;
+  font-size: 11.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  background: color-mix(in oklab, var(--accent) 12%, var(--bg-0)); color: var(--accent);
+}
+.rule-chip[data-server] { background: color-mix(in oklab, var(--success) 14%, var(--bg-0)); color: color-mix(in oklab, var(--success), var(--text-1) 35%); }
+.rule-row--elsewhere { background: color-mix(in oklab, var(--bg-0), var(--text-1) 2%); }
+.rules-note { margin: 0; padding: 0 4px; font-size: 12px; color: var(--text-3); }
+.rules-filter { width: auto; height: 30px; }
+.rules-undo-all { display: flex; justify-content: flex-end; }
+.rule-log[data-undone] .srow__text { opacity: 0.55; }
+.rule-log .srow__label { font-weight: var(--fw-regular); }
+
+.rule-sheet { width: min(860px, calc(100vw / var(--ui-zoom, 1) - 48px)); max-height: calc(100vh / var(--ui-zoom, 1) - 48px); padding: 0; gap: 0; overflow: auto; animation: pg-pop-in var(--dur-base) var(--ease-standard); }
+.rule-sheet__head { display: flex; align-items: flex-end; gap: 16px; padding: 16px 20px; box-shadow: inset 0 -1px 0 var(--line); }
+.rule-sheet__name { flex: 1; display: flex; flex-direction: column; gap: 2px; font-size: 11.5px; font-weight: 600; color: var(--text-3); }
+.rule-sheet__name input { height: 30px; padding: 0; border: 0; background: transparent; font: inherit; font-size: 18px; font-weight: 700; color: var(--text-1); outline: none; }
+.rule-sheet__account { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; font-weight: 600; color: var(--text-3); }
+.rule-sheet__account select { min-width: 200px; }
+.rule-sheet__cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.rule-sheet__col { display: flex; flex-direction: column; gap: 8px; padding: 16px 20px; min-width: 0; }
+.rule-sheet__col + .rule-sheet__col { box-shadow: inset 1px 0 0 var(--line); }
+.rule-sheet__h { margin: 6px 0 2px; font-size: 11.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); }
+.rule-sheet__note { margin: 0; font-size: 12px; line-height: 17px; color: var(--text-3); }
+.rule-sheet__count { margin: 0; font-size: var(--fs-ui); color: var(--text-2); }
+.rule-sheet__samples { display: flex; flex-direction: column; border-radius: 10px; background: color-mix(in oklab, var(--bg-0), var(--text-1) 3%); overflow: hidden; }
+.rule-sheet__sample { display: flex; gap: 10px; padding: 7px 12px; font-size: 12.5px; }
+.rule-sheet__sample + .rule-sheet__sample { box-shadow: inset 0 1px 0 var(--line); }
+.rule-sheet__from { flex: none; width: 110px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rule-sheet__subj { flex: 1; min-width: 0; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rule-sheet__problem { margin: 0; padding: 0 20px 8px; font-size: var(--fs-ui); color: var(--error); }
+.rule-sheet__foot { display: flex; align-items: center; gap: 8px; padding: 12px 20px; box-shadow: inset 0 1px 0 var(--line); background: color-mix(in oklab, var(--bg-3), var(--text-1) 2%); position: sticky; bottom: 0; }
+.rule-sheet__spacer { flex: 1; }
+.rule-sheet__delete { color: var(--error); }
+.rule-cond { display: grid; grid-template-columns: 104px minmax(0, 1fr); align-items: center; gap: 8px; font-size: var(--fs-ui); color: var(--text-2); }
+.rule-check { display: flex; align-items: center; gap: 10px; min-height: 30px; font-size: var(--fs-ui); color: var(--text-1); }
+.rule-check input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); flex: none; }
+.rule-check__label { flex: 1; }
+.rule-check__note { font-size: 11.5px; color: var(--text-3); }
+.rule-check--place select { width: 170px; }
+.rule-where {
+  margin-top: auto; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 12px 14px; border-radius: 10px;
+  background: color-mix(in oklab, var(--accent) 10%, var(--bg-0)); color: color-mix(in oklab, var(--accent), var(--text-1) 30%);
+}
+.rule-where[data-server] { background: color-mix(in oklab, var(--success) 12%, var(--bg-0)); color: color-mix(in oklab, var(--success), var(--text-1) 40%); }
+.rule-where__title { display: flex; align-items: center; gap: 8px; font-size: var(--fs-ui); font-weight: 700; }
+.rule-where p { margin: 0; font-size: 12.5px; line-height: 18px; }
+.quick-rule { width: min(440px, 100%); animation: pg-pop-in var(--dur-base) var(--ease-standard); gap: 12px; }
+.quick-rule .segmented { align-self: flex-start; }
+.quick-rule__more { font-size: var(--fs-ui); }
+.rule-nudge {
+  position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 60; max-width: calc(100vw - 48px);
+  display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; border-radius: 12px;
+  background: var(--bg-3); box-shadow: var(--shadow-overlay); font-size: var(--fs-ui); animation: pg-pop-in var(--dur-base) var(--ease-standard);
+}
+.rule-nudge__text { min-width: 0; }
+@media (max-width: 760px) { .rule-sheet__cols { grid-template-columns: minmax(0, 1fr); } .rule-sheet__col + .rule-sheet__col { box-shadow: inset 0 1px 0 var(--line); } }

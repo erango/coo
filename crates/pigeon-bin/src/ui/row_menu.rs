@@ -55,6 +55,9 @@ pub enum Entry {
     /// Everyone at the sender's domain.
     MuteDomain,
     UnmuteDomain,
+    /// A rule for the sender's mail: archive it from now on, or the editor.
+    RuleArchive,
+    RuleNew,
     Sep,
 }
 
@@ -96,6 +99,8 @@ impl Entry {
             Entry::Unmute => ("Unmute sender", "bell", None),
             Entry::MuteDomain => ("Mute everyone at their domain", "bell-off", None),
             Entry::UnmuteDomain => ("Unmute everyone at their domain", "bell", None),
+            Entry::RuleArchive => ("Always archive mail from sender…", "archive", None),
+            Entry::RuleNew => ("Make a rule for sender’s mail…", "filter", None),
             Entry::Sep => ("", "", None),
         }
     }
@@ -131,6 +136,7 @@ pub fn entries(
             if let Some(d) = n.domain_muted {
                 v.push(if d { Entry::UnmuteDomain } else { Entry::MuteDomain });
             }
+            v.extend([Entry::RuleArchive, Entry::RuleNew]);
             v.push(Entry::Sep);
         }
     }
@@ -226,6 +232,16 @@ fn sender_name(item: &ListItem) -> String {
     item.header().from.as_ref().map(|a| a.display().to_string()).unwrap_or_else(|| "This sender".into())
 }
 
+/// The sender's first name or name, else their address, for menu labels.
+fn short_sender(item: &ListItem) -> String {
+    let Some(a) = item.header().from.as_ref() else { return "sender".into() };
+    match a.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
+        Some(n) if n.chars().count() <= 24 => n.to_string(),
+        Some(n) => n.split_whitespace().next().unwrap_or(n).to_string(),
+        None => a.email.clone(),
+    }
+}
+
 /// Set the rule for `key` and say what changed.
 fn set_sender_rule(s: AppState, key: String, rule: Option<crate::vip::Rule>, said: String) {
     crate::vip::update(move |p| crate::vip::set_rule(p, &key, rule));
@@ -296,6 +312,28 @@ fn run(s: AppState, m: &RowMenu, entry: Entry) {
             };
             return set_sender_rule(s, format!("@{domain}"), mute.then_some(crate::vip::Rule::Muted), said);
         }
+        Entry::RuleArchive | Entry::RuleNew => {
+            let Some(email) = sender_of(item) else { return };
+            let who = item
+                .header()
+                .from
+                .as_ref()
+                .and_then(|a| a.name.clone())
+                .filter(|n| !n.trim().is_empty())
+                .unwrap_or_else(|| email.clone());
+            let q = super::rule_quick::Quick {
+                account_id: item.account_id().to_string(),
+                email,
+                who,
+                kind: super::rule_quick::Kind::Archive,
+            };
+            let mut quick = s.quick_rule;
+            return if entry == Entry::RuleArchive {
+                quick.set(Some(q));
+            } else {
+                super::rule_quick::open_editor(s, &q);
+            };
+        }
         Entry::Archive => MailAction::Archive,
         Entry::Delete => MailAction::Trash,
         Entry::Flag => MailAction::Flag,
@@ -365,6 +403,8 @@ pub fn RowMenuView() -> Element {
                                     let d = sender_of(&m.item).and_then(|e| crate::vip::domain_of(&e)).unwrap_or_default();
                                     if entry == Entry::MuteDomain { format!("Mute everyone at {d}") } else { format!("Unmute everyone at {d}") }
                                 }
+                                Entry::RuleArchive => format!("Always archive mail from {}…", short_sender(&m.item)),
+                                Entry::RuleNew => format!("Make a rule for {}…", short_sender(&m.item)),
                                 _ => label.to_string(),
                             };
                             let hint = what.map(hint).unwrap_or_default();
@@ -462,7 +502,10 @@ mod tests {
         let n = SenderNotify { vip: false, muted: true, domain_muted: Some(false) };
         let e = entries(false, false, &MailAction::Flag, &MailAction::MarkRead, &[], Some(n));
         let at = e.iter().position(|x| *x == Entry::Vip).unwrap();
-        assert_eq!(e[at..at + 4], [Entry::Vip, Entry::Unmute, Entry::MuteDomain, Entry::Sep]);
+        assert_eq!(
+            e[at..at + 6],
+            [Entry::Vip, Entry::Unmute, Entry::MuteDomain, Entry::RuleArchive, Entry::RuleNew, Entry::Sep]
+        );
         let shared = SenderNotify { vip: true, muted: false, domain_muted: None };
         let e = entries(false, false, &MailAction::Flag, &MailAction::MarkRead, &[], Some(shared));
         assert!(e.contains(&Entry::Unvip) && e.contains(&Entry::Mute));

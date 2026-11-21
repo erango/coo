@@ -89,15 +89,18 @@ impl Pigeon {
             return Err(Error::Other("Microsoft 365 photos need a Microsoft account".into()));
         }
         let app = OAuthApp::from_env(ProviderKind::Microsoft)?;
-        let token = match auth::authorize(&app.clone().microsoft_add_photo_scopes(&account.email, false), &on_url).await
-        {
-            Ok(t) => t,
-            Err(e) if needs_admin(&e.to_string()) => {
-                tracing::info!("coworkers' photos need an admin; asking for contacts only");
-                auth::authorize(&app.microsoft_add_photo_scopes(&account.email, true), &on_url).await?
-            }
-            Err(e) => return Err(e),
-        };
+        let granted = self.store().account_scopes(&account.id)?.unwrap_or_default();
+        let token =
+            match auth::authorize(&app.clone().microsoft_add_photo_scopes(&account.email, &granted, false), &on_url)
+                .await
+            {
+                Ok(t) => t,
+                Err(e) if needs_admin(&e.to_string()) => {
+                    tracing::info!("coworkers' photos need an admin; asking for contacts only");
+                    auth::authorize(&app.microsoft_add_photo_scopes(&account.email, &granted, true), &on_url).await?
+                }
+                Err(e) => return Err(e),
+            };
         let (email, _) = pigeon_graph::whoami(&token.access_token).await?;
         if !email.eq_ignore_ascii_case(&account.email) {
             return Err(Error::Auth(format!(

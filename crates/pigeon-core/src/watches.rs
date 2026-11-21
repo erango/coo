@@ -75,6 +75,10 @@ pub struct Watch {
     pub until: Option<i64>,
     pub hits: u32,
     pub last_hit_at: Option<i64>,
+    /// Stands in for a mail rule with "Send to Needs you" (same id): the
+    /// rule does the matching, so it's left out of the watches.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub rule: bool,
 }
 
 impl Watch {
@@ -91,6 +95,7 @@ impl Watch {
             until: None,
             hits: 0,
             last_hit_at: None,
+            rule: false,
         }
     }
 

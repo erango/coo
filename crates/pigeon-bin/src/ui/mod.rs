@@ -30,10 +30,13 @@ pub mod reader_window;
 mod recipients;
 pub(crate) mod row_actions;
 pub mod row_menu;
+pub mod rule_editor;
+pub mod rule_quick;
 pub mod search;
 pub mod sender_card;
 mod settings;
 mod settings_bird;
+mod settings_rules;
 mod settings_sections;
 mod settings_watches;
 mod sidebar;
@@ -776,6 +779,9 @@ pub fn App() -> Element {
         if *s.welcome_in.read() { tour::WelcomeIn {} }
         if *s.update_dialog.read() { update_dialog::UpdateDialog {} }
         if *s.bug_report_open.read() { bug_report::BugReportDialog {} }
+        rule_editor::RuleEditor {}
+        rule_quick::QuickRule {}
+        rule_quick::NudgeBar {}
         if s.add_account.read().is_some() { add_account::AddAccountSheet {} }
         // Window-wide, bottom right, over panes and sheets alike.
         if *s.loaded.read() { toasts::Toasts {} }
@@ -1404,6 +1410,7 @@ pub fn step_off(s: AppState, item: &ListItem) {
 }
 
 pub fn act(s: AppState, item: &ListItem, action: MailAction) {
+    rule_quick::acted(s, std::slice::from_ref(item), &action);
     if action == MailAction::Archive {
         milestone::archived(std::slice::from_ref(item));
     }

@@ -39,30 +39,12 @@ const MS_SCOPES: &[&str] = &[
 pub const MS_CONTACTS_SCOPE: &str = "Contacts.Read";
 /// Basic profiles (and photos) of people in the user's organization.
 pub const MS_PEOPLE_SCOPE: &str = "User.ReadBasic.All";
-const MS_PHOTO_SCOPES: &[&str] = &[
-    "offline_access",
-    "openid",
-    "profile",
-    "email",
-    "User.Read",
-    "Mail.ReadWrite",
-    "Mail.Send",
-    "Calendars.ReadWrite",
-    MS_CONTACTS_SCOPE,
-    MS_PEOPLE_SCOPE,
-];
-/// Contacts only: for organizations where `User.ReadBasic.All` needs an admin.
-const MS_CONTACT_SCOPES: &[&str] = &[
-    "offline_access",
-    "openid",
-    "profile",
-    "email",
-    "User.Read",
-    "Mail.ReadWrite",
-    "Mail.Send",
-    "Calendars.ReadWrite",
-    MS_CONTACTS_SCOPE,
-];
+/// Saving Outlook inbox rules (Settings › Rules), asked for when the
+/// user first wants a rule to run in Outlook itself.
+pub const MS_RULES_SCOPE: &str = "MailboxSettings.ReadWrite";
+/// Scopes asked for after sign-in; a consent or refresh keeps the ones
+/// already granted.
+const MS_EXTRA_SCOPES: &[&str] = &[MS_CONTACTS_SCOPE, MS_PEOPLE_SCOPE, MS_RULES_SCOPE];
 
 /// Whether a Microsoft granted-scope string includes `name` (Entra answers
 /// with bare names or full `https://graph.microsoft.com/` ones).
@@ -131,7 +113,7 @@ pub struct OAuthApp {
     pub client_secret: Option<String>,
     auth_url: &'static str,
     token_url: &'static str,
-    scopes: &'static [&'static str],
+    scopes: Vec<&'static str>,
     extra_auth_params: &'static [(&'static str, &'static str)],
     redirect_host: &'static str,
     /// 0 = any free port (providers that match loopback on any port).
@@ -150,7 +132,7 @@ impl OAuthApp {
             client_secret: None,
             auth_url: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
             token_url: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
-            scopes: MS_SCOPES,
+            scopes: MS_SCOPES.to_vec(),
             extra_auth_params: &[("prompt", "select_account")],
             // Entra matches `http://localhost` registrations on any port.
             redirect_host: "localhost",
@@ -167,7 +149,7 @@ impl OAuthApp {
             client_secret: Some(client_secret.into()),
             auth_url: "https://accounts.google.com/o/oauth2/v2/auth",
             token_url: "https://oauth2.googleapis.com/token",
-            scopes: GOOGLE_SCOPES,
+            scopes: GOOGLE_SCOPES.to_vec(),
             // `consent` guarantees a refresh token on every sign-in.
             extra_auth_params: &[("access_type", "offline"), ("prompt", "consent select_account")],
             redirect_host: "127.0.0.1",
@@ -188,27 +170,33 @@ impl OAuthApp {
         }
     }
 
-    /// Microsoft incremental consent for sender photos on an account that's
-    /// already signed in: mail scopes plus contacts and, unless
-    /// `contacts_only`, people in the organization; pinned to `email`.
-    pub fn microsoft_add_photo_scopes(self, email: &str, contacts_only: bool) -> Self {
-        OAuthApp {
-            scopes: if contacts_only { MS_CONTACT_SCOPES } else { MS_PHOTO_SCOPES },
-            extra_auth_params: &[],
-            login_hint: Some(email.to_string()),
-            ..self
+    /// Microsoft incremental consent on an account that's already signed
+    /// in: mail scopes, the extras it was granted before (`granted`, as
+    /// recorded), plus `add`; pinned to `email`.
+    pub fn microsoft_add_scopes(self, email: &str, granted: &str, add: &[&'static str]) -> Self {
+        let mut app = self.microsoft_with_grants(granted);
+        for s in add {
+            if !app.scopes.contains(s) {
+                app.scopes.push(s);
+            }
         }
+        OAuthApp { extra_auth_params: &[], login_hint: Some(email.to_string()), ..app }
+    }
+
+    /// Sender photos: contacts and, unless `contacts_only`, people in the
+    /// organization.
+    pub fn microsoft_add_photo_scopes(self, email: &str, granted: &str, contacts_only: bool) -> Self {
+        let add: &[&'static str] =
+            if contacts_only { &[MS_CONTACTS_SCOPE] } else { &[MS_CONTACTS_SCOPE, MS_PEOPLE_SCOPE] };
+        self.microsoft_add_scopes(email, granted, add)
     }
 
     /// A Microsoft app that refreshes with what the account was granted
-    /// (`granted`, as recorded at sign-in or consent), so photo scopes stay
+    /// (`granted`, as recorded at sign-in or consent), so extra scopes stay
     /// in its tokens.
     pub fn microsoft_with_grants(self, granted: &str) -> Self {
-        let scopes = match (ms_has_scope(granted, MS_CONTACTS_SCOPE), ms_has_scope(granted, MS_PEOPLE_SCOPE)) {
-            (true, true) => MS_PHOTO_SCOPES,
-            (true, false) => MS_CONTACT_SCOPES,
-            _ => return self,
-        };
+        let mut scopes = MS_SCOPES.to_vec();
+        scopes.extend(MS_EXTRA_SCOPES.iter().filter(|s| ms_has_scope(granted, s)));
         OAuthApp { scopes, ..self }
     }
 
@@ -227,7 +215,7 @@ impl OAuthApp {
             client_secret: None,
             auth_url: "https://zoom.us/oauth/authorize",
             token_url: "https://zoom.us/oauth/token",
-            scopes: &[],
+            scopes: Vec::new(),
             extra_auth_params: &[],
             redirect_host: "127.0.0.1",
             redirect_port: ZOOM_REDIRECT_PORT,
@@ -757,15 +745,20 @@ mod tests {
     fn microsoft_photo_scopes_are_asked_for_apart_and_kept_on_refresh() {
         let app = OAuthApp::microsoft("cid");
         assert!(!app.scope().contains("Contacts.Read"), "never at sign-in");
-        let both = app.clone().microsoft_add_photo_scopes("a@b.c", false).scope();
+        let both = app.clone().microsoft_add_photo_scopes("a@b.c", "", false).scope();
         assert!(
             both.contains("Contacts.Read") && both.contains("User.ReadBasic.All") && both.contains("Mail.ReadWrite")
         );
-        let contacts = app.clone().microsoft_add_photo_scopes("a@b.c", true).scope();
+        let contacts = app.clone().microsoft_add_photo_scopes("a@b.c", "", true).scope();
         assert!(contacts.contains("Contacts.Read") && !contacts.contains("User.ReadBasic.All"));
         let granted = "https://graph.microsoft.com/Contacts.Read https://graph.microsoft.com/Mail.ReadWrite";
         assert!(ms_has_scope(granted, MS_CONTACTS_SCOPE) && !ms_has_scope(granted, MS_PEOPLE_SCOPE));
         assert_eq!(app.clone().microsoft_with_grants(granted).scope(), contacts);
         assert_eq!(app.clone().microsoft_with_grants("User.Read Mail.Send").scope(), app.scope());
+        // Asking for rules keeps photo scopes granted before, and back.
+        let rules = app.clone().microsoft_add_scopes("a@b.c", granted, &[MS_RULES_SCOPE]).scope();
+        assert!(rules.contains("MailboxSettings.ReadWrite") && rules.contains("Contacts.Read"));
+        let again = app.clone().microsoft_add_photo_scopes("a@b.c", &rules, false).scope();
+        assert!(again.contains("MailboxSettings.ReadWrite") && again.contains("User.ReadBasic.All"));
     }
 }

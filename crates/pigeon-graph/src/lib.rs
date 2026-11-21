@@ -8,6 +8,7 @@ mod calendar_write;
 mod drafts;
 mod mail;
 pub mod people;
+pub mod rules;
 mod send;
 mod types;
 

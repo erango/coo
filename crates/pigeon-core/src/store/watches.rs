@@ -20,13 +20,16 @@ impl Store {
         Ok(())
     }
 
-    /// Every watch, oldest first.
+    /// Every watch, oldest first (not the ones standing in for rules).
     pub fn watches(&self) -> Result<Vec<Watch>> {
         let mut stmt = self.conn.prepare_cached("SELECT json FROM watches ORDER BY created_at, id")?;
         let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
         let mut out = Vec::new();
         for json in rows {
-            out.push(serde_json::from_str(&json?)?);
+            let w: Watch = serde_json::from_str(&json?)?;
+            if !w.rule {
+                out.push(w);
+            }
         }
         Ok(out)
     }

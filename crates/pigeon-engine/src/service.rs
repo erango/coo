@@ -180,6 +180,30 @@ pub enum Cmd {
         action: MailAction,
         label: String,
     },
+    /// Add or change a mail rule; `apply_now` also does it to matching
+    /// mail in the inbox.
+    SaveRule {
+        rule: pigeon_core::rules::Rule,
+        apply_now: bool,
+    },
+    DeleteRule {
+        id: String,
+    },
+    /// Count what a rule being edited matches (`Delta::RuleMatches`).
+    RuleMatches {
+        key: u64,
+        rule: pigeon_core::rules::Rule,
+    },
+    /// Read the Gmail filters and Outlook rules made outside Coo.
+    LoadServerRules,
+    /// Ask Microsoft to let Coo save Outlook rules for an account.
+    AllowOutlookRules {
+        account_id: String,
+    },
+    /// Put back what rules did (Settings › Rules › Activity).
+    UndoRuleLog {
+        ids: Vec<i64>,
+    },
     /// Add or change a watch.
     SaveWatch(pigeon_core::watches::Watch),
     DeleteWatch {
@@ -563,6 +587,23 @@ pub enum Delta {
     NeedsYou(Vec<pigeon_core::watches::NeedsItem>),
     /// The saved watches (Settings › Watches).
     Watches(Vec<pigeon_core::watches::Watch>),
+    /// Mail rules, and the Microsoft accounts that let Coo save them in
+    /// Outlook.
+    Rules {
+        rules: Vec<pigeon_core::rules::Rule>,
+        outlook_allowed: Vec<String>,
+    },
+    /// What rules did lately, newest first.
+    RuleLog(Vec<pigeon_core::rules::Logged>),
+    /// Filters and rules made in Gmail or Outlook, per account id.
+    ServerRules(Vec<(String, Vec<pigeon_core::rules::ServerRule>)>),
+    /// Answer to `Cmd::RuleMatches`.
+    RuleMatches {
+        key: u64,
+        total: usize,
+        inbox: usize,
+        samples: Vec<MessageRow>,
+    },
     /// Mail a watch with notifications on just caught: (watch name, message).
     Caught(Vec<(String, MessageRow)>),
     /// Drafts sent or discarded elsewhere (an agent): editors still open
@@ -787,6 +828,8 @@ struct Service {
     store_checked_at: AtomicI64,
     /// The newest message key the watches were checked against.
     watch_mark: AtomicI64,
+    /// The newest message key the rules were checked against.
+    rule_mark: AtomicI64,
     watching: AtomicBool,
     /// A sync after an agent's change is waiting (one at a time).
     agent_sync: AtomicBool,
@@ -890,6 +933,7 @@ impl Service {
     }
 
     async fn publish_inner(&self) -> Result<()> {
+        self.apply_rules().await;
         self.catch_watches().await;
         self.drop_answered_drafts().await;
         let started = std::time::Instant::now();
@@ -967,7 +1011,12 @@ impl Service {
             let store = self.app.store();
             self.send(Delta::NeedsYou(store.needs_you(Some(NEEDS_RECENT_DONE_MS), now).unwrap_or_default()));
             self.send(Delta::Watches(store.watches().unwrap_or_default()));
+            self.send(Delta::RuleLog(store.rule_log(300, now).unwrap_or_default()));
         }
+        self.send(Delta::Rules {
+            rules: self.app.store().rules().unwrap_or_default(),
+            outlook_allowed: self.app.outlook_rule_accounts(),
+        });
         self.send(Delta::NextUp(next_up.into_iter().filter(|e| !e.event.all_day).take(3).collect()));
         if let Some((from, to, events, calendars)) = cal {
             self.send(Delta::Events { from, to, events, calendars });
@@ -1237,6 +1286,85 @@ impl Service {
                 self.publish().await;
                 self.clone().flush_after_grace(&action, account.clone());
                 self.flush(account).await;
+            }
+            Cmd::SaveRule { rule, apply_now } => {
+                let rule = self.app.save_rule(rule).await?;
+                if let Some(p) = &rule.problem {
+                    self.toast(format!("Saved, but it runs in Coo for now: {p}"), true, None);
+                }
+                if apply_now && rule.then.moves_mail() {
+                    let mine: Vec<String> = self.my_addresses().await.into_iter().map(|a| a.to_lowercase()).collect();
+                    let matches = self.app.rule_matches(&rule, &mine)?;
+                    self.apply_rule_to(&rule, &matches).await?;
+                }
+                self.publish().await;
+            }
+            Cmd::DeleteRule { id } => {
+                self.app.delete_rule(&id).await?;
+                self.publish().await;
+            }
+            Cmd::RuleMatches { key, rule } => {
+                let mine: Vec<String> = self.my_addresses().await.into_iter().map(|a| a.to_lowercase()).collect();
+                let m = self.app.rule_matches(&rule, &mine)?;
+                self.send(Delta::RuleMatches { key, total: m.total, inbox: m.inbox.len(), samples: m.samples });
+            }
+            Cmd::LoadServerRules => {
+                let mut out = Vec::new();
+                for a in self.app.accounts()? {
+                    if a.provider == ProviderKind::ICloud {
+                        continue;
+                    }
+                    match self.app.server_rules(&a).await {
+                        Ok(list) => out.push((a.id.clone(), list)),
+                        Err(e) => tracing::warn!(error = %e, "could not read server rules"),
+                    }
+                }
+                self.send(Delta::ServerRules(out));
+            }
+            Cmd::AllowOutlookRules { account_id } => {
+                self.toast("Continue in your browser to let Coo save Outlook rules.", false, None);
+                match self
+                    .app
+                    .allow_outlook_rules(&account_id, |url| tracing::debug!(url, "Outlook rules consent URL"))
+                    .await
+                {
+                    Ok(()) => self.toast("Coo can save rules in Outlook now", false, None),
+                    Err(e) => {
+                        // Not `fail`: messages can name the account.
+                        tracing::warn!(error = %e, "Outlook rules not allowed");
+                        self.toast(e.to_string(), true, None);
+                    }
+                }
+                self.publish().await;
+            }
+            Cmd::UndoRuleLog { ids } => {
+                let entries = self.app.store().rule_log_entries(&ids)?;
+                let mut by_account: Vec<(String, Vec<(String, pigeon_core::rules::Then)>)> = Vec::new();
+                for e in entries.iter().filter(|e| e.undone_at.is_none()) {
+                    match by_account.iter_mut().find(|(a, _)| *a == e.account_id) {
+                        Some((_, v)) => v.push((e.message_id.clone(), e.then.clone())),
+                        None => by_account.push((e.account_id.clone(), vec![(e.message_id.clone(), e.then.clone())])),
+                    }
+                }
+                for (account_id, items) in by_account {
+                    let account = self.app.account(&account_id)?;
+                    // Group by what was done, so each group undoes as one.
+                    let mut groups: Vec<(pigeon_core::rules::Then, Vec<String>)> = Vec::new();
+                    for (id, then) in items {
+                        match groups.iter_mut().find(|(t, _)| *t == then) {
+                            Some((_, ids)) => ids.push(id),
+                            None => groups.push((then, vec![id])),
+                        }
+                    }
+                    for (then, ids) in groups {
+                        self.app.unperform(&account, &ids, &then)?;
+                    }
+                    if let Some(svc) = self.me.get().and_then(std::sync::Weak::upgrade) {
+                        tokio::spawn(svc.flush(account));
+                    }
+                }
+                self.app.store().set_rule_log_undone(&ids, now_ms())?;
+                self.publish().await;
             }
             Cmd::SaveWatch(w) => {
                 self.app.store().save_watch(&w)?;
@@ -2051,6 +2179,126 @@ impl Service {
         self.send(Delta::DraftsDone(ids));
     }
 
+    /// Apply the rules that run in Coo to mail stored since the last look,
+    /// and note what the server's own filters did (for Activity). Runs
+    /// before the new-mail check, so archived mail doesn't notify.
+    async fn apply_rules(&self) {
+        let mark = self.rule_mark.load(Ordering::Relaxed);
+        let (rows, rules) = {
+            let store = self.app.store();
+            let Ok(rows) = store.messages_after(mark, 2000) else { return };
+            (rows, store.rules().unwrap_or_default())
+        };
+        let Some((last, _)) = rows.last() else { return };
+        if self.rule_mark.compare_exchange(mark, *last, Ordering::SeqCst, Ordering::SeqCst).is_err() {
+            return;
+        }
+        // Muted senders only change notifications (the app does that).
+        let rules: Vec<_> = rules.into_iter().filter(|r| r.enabled && !r.then.only_quiet()).collect();
+        if rules.is_empty() {
+            return;
+        }
+        let now = now_ms();
+        let mine: Vec<String> = self.my_addresses().await.into_iter().map(|a| a.to_lowercase()).collect();
+        let accounts = self.app.accounts().unwrap_or_default();
+        let provider = |id: &str| accounts.iter().find(|a| a.id == id).map(|a| a.provider);
+        // (rule index, account id) → messages to act on.
+        let mut todo: Vec<(usize, String, Vec<MessageRow>)> = Vec::new();
+        for (_, m) in &rows {
+            for (i, r) in rules.iter().enumerate() {
+                if !r.catches(m, &mine, now) {
+                    continue;
+                }
+                if r.server_id.is_some() {
+                    // The server did it; just say so in Activity.
+                    let runs =
+                        pigeon_core::rules::Runs::Server(provider(&m.account_id).unwrap_or(ProviderKind::Google));
+                    let entry = crate::Pigeon::rule_logged(r, m, provider(&m.account_id), runs, now);
+                    let _ = self.app.store().log_rule(&entry);
+                    continue;
+                }
+                match todo.iter_mut().find(|(j, a, _)| *j == i && *a == m.account_id) {
+                    Some((_, _, v)) => v.push(m.clone()),
+                    None => todo.push((i, m.account_id.clone(), vec![m.clone()])),
+                }
+            }
+        }
+        let mut touched = Vec::new();
+        for (i, account_id, msgs) in todo {
+            let r = &rules[i];
+            let Ok(account) = self.app.account(&account_id) else { continue };
+            let ids: Vec<String> = msgs.iter().map(|m| m.header.id.clone()).collect();
+            if r.then.moves_mail() {
+                if let Err(e) = self.app.perform(&account, &ids, &r.then) {
+                    tracing::warn!(error = %e, "a rule could not act");
+                    continue;
+                }
+                if !touched.iter().any(|a: &Account| a.id == account.id) {
+                    touched.push(account.clone());
+                }
+            }
+            let store = self.app.store();
+            if r.then.needs_you
+                && let Ok(Some(w)) = store.watch(&r.id)
+            {
+                for m in &msgs {
+                    let _ = store.catch(&w, &m.account_id, &m.header.id, &m.header.thread_id, now);
+                }
+            }
+            let runs = pigeon_core::rules::Runs::Coo(pigeon_core::rules::Why::AllAccounts);
+            for m in &msgs {
+                let _ = store.log_rule(&crate::Pigeon::rule_logged(r, m, Some(account.provider), runs, now));
+            }
+        }
+        // Straight to the app's flush: the service's would publish again
+        // from inside a publish.
+        for account in touched {
+            let app = self.app.clone();
+            tokio::spawn(async move {
+                if let Err(e) = app.flush(&account).await {
+                    tracing::warn!(error = %e, "flush after a rule failed");
+                }
+            });
+        }
+    }
+
+    /// Do a just-saved rule to the matching mail in the inbox, with Undo
+    /// in Activity.
+    async fn apply_rule_to(&self, rule: &pigeon_core::rules::Rule, m: &crate::rules::Matches) -> Result<()> {
+        let now = now_ms();
+        let mut by_account: Vec<(String, Vec<String>)> = Vec::new();
+        for (a, id) in &m.inbox {
+            match by_account.iter_mut().find(|(x, _)| x == a) {
+                Some((_, v)) => v.push(id.clone()),
+                None => by_account.push((a.clone(), vec![id.clone()])),
+            }
+        }
+        let runs = pigeon_core::rules::Runs::Coo(pigeon_core::rules::Why::AllAccounts);
+        let mut count = 0;
+        for (account_id, ids) in by_account {
+            let account = self.app.account(&account_id)?;
+            self.app.perform(&account, &ids, &rule.then)?;
+            count += ids.len();
+            {
+                let store = self.app.store();
+                for id in &ids {
+                    if let Some(header) = store.message(&account_id, id)? {
+                        let row = MessageRow { account_id: account_id.clone(), header };
+                        store.log_rule(&crate::Pigeon::rule_logged(rule, &row, Some(account.provider), runs, now))?;
+                    }
+                }
+            }
+            if let Some(svc) = self.me.get().and_then(std::sync::Weak::upgrade) {
+                tokio::spawn(svc.flush(account));
+            }
+        }
+        if count > 0 {
+            let what = rule.then.summary(None).to_lowercase();
+            self.toast(format!("Rule “{}” done to {count} messages ({what})", rule.name), false, None);
+        }
+        Ok(())
+    }
+
     async fn catch_watches(&self) {
         let mark = self.watch_mark.load(Ordering::Relaxed);
         let (rows, watches) = {
@@ -2373,6 +2621,7 @@ pub async fn run(app: Arc<Pigeon>, mut rx: mpsc::UnboundedReceiver<Cmd>, tx: mps
         store_version: AtomicI64::new(0),
         store_checked_at: AtomicI64::new(now_ms()),
         watch_mark: AtomicI64::new(0),
+        rule_mark: AtomicI64::new(0),
         watching: AtomicBool::new(false),
         agent_sync: AtomicBool::new(false),
         me: Default::default(),
@@ -2380,6 +2629,7 @@ pub async fn run(app: Arc<Pigeon>, mut rx: mpsc::UnboundedReceiver<Cmd>, tx: mps
     let _ = svc.me.set(Arc::downgrade(&svc));
     svc.store_version.store(svc.app.store().data_version().unwrap_or(0), Ordering::Relaxed);
     svc.watch_mark.store(svc.app.store().last_message_pk().unwrap_or(0), Ordering::Relaxed);
+    svc.rule_mark.store(svc.app.store().last_message_pk().unwrap_or(0), Ordering::Relaxed);
     // Share sign-ins with the `coo` helper (AI agents) while the app runs,
     // and say so here when an agent hits something only the person can fix.
     crate::broker::start(svc.app.clone(), Some(agent_notices(Arc::downgrade(&svc))));
