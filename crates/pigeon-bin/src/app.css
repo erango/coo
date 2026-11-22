@@ -2689,3 +2689,8 @@ button.conversation-link { border: 0; width: 100%; font: inherit; text-align: st
 .meeting-strip .btn--primary { background: var(--on-accent); color: var(--accent); }
 .quiet-calendars { display: flex; flex-direction: column; gap: 6px; }
 .quiet-calendars .check-row { display: flex; align-items: center; gap: 8px; font-size: var(--fs-ui); }
+
+/* Avatar initials in the hue's text shade (made to read on the sheet), not
+   the raw hue: pastel hues in light themes (Rosé Pine Dawn, Mint Day) left
+   initials faint on their own tint. */
+.avatar[data-hue] { color: var(--hue-text, var(--hue)); }

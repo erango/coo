@@ -136,7 +136,7 @@ pub static FAMILIES: &[Family] = &[
             ],
         },
         light: ModeSpec {
-            bg: [Hex("#f4fcf7"), Hex("#dcf3e6"), Hex("#c9ebd8"), Hex("#ffffff")],
+            bg: [Hex("#f7fcf9"), Hex("#e8f5ee"), Hex("#d9eee2"), Hex("#ffffff")],
             text: [Hex("#12302a"), Hex("#3b5a50"), Hex("#5b776d")],
             // Spearmint deepened until white labels on it read at AA.
             accent: Hex("#15803d"),
@@ -235,8 +235,16 @@ pub static FAMILIES: &[Family] = &[
             ],
         },
         light: ModeSpec {
-            bg: [Hex("#e1e2e7"), Hex("#d0d5e3"), Hex("#c4c8da"), Hex("#e1e2e7")],
-            text: [Hex("#3760bf"), Hex("#6172b0"), Hex("#68709a")],
+            // The sheet lifted halfway to white and the blue foreground
+            // deepened toward the palette's night ink: Day's #e1e2e7 under
+            // #3760bf reads washed out at length.
+            bg: [
+                Mix("#e1e2e7", "#ffffff", 0.55),
+                Mix("#d0d5e3", "#ffffff", 0.35),
+                Mix("#c4c8da", "#ffffff", 0.3),
+                Hex("#ffffff"),
+            ],
+            text: [Mix("#3760bf", "#1a1b26", 0.55), Mix("#6172b0", "#1a1b26", 0.35), Hex("#68709a")],
             accent: Hex("#2e7de9"),
             accent2: Some(Hex("#9854f1")),
             success: Hex("#587539"),
@@ -511,13 +519,57 @@ fn ensure(c: Rgb, bg: Rgb, toward: Rgb, min: f32) -> Rgb {
     out
 }
 
-// Minimum contrasts on bg-0 (WCAG 2.x): body text AA, secondary text AA,
-// captions ~AA-large, accents/marks as UI components.
+// Minimum contrasts (WCAG 2.x) in dark mode, on bg-0: body text AA,
+// secondary text AA, captions ~AA-large, accents/marks as UI components.
 pub const MIN_TEXT_1: f32 = 4.5;
 pub const MIN_TEXT_2: f32 = 4.5;
 pub const MIN_TEXT_3: f32 = 3.5;
 pub const MIN_ACCENT: f32 = 3.0;
 pub const MIN_HUE_TEXT: f32 = 4.5;
+
+/// Light mode asks for more, on every surface text sits on (the sheet, the
+/// sidebar's ground, raised pills and selected rows), not just the sheet:
+/// tinted light palettes (Mint, Tokyo Night Day) read washed out at the
+/// dark-mode minimums. Body text AAA, captions and accents AA, since
+/// accents and status colors are also used as text (dates, links,
+/// "in 9 min").
+pub struct Mins {
+    pub text: [f32; 3],
+    pub accent: f32,
+    pub status: f32,
+    pub hue_text: f32,
+}
+
+pub fn mins(dark: bool) -> Mins {
+    if dark {
+        Mins {
+            text: [MIN_TEXT_1, MIN_TEXT_2, MIN_TEXT_3],
+            accent: MIN_ACCENT,
+            status: MIN_ACCENT,
+            hue_text: MIN_HUE_TEXT,
+        }
+    } else {
+        Mins { text: [7.0, 5.5, 4.5], accent: 4.5, status: 4.5, hue_text: 4.5 }
+    }
+}
+
+/// The surfaces text sits on in this mode: in light, the sheet (bg-0),
+/// bg-1, bg-2 and the window's ground (app.css: bg-2 with 5% of text-1);
+/// in dark, bg-0 and bg-1 as before.
+pub fn text_surfaces(bg: &[Rgb; 4], text1: Rgb, dark: bool) -> Vec<Rgb> {
+    if dark { vec![bg[0], bg[1]] } else { vec![bg[0], bg[1], bg[2], bg[2].mix(text1, 0.05)] }
+}
+
+/// Push `c` toward `toward` until it reaches `min` on every surface.
+fn ensure_all(c: Rgb, surfaces: &[Rgb], toward: Rgb, min: f32) -> Rgb {
+    let mut out = c;
+    for _ in 0..3 {
+        for s in surfaces {
+            out = ensure(out, *s, toward, min);
+        }
+    }
+    out
+}
 
 /// A fully resolved mode, ready to emit.
 #[derive(Debug, Clone)]
@@ -541,39 +593,41 @@ pub struct Resolved {
 fn resolve_mode(m: &ModeSpec, dark: bool) -> Resolved {
     let bg = m.bg.map(resolve);
     let raw_text = m.text.map(resolve);
+    let min = mins(dark);
     // Push away from the background: toward white in dark, black in light.
     let extreme = if dark { Rgb(255.0, 255.0, 255.0) } else { Rgb(0.0, 0.0, 0.0) };
-    // Text must read on both the canvas and the sidebar; take the worse one.
-    let worst = if contrast(raw_text[0], bg[1]) < contrast(raw_text[0], bg[0]) { bg[1] } else { bg[0] };
-    let both = |c: Rgb, min: f32| ensure(ensure(c, worst, extreme, min), bg[0], extreme, min);
-    let t1 = both(raw_text[0], MIN_TEXT_1);
-    let t2 = both(raw_text[1], MIN_TEXT_2);
-    let t3 = ensure(raw_text[2], bg[0], extreme, MIN_TEXT_3);
-    let fix = |c: C, min: f32| ensure(resolve(c), bg[0], extreme, min);
-    let accent = fix(m.accent, MIN_ACCENT);
-    let accent2 = m.accent2.map_or(accent, |c| fix(c, MIN_ACCENT));
-    let on = |c: Rgb| {
-        if contrast(bg[0], c) >= contrast(Rgb(255.0, 255.0, 255.0), c) { bg[0] } else { Rgb(255.0, 255.0, 255.0) }
-    };
-    let hues = m.hues.map(resolve);
-    let hue_text = hues.map(|h| ensure(h, bg[0], extreme, MIN_HUE_TEXT));
-    let on_accent = if contrast(bg[0], accent) >= contrast(Rgb(255.0, 255.0, 255.0), accent) {
-        bg[0]
+    let t1 = ensure_all(raw_text[0], &text_surfaces(&bg, raw_text[0], dark), extreme, min.text[0]);
+    // The ground mixes in text-1, so measure the rest against the final one.
+    let surfaces = text_surfaces(&bg, t1, dark);
+    let t1 = ensure_all(t1, &surfaces, extreme, min.text[0]);
+    let t2 = ensure_all(raw_text[1], &surfaces, extreme, min.text[1]);
+    // Captions: on the sheet in dark (as before), everywhere in light.
+    let t3 = if dark {
+        ensure(raw_text[2], bg[0], extreme, min.text[2])
     } else {
-        Rgb(255.0, 255.0, 255.0)
+        ensure_all(raw_text[2], &surfaces, extreme, min.text[2])
     };
+    let fix = |c: C, m: f32| ensure(resolve(c), bg[0], extreme, m);
+    let accent = fix(m.accent, min.accent);
+    let accent2 = m.accent2.map_or(accent, |c| fix(c, min.accent));
+    let white = Rgb(255.0, 255.0, 255.0);
+    let on = |c: Rgb| if contrast(bg[0], c) >= contrast(white, c) { bg[0] } else { white };
+    let hues = m.hues.map(resolve);
+    let hue_text = hues.map(|h| {
+        if dark { ensure(h, bg[0], extreme, min.hue_text) } else { ensure_all(h, &surfaces, extreme, min.hue_text) }
+    });
     Resolved {
         dark,
         bg,
         text: [t1, t2, t3],
         accent,
-        on_accent,
+        on_accent: on(accent),
         accent2,
         on_accent2: on(accent2),
-        success: fix(m.success, MIN_ACCENT),
-        warning: fix(m.warning, MIN_ACCENT),
-        error: fix(m.error, MIN_ACCENT),
-        info: fix(m.info, MIN_ACCENT),
+        success: fix(m.success, min.status),
+        warning: fix(m.warning, min.status),
+        error: fix(m.error, min.status),
+        info: fix(m.info, min.status),
         hues,
         hue_text,
     }
@@ -883,6 +937,31 @@ mod tests {
             assert!(contrast(r.on_accent, r.accent) >= 3.0, "{id}/{m}: on-accent");
             for (i, t) in r.hue_text.iter().enumerate() {
                 assert!(contrast(*t, r.bg[0]) >= MIN_HUE_TEXT - 0.01, "{id}/{m}: hue-{}-text", i + 1);
+            }
+        }
+    }
+
+    #[test]
+    fn light_text_reads_on_every_surface() {
+        for (id, r) in all_modes().into_iter().filter(|(_, r)| !r.dark) {
+            let min = mins(false);
+            for (si, s) in text_surfaces(&r.bg, r.text[0], false).iter().enumerate() {
+                for (i, t) in r.text.iter().enumerate() {
+                    let c = contrast(*t, *s);
+                    assert!(c >= min.text[i] - 0.05, "{id}/light: text-{} on surface {si} is {c:.2}", i + 1);
+                }
+                for (i, t) in r.hue_text.iter().enumerate() {
+                    assert!(contrast(*t, *s) >= min.hue_text - 0.05, "{id}/light: hue-{}-text on surface {si}", i + 1);
+                }
+            }
+            for (name, c) in [
+                ("accent", r.accent),
+                ("success", r.success),
+                ("warning", r.warning),
+                ("error", r.error),
+                ("info", r.info),
+            ] {
+                assert!(contrast(c, r.bg[0]) >= 4.5 - 0.05, "{id}/light: {name} as text");
             }
         }
     }
