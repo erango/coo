@@ -2652,3 +2652,40 @@ button.conversation-link { border: 0; width: 100%; font: inherit; text-align: st
 }
 .rule-nudge__text { min-width: 0; }
 @media (max-width: 760px) { .rule-sheet__cols { grid-template-columns: minmax(0, 1fr); } .rule-sheet__col + .rule-sheet__col { box-shadow: inset 0 1px 0 var(--line); } }
+
+/* Meeting alerts (meeting_alerts.rs). The Next up card warms up as a
+   meeting gets close; at the start it turns solid until joined. */
+.next-up__card[data-heat="warm"] { background: var(--warning-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warning) 45%, transparent); }
+.next-up__card[data-heat="warm"] .next-up__soon { color: var(--warning); font-weight: 600; }
+.next-up__card[data-heat="hot"] { background: var(--warning-soft); box-shadow: inset 0 0 0 2px var(--warning); }
+.next-up__card[data-heat="hot"] .next-up__soon { color: var(--warning); font-weight: 700; }
+.next-up__card[data-heat="live"] { background: var(--accent); color: var(--on-accent); }
+.next-up__card[data-heat="live"] .next-up__when, .next-up__card[data-heat="live"] .next-up__soon { color: var(--on-accent); }
+.next-up__card[data-heat="live"] .btn--primary { background: var(--on-accent); color: var(--accent); }
+
+/* The banner a couple of minutes before, over the top of the sheet. */
+.meeting-banner {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 40;
+  width: min(760px, calc(100% - 32px)); box-sizing: border-box;
+  display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 14px; border-radius: 12px;
+  background: color-mix(in srgb, var(--warning) 14%, var(--bg-3)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warning) 45%, transparent), var(--shadow-overlay);
+  font-size: var(--fs-ui); animation: pg-pop-in var(--dur-base) var(--ease-standard);
+}
+.meeting-banner > .icon { color: var(--warning); flex-shrink: 0; }
+.meeting-banner[data-live] { background: color-mix(in srgb, var(--accent) 16%, var(--bg-3)); box-shadow: inset 0 0 0 1px var(--accent), var(--shadow-overlay); }
+.meeting-banner[data-live] > .icon { color: var(--accent); }
+.meeting-banner__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.meeting-banner__title { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meeting-banner__detail { color: var(--text-2); font-size: var(--fs-caption); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meeting-banner .kbd, .meeting-strip .kbd { margin-left: 6px; }
+
+/* The strip in a composer when a meeting starts while you write. */
+.meeting-strip {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 14px;
+  background: var(--accent); color: var(--on-accent); font-size: var(--fs-ui);
+}
+.meeting-strip__text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meeting-strip .btn--ghost { color: var(--on-accent); }
+.meeting-strip .btn--primary { background: var(--on-accent); color: var(--accent); }
+.quiet-calendars { display: flex; flex-direction: column; gap: 6px; }
+.quiet-calendars .check-row { display: flex; align-items: center; gap: 8px; font-size: var(--fs-ui); }

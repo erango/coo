@@ -20,6 +20,7 @@ mod list;
 mod list_motion;
 pub(crate) mod mail_drag;
 pub mod mailframe;
+mod meeting_banner;
 pub mod milestone;
 mod move_picker;
 mod multi;
@@ -36,6 +37,7 @@ pub mod search;
 pub mod sender_card;
 mod settings;
 mod settings_bird;
+mod settings_meetings;
 mod settings_rules;
 mod settings_sections;
 mod settings_watches;
@@ -502,11 +504,19 @@ pub fn App() -> Element {
                     }
                 }
                 // settings[:<section title>] — open, optionally scrolled to a section
+                // settings[:<page>[#<group title to scroll to>]]
                 "settings" => {
                     let mut o = s.settings_open;
                     o.set(true);
-                    if !arg.is_empty() {
-                        settings::show_page(s, arg);
+                    let (page, group) = arg.split_once('#').unwrap_or((arg, ""));
+                    if !page.is_empty() {
+                        settings::show_page(s, page);
+                    }
+                    if !group.is_empty() {
+                        document::eval(&format!(
+                            "let n=0; const t=setInterval(()=>{{const h=[...document.querySelectorAll('.sgroup__title')].find(e=>e.textContent=={group:?}); \
+                             if(h){{h.scrollIntoView({{block:'start'}}); clearInterval(t);}} else if(++n>40) clearInterval(t);}},250)"
+                        ));
                     }
                 }
                 // rule-new:<account>|<from> — the rule editor; rule-quick and
@@ -767,6 +777,7 @@ pub fn App() -> Element {
                 // Everything but the sidebar sits on one sheet, raised off
                 // the window's ground (app.css, "Paper on stone").
                 div { class: "sheet",
+                    meeting_banner::MeetingBanner {}
                     if *s.settings_shown.read() {
                         settings::Settings {}
                     } else {
@@ -812,11 +823,14 @@ pub fn App() -> Element {
     }
 }
 
-/// Event reminders from the next-up agenda, once per event occurrence.
+/// Event reminders from the next-up agenda, once per event occurrence,
+/// and the louder meeting alerts (meeting_alerts.rs): the menu bar
+/// countdown, the banner, the composer strip and the panel over every app.
 async fn reminder_loop(s: AppState) {
     let mut reminded = std::collections::HashSet::new();
+    crate::meeting_panel::apply_hotkey();
     loop {
-        tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         let events = s.next_up_shown_peek();
         let now = pigeon_core::now_ms();
         let prefs = crate::prefs::get();
@@ -828,7 +842,32 @@ async fn reminder_loop(s: AppState) {
             crate::notify::post(&note);
             reminded.insert(crate::notify::reminder_key(e));
         }
+        meeting_alerts_tick(s, &events, now, &prefs);
     }
+}
+
+fn meeting_alerts_tick(s: AppState, events: &[pigeon_core::model::EventRow], now: i64, prefs: &crate::prefs::Prefs) {
+    use crate::meeting_alerts as alerts;
+    alerts::note_agenda(events);
+    if let Ok(mut a) = meeting_banner::AGENDA.lock() {
+        *a = events.to_vec();
+    }
+    let title = alerts::with(|a| alerts::countdown(events, now, prefs, a));
+    crate::menubar::set_title(title.as_deref());
+    // The panel's meeting was joined or dismissed from elsewhere in Coo.
+    let stale = alerts::with(|a| a.panel_open.as_ref().is_some_and(|k| a.done.contains(k)));
+    if stale {
+        crate::meeting_panel::close();
+    }
+    let due =
+        alerts::with(|a| alerts::panel_due(events, now, prefs, a).map(|m| (a.panel_shown.contains_key(&m.key), m)));
+    if let Some((again, m)) = due {
+        crate::meeting_panel::show(&m, again, alerts::hotkey_label(prefs));
+        if prefs.meeting_start_sound && crate::sound::take_alert(crate::sound::Kind::Meeting) {
+            crate::sound::play(&prefs.sound_theme, crate::sound::Kind::Meeting);
+        }
+    }
+    s.meeting_changed();
 }
 
 /// Route notification clicks: open the thread/event, or join the meeting.

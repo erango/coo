@@ -13,6 +13,8 @@ mod greeting;
 mod keymon;
 mod mailto;
 mod meeting;
+mod meeting_alerts;
+mod meeting_panel;
 mod menu;
 mod menubar;
 mod milestones;

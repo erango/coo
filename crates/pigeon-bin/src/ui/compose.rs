@@ -440,6 +440,16 @@ pub fn save_now(slot: ComposeSlot) {
     }
 }
 
+/// Save what's in the editor to Drafts now, keeping the composer open
+/// (the meeting strip's "Save draft & join").
+pub async fn save_draft_now(slot: ComposeSlot) {
+    let Some(d) = slot.draft.peek().clone() else { return };
+    let d = with_editor_content(d).await;
+    if !is_blank(&d, &d.body_html) {
+        send_cmd(Cmd::SaveDraft(d));
+    }
+}
+
 /// `d` with what its editor (and edited quote) hold right now.
 pub async fn with_editor_content(mut d: Draft) -> Draft {
     let id = editor_id(&d);
@@ -1306,6 +1316,7 @@ pub fn Composer(draft: Draft, #[props(default)] docked: bool) -> Element {
                     span { class: "composer__title", dir: "auto", "{title}" }
                     span { class: "composer__saved", {saved_note(&s, &current.id).unwrap_or_else(|| "Draft".into())} }
                 }
+                super::meeting_banner::ComposeStrip {}
                 div { class: "composer__fields",
                     div { class: "composer-field",
                         span { class: "composer-field__label", "From" }

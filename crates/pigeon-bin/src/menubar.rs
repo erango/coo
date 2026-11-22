@@ -151,6 +151,24 @@ pub fn set_restart(version: Option<&str>) {
     });
 }
 
+/// Text beside the status item's icon (the meeting countdown); None for
+/// just the icon.
+pub fn set_title(title: Option<&str>) {
+    thread_local! {
+        static LAST: RefCell<Option<String>> = const { RefCell::new(None) };
+    }
+    let new = title.map(str::to_string);
+    if LAST.with(|l| *l.borrow() == new) {
+        return;
+    }
+    TRAY.with(|t| {
+        if let Some(t) = t.borrow().as_ref() {
+            t._icon.set_title(new.as_deref().map(|s| format!(" {s}")));
+        }
+    });
+    LAST.with(|l| *l.borrow_mut() = new);
+}
+
 /// The main window is hidden (menu-bar mode).
 pub fn main_hidden() -> bool {
     MAIN.with(|m| m.borrow().as_ref().is_some_and(|w| !w.is_visible()))

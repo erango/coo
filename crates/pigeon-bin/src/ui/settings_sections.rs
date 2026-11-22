@@ -965,6 +965,7 @@ pub fn Notifications() -> Element {
                     onchange: move |_| set(|p| p.reminders_time_sensitive = !p.reminders_time_sensitive) }
             }
         }
+        super::settings_meetings::MeetingAlerts {}
         Group { title: "Sounds", perch: true,
             Row { label: "Sound", hint: "Each set has a new-mail sound and a reminder sound. Click one to hear it.", stack: true,
                 div { class: "chips", role: "radiogroup", "aria-label": "Sound theme",
@@ -1011,6 +1012,18 @@ pub fn Notifications() -> Element {
                         Icon { name: "play", class: "icon--xs" } "Play" }
                     input { class: "switch", r#type: "checkbox", checked: cur.meeting_sound, disabled: quiet, "aria-label": "Reminder sound",
                         onchange: move |_| set(|p| p.meeting_sound = !p.meeting_sound) }
+                }
+            }
+            Row { label: "Meeting starts", hint: "With the panel over every app.",
+                div { class: "srow__inline",
+                    button { class: "btn btn--ghost btn--sm", r#type: "button", disabled: quiet, title: "Play the reminder sound",
+                        onclick: move |_| {
+                            let p = prefs::get();
+                            crate::sound::play(&p.sound_theme, crate::sound::Kind::Meeting);
+                        },
+                        Icon { name: "play", class: "icon--xs" } "Play" }
+                    input { class: "switch", r#type: "checkbox", checked: cur.meeting_start_sound, disabled: quiet, "aria-label": "Sound when a meeting starts",
+                        onchange: move |_| set(|p| p.meeting_start_sound = !p.meeting_start_sound) }
                 }
             }
             Row { label: "Try it", hint: "Posts a real notification, the way new mail arrives.",

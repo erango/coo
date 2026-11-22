@@ -4256,6 +4256,7 @@ dependencies = [
  "chrono",
  "dioxus",
  "encoding_rs",
+ "global-hotkey",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",

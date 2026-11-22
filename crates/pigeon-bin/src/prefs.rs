@@ -117,6 +117,34 @@ pub struct Prefs {
     pub mail_sound: bool,
     /// Play the theme's meeting-reminder sound.
     pub meeting_sound: bool,
+    /// Meeting alerts (meeting_alerts.rs), from quiet to loud: the title
+    /// and minutes left in the menu bar, from this many minutes before.
+    pub meeting_countdown: bool,
+    pub meeting_countdown_minutes: u32,
+    /// The sidebar's Next up card warms up as a meeting gets close.
+    pub meeting_card_warm: bool,
+    /// A banner across the top of Coo, this many minutes before.
+    pub meeting_banner: bool,
+    pub meeting_banner_minutes: u32,
+    /// A strip in the composer when a meeting starts while you write.
+    pub meeting_composer_strip: bool,
+    /// A panel over every app when a meeting starts.
+    pub meeting_panel: bool,
+    /// Bring the panel back once, this many minutes after the start, when
+    /// it was put away without Join or Dismiss.
+    pub meeting_panel_again: bool,
+    pub meeting_panel_again_minutes: u32,
+    /// A sound when the panel shows.
+    pub meeting_start_sound: bool,
+    /// Join from any app: "shift+cmd+KeyJ", "ctrl+alt+KeyJ",
+    /// "ctrl+shift+KeyJ", or "" for none.
+    pub meeting_join_hotkey: String,
+    /// Tentative and unanswered meetings go past the notification too.
+    pub meeting_alert_tentative: bool,
+    /// Events with just you and no meeting link go past the notification.
+    pub meeting_alert_solo: bool,
+    /// Calendars whose events never alert, as `account|calendar_id`.
+    pub meeting_quiet_calendars: Vec<String>,
     /// Where new messages open: "window" (their own window) or "docked"
     /// (in the reading pane).
     pub compose_mode: String,
@@ -280,6 +308,20 @@ impl Default for Prefs {
             sound_theme: crate::sound::DEFAULT.into(),
             mail_sound: true,
             meeting_sound: true,
+            meeting_countdown: true,
+            meeting_countdown_minutes: 15,
+            meeting_card_warm: true,
+            meeting_banner: true,
+            meeting_banner_minutes: 2,
+            meeting_composer_strip: true,
+            meeting_panel: true,
+            meeting_panel_again: true,
+            meeting_panel_again_minutes: 2,
+            meeting_start_sound: false,
+            meeting_join_hotkey: crate::meeting_alerts::DEFAULT_HOTKEY.into(),
+            meeting_alert_tentative: false,
+            meeting_alert_solo: false,
+            meeting_quiet_calendars: Vec::new(),
         }
     }
 }

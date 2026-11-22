@@ -26,6 +26,8 @@ fn has_native_app(service: Service) -> bool {
 
 /// Join the meeting at `url`.
 pub fn join(url: &str) {
+    crate::meeting_alerts::joined_url(url);
+    crate::meeting_panel::close();
     let link = MeetingLink { url: url.to_string(), service: service_of(url) };
     let target = native_url(&link).filter(|_| has_native_app(link.service)).unwrap_or_else(|| link.url.clone());
     if !crate::web::open(&target) {

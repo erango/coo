@@ -267,6 +267,9 @@ pub struct AppState {
     pub toasts: Signal<Vec<Toast>>,
     pub sync: Signal<SyncState>,
     pub next_up: Signal<Vec<EventRow>>,
+    /// Bumped every few seconds by the meeting alert loop, and when an
+    /// alert is acted on: what shows meeting alerts re-renders on it.
+    pub meeting_tick: Signal<u64>,
     pub senders: Signal<Vec<Sender>>,
     /// Messages already received from (account id, lowercased address),
     /// for the sender card's "first time" warning.
@@ -449,6 +452,7 @@ impl AppState {
             toasts: Signal::new(Vec::new()),
             sync: Signal::new(SyncState::default()),
             next_up: Signal::new(Vec::new()),
+            meeting_tick: Signal::new(0),
             senders: Signal::new(Vec::new()),
             sender_seen: Signal::new(HashMap::new()),
             att_sel: Signal::new((String::new(), Vec::new())),
@@ -566,6 +570,13 @@ impl AppState {
     /// they neither show in Next up nor remind.
     pub fn next_up_shown(&self) -> Vec<EventRow> {
         without_hidden(&self.next_up.read(), &self.hidden_calendars.read())
+    }
+
+    /// Something about a meeting alert changed: redraw them now.
+    pub fn meeting_changed(&self) {
+        let mut t = self.meeting_tick;
+        let n = *t.peek();
+        t.set(n.wrapping_add(1));
     }
 
     /// As `next_up_shown`, without subscribing (for background loops).

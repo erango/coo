@@ -573,6 +573,7 @@ fn FolderRow(account_id: String, info: FolderInfo, pinned: bool, child: bool) ->
 fn NextUp() -> Element {
     use pigeon_core::meeting::{JoinState, join_state, joinable};
     let s = use_context::<AppState>();
+    let _tick = s.meeting_tick.read();
     let events = s.next_up_shown();
     let now = pigeon_core::now_ms();
     // A meeting you can join right now beats the next item on the agenda.
@@ -586,10 +587,11 @@ fn NextUp() -> Element {
     let hue = s.calendar_hue(&s.calendar_hues(), &row.account_id, &row.event.calendar_id);
     let live = join_state(e.start_at, e.end_at, now) == JoinState::Live;
     let soon = if live { "now".to_string() } else { format::soon(e.start_at, now) };
+    let heat = crate::meeting_alerts::with(|a| crate::meeting_alerts::heat(&row, now, &crate::prefs::get(), a));
     rsx! {
         div { class: "next-up",
             span { class: "t-label", style: "padding:0 4px", if live { "Now" } else { "Next up" } }
-            div { class: "next-up__card",
+            div { class: "next-up__card", "data-heat": heat.attr(),
                 div { class: "next-up__item", "data-hue": "{hue}",
                     span { class: "next-up__bar" }
                     div {
