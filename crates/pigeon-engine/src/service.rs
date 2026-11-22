@@ -1038,6 +1038,17 @@ impl Service {
 
     /// Every address the user sends from (accounts + aliases), cached after
     /// the first lookup; falls back to account addresses if aliases fail.
+    /// After an account comes or goes: forget the cached addresses and send
+    /// the From pickers the new list (the new account's aliases, or without
+    /// the removed one's). A failure only leaves the old list.
+    async fn refresh_senders(&self) {
+        *self.my_addresses.lock().await = None;
+        match self.app.senders().await {
+            Ok(senders) => self.send(Delta::Senders(senders)),
+            Err(e) => tracing::warn!(error = %e, "could not reload send-from addresses"),
+        }
+    }
+
     async fn my_addresses(&self) -> Vec<String> {
         let mut cache = self.my_addresses.lock().await;
         if let Some(m) = cache.as_ref() {
@@ -1133,7 +1144,7 @@ impl Service {
         let offline = failures > 0 && failures == network_failures;
         needs_sign_in.dedup();
         {
-            let fresh = self.signed_in_at.lock().unwrap();
+            let fresh = self.signed_in_at.lock().unwrap_or_else(|p| p.into_inner());
             needs_sign_in.retain(|id| fresh.get(id).is_none_or(|at| *at < started));
         }
         self.set_sync(|s| {
@@ -1486,10 +1497,11 @@ impl Service {
                 self.toast(format!("Signed in as {}", account.email), false, None);
                 // Signing in again clears the account's warning at once,
                 // not after the next sync.
-                self.signed_in_at.lock().unwrap().insert(account.id.clone(), now_ms());
+                self.signed_in_at.lock().unwrap_or_else(|p| p.into_inner()).insert(account.id.clone(), now_ms());
                 self.set_sync(|s| s.needs_sign_in.retain(|id| *id != account.id)).await;
                 self.publish().await;
                 self.send(Delta::SignedIn { account_id: account.id.clone() });
+                self.refresh_senders().await;
                 // Sync now, or right after the one under way (which began
                 // with the old sign-in).
                 let svc = self.clone();
@@ -1598,23 +1610,21 @@ impl Service {
                 }
                 *self.my_addresses.lock().await = None;
                 self.toast(format!("Signed in as {}", account.email), false, None);
-                self.signed_in_at.lock().unwrap().insert(account.id.clone(), now_ms());
+                self.signed_in_at.lock().unwrap_or_else(|p| p.into_inner()).insert(account.id.clone(), now_ms());
                 self.set_sync(|s| s.needs_sign_in.retain(|id| *id != account.id)).await;
                 self.publish().await;
                 self.send(Delta::SignedIn { account_id: account.id.clone() });
-                // The From pickers learn the new account's addresses.
-                if let Ok(senders) = self.app.senders().await {
-                    self.send(Delta::Senders(senders));
-                }
+                self.refresh_senders().await;
                 tokio::spawn(self.clone().sync());
             }
             Cmd::Logout { account_id } => {
                 let account = self.app.account(&account_id)?;
                 self.app.logout(&account_id)?;
-                *self.my_addresses.lock().await = None;
+                self.signed_in_at.lock().unwrap_or_else(|p| p.into_inner()).remove(&account_id);
                 self.notify_marks.lock().unwrap_or_else(|p| p.into_inner()).forget(&account_id);
                 self.toast(format!("Signed out of {}", account.email), false, None);
                 self.publish().await;
+                self.refresh_senders().await;
             }
             Cmd::LoadSenders => self.send(Delta::Senders(self.app.senders().await?)),
             Cmd::SetSendAddress { account_id, email, offered } => {
