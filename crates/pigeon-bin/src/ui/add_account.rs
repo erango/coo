@@ -203,7 +203,11 @@ impl Flow {
 
     /// Enter / the primary button, whatever the step.
     pub fn submit(self) {
-        match self.step.peek().clone() {
+        // Copy the step out first: a guard in the match scrutinee lives to
+        // the end of the match, and submit_email sets the step (an
+        // AlreadyBorrowed panic, Continue on the address step).
+        let step = self.step.peek().clone();
+        match step {
             Step::Start => self.submit_email(),
             Step::Detected(d) => {
                 if let Some(p) = d.host.provider() {
@@ -471,6 +475,27 @@ mod tests {
 
     fn det(domain: &str, host: MailHost) -> Detection {
         Detection { domain: domain.into(), host }
+    }
+
+    /// Continue on the address step (Enter, or the primary button) used to
+    /// panic: `submit` held the step's guard while `submit_email` set it.
+    #[test]
+    fn continue_on_the_address_step_moves_on() {
+        static STEP: std::sync::Mutex<Option<Step>> = std::sync::Mutex::new(None);
+        fn app() -> Element {
+            use_context_provider(AppState::new);
+            let flow =
+                use_flow(Opening { email: "someone@gmail.com".into(), ..Default::default() }, Callback::new(|()| {}));
+            use_hook(move || {
+                flow.submit();
+                *STEP.lock().unwrap() = Some(flow.step.peek().clone());
+            });
+            rsx! {}
+        }
+        let mut dom = VirtualDom::new(app);
+        dom.rebuild_in_place();
+        let step = STEP.lock().unwrap().clone();
+        assert!(matches!(step, Some(Step::Detected(_))), "{step:?}");
     }
 
     #[test]
