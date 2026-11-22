@@ -519,20 +519,13 @@ fn ensure(c: Rgb, bg: Rgb, toward: Rgb, min: f32) -> Rgb {
     out
 }
 
-// Minimum contrasts (WCAG 2.x) in dark mode, on bg-0: body text AA,
-// secondary text AA, captions ~AA-large, accents/marks as UI components.
-pub const MIN_TEXT_1: f32 = 4.5;
-pub const MIN_TEXT_2: f32 = 4.5;
-pub const MIN_TEXT_3: f32 = 3.5;
-pub const MIN_ACCENT: f32 = 3.0;
-pub const MIN_HUE_TEXT: f32 = 4.5;
-
-/// Light mode asks for more, on every surface text sits on (the sheet, the
-/// sidebar's ground, raised pills and selected rows), not just the sheet:
-/// tinted light palettes (Mint, Tokyo Night Day) read washed out at the
-/// dark-mode minimums. Body text AAA, captions and accents AA, since
-/// accents and status colors are also used as text (dates, links,
-/// "in 9 min").
+/// Minimum contrasts (WCAG 2.x), on every surface text sits on (see
+/// `text_surfaces`), not just bg-0: body text AAA, secondary text and
+/// captions AA, and accents and status colors AA too, since they are also
+/// used as text (dates, links, "in 9 min"). Dark mode used to ask only for
+/// AA on bg-0 and bg-1, and message rows, which sit on the lighter sheet,
+/// read dim in palettes like Solarized.
+#[derive(Debug, Clone, Copy)]
 pub struct Mins {
     pub text: [f32; 3],
     pub accent: f32,
@@ -541,23 +534,24 @@ pub struct Mins {
 }
 
 pub fn mins(dark: bool) -> Mins {
-    if dark {
-        Mins {
-            text: [MIN_TEXT_1, MIN_TEXT_2, MIN_TEXT_3],
-            accent: MIN_ACCENT,
-            status: MIN_ACCENT,
-            hue_text: MIN_HUE_TEXT,
-        }
-    } else {
-        Mins { text: [7.0, 5.5, 4.5], accent: 4.5, status: 4.5, hue_text: 4.5 }
-    }
+    // Lifting a dark accent to AA bleaches it toward white (Solarized's
+    // yellow turns tan), and it is mostly a fill there: 3:1, as for UI parts.
+    let accent = if dark { 3.0 } else { 4.5 };
+    Mins { text: [7.0, 5.5, 4.5], accent, status: 4.5, hue_text: 4.5 }
 }
 
-/// The surfaces text sits on in this mode: in light, the sheet (bg-0),
-/// bg-1, bg-2 and the window's ground (app.css: bg-2 with 5% of text-1);
-/// in dark, bg-0 and bg-1 as before.
+/// The surfaces text sits on in this mode. Light: the sheet (bg-0), bg-1,
+/// bg-2 and the window's ground (app.css: bg-2 with 5% of text-1). Dark:
+/// bg-0 and bg-1 (the ground), the sheet (app.css: bg-2 with 30% of bg-3)
+/// and the sheet's raised step (sheet-3: 10% of text-1), which covers the
+/// hover, unread and open washes on message rows.
 pub fn text_surfaces(bg: &[Rgb; 4], text1: Rgb, dark: bool) -> Vec<Rgb> {
-    if dark { vec![bg[0], bg[1]] } else { vec![bg[0], bg[1], bg[2], bg[2].mix(text1, 0.05)] }
+    if dark {
+        let sheet = bg[2].mix(bg[3], 0.3);
+        vec![bg[0], bg[1], sheet, sheet.mix(text1, 0.10)]
+    } else {
+        vec![bg[0], bg[1], bg[2], bg[2].mix(text1, 0.05)]
+    }
 }
 
 /// Push `c` toward `toward` until it reaches `min` on every surface.
@@ -596,26 +590,22 @@ fn resolve_mode(m: &ModeSpec, dark: bool) -> Resolved {
     let min = mins(dark);
     // Push away from the background: toward white in dark, black in light.
     let extreme = if dark { Rgb(255.0, 255.0, 255.0) } else { Rgb(0.0, 0.0, 0.0) };
-    let t1 = ensure_all(raw_text[0], &text_surfaces(&bg, raw_text[0], dark), extreme, min.text[0]);
-    // The ground mixes in text-1, so measure the rest against the final one.
+    // Some surfaces mix in text-1, so settle text-1 against them first, then
+    // measure the rest against the final one.
+    let mut t1 = raw_text[0];
+    for _ in 0..4 {
+        t1 = ensure_all(t1, &text_surfaces(&bg, t1, dark), extreme, min.text[0] + 0.05);
+    }
     let surfaces = text_surfaces(&bg, t1, dark);
-    let t1 = ensure_all(t1, &surfaces, extreme, min.text[0]);
     let t2 = ensure_all(raw_text[1], &surfaces, extreme, min.text[1]);
-    // Captions: on the sheet in dark (as before), everywhere in light.
-    let t3 = if dark {
-        ensure(raw_text[2], bg[0], extreme, min.text[2])
-    } else {
-        ensure_all(raw_text[2], &surfaces, extreme, min.text[2])
-    };
-    let fix = |c: C, m: f32| ensure(resolve(c), bg[0], extreme, m);
+    let t3 = ensure_all(raw_text[2], &surfaces, extreme, min.text[2]);
+    let fix = |c: C, m: f32| ensure_all(resolve(c), &surfaces, extreme, m);
     let accent = fix(m.accent, min.accent);
     let accent2 = m.accent2.map_or(accent, |c| fix(c, min.accent));
     let white = Rgb(255.0, 255.0, 255.0);
     let on = |c: Rgb| if contrast(bg[0], c) >= contrast(white, c) { bg[0] } else { white };
     let hues = m.hues.map(resolve);
-    let hue_text = hues.map(|h| {
-        if dark { ensure(h, bg[0], extreme, min.hue_text) } else { ensure_all(h, &surfaces, extreme, min.hue_text) }
-    });
+    let hue_text = hues.map(|h| ensure_all(h, &surfaces, extreme, min.hue_text));
     Resolved {
         dark,
         bg,
@@ -931,37 +921,40 @@ mod tests {
                 let c = contrast(r.text[0], *bg);
                 assert!(c >= 4.5, "{id}/{m}: text-1 on bg-{i} is {c:.2}");
             }
-            assert!(contrast(r.text[1], r.bg[0]) >= MIN_TEXT_2 - 0.01, "{id}/{m}: text-2");
-            assert!(contrast(r.text[2], r.bg[0]) >= MIN_TEXT_3 - 0.01, "{id}/{m}: text-3");
-            assert!(contrast(r.accent, r.bg[0]) >= MIN_ACCENT - 0.01, "{id}/{m}: accent");
+            assert!(contrast(r.text[1], r.bg[0]) >= mins(r.dark).text[1] - 0.05, "{id}/{m}: text-2");
+            assert!(contrast(r.text[2], r.bg[0]) >= mins(r.dark).text[2] - 0.05, "{id}/{m}: text-3");
+            assert!(contrast(r.accent, r.bg[0]) >= mins(r.dark).accent - 0.05, "{id}/{m}: accent");
             assert!(contrast(r.on_accent, r.accent) >= 3.0, "{id}/{m}: on-accent");
             for (i, t) in r.hue_text.iter().enumerate() {
-                assert!(contrast(*t, r.bg[0]) >= MIN_HUE_TEXT - 0.01, "{id}/{m}: hue-{}-text", i + 1);
+                assert!(contrast(*t, r.bg[0]) >= mins(r.dark).hue_text - 0.05, "{id}/{m}: hue-{}-text", i + 1);
             }
         }
     }
 
     #[test]
-    fn light_text_reads_on_every_surface() {
-        for (id, r) in all_modes().into_iter().filter(|(_, r)| !r.dark) {
-            let min = mins(false);
-            for (si, s) in text_surfaces(&r.bg, r.text[0], false).iter().enumerate() {
+    fn text_reads_on_every_surface() {
+        for (id, r) in all_modes() {
+            let min = mins(r.dark);
+            let m = if r.dark { "dark" } else { "light" };
+            for (si, s) in text_surfaces(&r.bg, r.text[0], r.dark).iter().enumerate() {
                 for (i, t) in r.text.iter().enumerate() {
                     let c = contrast(*t, *s);
-                    assert!(c >= min.text[i] - 0.05, "{id}/light: text-{} on surface {si} is {c:.2}", i + 1);
+                    assert!(c >= min.text[i] - 0.05, "{id}/{m}: text-{} on surface {si} is {c:.2}", i + 1);
                 }
                 for (i, t) in r.hue_text.iter().enumerate() {
-                    assert!(contrast(*t, *s) >= min.hue_text - 0.05, "{id}/light: hue-{}-text on surface {si}", i + 1);
+                    assert!(contrast(*t, *s) >= min.hue_text - 0.05, "{id}/{m}: hue-{}-text on surface {si}", i + 1);
                 }
             }
-            for (name, c) in [
-                ("accent", r.accent),
-                ("success", r.success),
-                ("warning", r.warning),
-                ("error", r.error),
-                ("info", r.info),
+            for (name, c, want) in [
+                ("accent", r.accent, min.accent),
+                ("success", r.success, min.status),
+                ("warning", r.warning, min.status),
+                ("error", r.error, min.status),
+                ("info", r.info, min.status),
             ] {
-                assert!(contrast(c, r.bg[0]) >= 4.5 - 0.05, "{id}/light: {name} as text");
+                for s in text_surfaces(&r.bg, r.text[0], r.dark) {
+                    assert!(contrast(c, s) >= want - 0.05, "{id}/{m}: {name} as text");
+                }
             }
         }
     }
