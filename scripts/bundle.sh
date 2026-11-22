@@ -4,6 +4,8 @@
 #   ./scripts/bundle.sh --debug    debug build (faster)
 #   ./scripts/bundle.sh --universal  release universal binary (arm64 + x86_64)
 #   ./scripts/bundle.sh --open     launch it when done
+#   ./scripts/bundle.sh --prebuilt DIR  bundle the pigeon-app and coo already
+#                                  in DIR (CI builds each arch in its own job)
 #
 # Signing: with PIGEON_SIGN_IDENTITY set (e.g. "Developer ID Application:
 # Name (TEAMID)") the bundle is signed for distribution: hardened runtime,
@@ -21,14 +23,16 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PROFILE="release"; PROFILE_DIR="release"; DO_OPEN=0; UNIVERSAL=0
-for arg in "$@"; do
-  case "$arg" in
+PROFILE="release"; PROFILE_DIR="release"; DO_OPEN=0; UNIVERSAL=0; PREBUILT=""
+while [ $# -gt 0 ]; do
+  case "$1" in
     --debug) PROFILE="dev"; PROFILE_DIR="debug" ;;
     --open) DO_OPEN=1 ;;
     --universal) UNIVERSAL=1 ;;
-    *) echo "unknown arg: $arg" >&2; exit 1 ;;
+    --prebuilt) PREBUILT="$(cd "$2" && pwd)"; shift ;;
+    *) echo "unknown arg: $1" >&2; exit 1 ;;
   esac
+  shift
 done
 
 VERSION="$(grep -m1 '^version' "$ROOT/Cargo.toml" | sed 's/.*"\(.*\)".*/\1/')"
@@ -42,7 +46,10 @@ if [ ! -f "$ICNS" ] || [ "$ROOT/design/logo/app-icon.svg" -nt "$ICNS" ]; then
 fi
 
 TARGET_ROOT="${CARGO_TARGET_DIR:-$ROOT/target}"
-if [ "$UNIVERSAL" = "1" ]; then
+if [ -n "$PREBUILT" ]; then
+  echo "==> using prebuilt binaries in $PREBUILT"
+  TARGET="$PREBUILT"
+elif [ "$UNIVERSAL" = "1" ]; then
   echo "==> building universal (arm64 + x86_64)…"
   rustup target add aarch64-apple-darwin x86_64-apple-darwin >/dev/null
   for t in aarch64-apple-darwin x86_64-apple-darwin; do
