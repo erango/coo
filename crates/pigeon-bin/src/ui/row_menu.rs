@@ -269,10 +269,10 @@ fn run(s: AppState, m: &RowMenu, entry: Entry) {
     let items = targets(&s, m);
     let item = &m.item;
     let action = match entry {
-        Entry::Reply => return reply(item, ReplyKind::Reply),
-        Entry::ReplyAll => return reply(item, ReplyKind::ReplyAll),
-        Entry::Forward => return reply(item, ReplyKind::Forward),
-        Entry::Reuse => return reply(item, ReplyKind::Reuse),
+        Entry::Reply => return reply(s, item, ReplyKind::Reply),
+        Entry::ReplyAll => return reply(s, item, ReplyKind::ReplyAll),
+        Entry::Forward => return reply(s, item, ReplyKind::Forward),
+        Entry::Reuse => return reply(s, item, ReplyKind::Reuse),
         Entry::OpenWindow => return super::reader_window::open(s, item.clone()),
         Entry::Watch => {
             let h = item.header();

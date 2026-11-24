@@ -75,6 +75,75 @@ pub fn is_blank(d: &Draft, typed: &str) -> bool {
         && pigeon_core::text::html_to_text(typed).trim().is_empty()
 }
 
+/// Every composer open right now, with its window when it has its own:
+/// the main window's, each compose window's and each message window's.
+fn open_slots(s: &AppState) -> Vec<(ComposeSlot, Option<dioxus::desktop::DesktopContext>)> {
+    let mut v = vec![(s.main_slot(), None)];
+    v.extend(super::compose_window::slots().into_iter().map(|(slot, w)| (slot, Some(w))));
+    v.extend(super::reader_window::slots().into_iter().map(|(slot, w)| (slot, Some(w))));
+    v
+}
+
+/// Reply, Reply all or Forward on a message whose reply is already being
+/// written: the same kind brings that reply forward; another kind turns it
+/// into that kind in place (recipients, subject, quote), keeping what's
+/// written. False: nothing open for that message, start a new one.
+pub fn change_open_reply(
+    s: AppState,
+    account_id: &str,
+    message_id: &str,
+    kind: pigeon_core::compose::ReplyKind,
+) -> bool {
+    if kind == pigeon_core::compose::ReplyKind::Reuse {
+        return false;
+    }
+    for (slot, window) in open_slots(&s) {
+        let Some(d) = slot.draft.peek().clone() else { continue };
+        let Some(r) = &d.reply else { continue };
+        if r.account_id != account_id || r.message_id != message_id {
+            continue;
+        }
+        let same = r.kind == kind;
+        match window {
+            Some(w) => {
+                w.window.set_visible(true);
+                w.window.set_focus();
+            }
+            None => {
+                let mut hidden = s.docked_hidden;
+                hidden.set(false);
+                bridge::focus(&editor_id(&d));
+            }
+        }
+        if !same {
+            // The main window's editor is read here; a window's (not
+            // reachable from this one) comes from its last autosave.
+            spawn(async move {
+                let draft = with_editor_content(d).await;
+                send_cmd(Cmd::ChangeReply { draft, kind });
+            });
+        }
+        return true;
+    }
+    false
+}
+
+/// The engine turned an open reply into another kind: its composer takes
+/// the new recipients, subject, quote and files; the editor keeps the text.
+pub fn reply_changed(s: &AppState, new: Draft) {
+    for (slot, _) in open_slots(s) {
+        let mut state = slot.draft;
+        let mut w = state.write();
+        let Some(d) = w.as_mut().filter(|d| d.id == new.id) else { continue };
+        if is_forward(d) != is_forward(&new) {
+            d.html = new.html.clone();
+        }
+        (d.to, d.cc, d.bcc, d.subject) = (new.to.clone(), new.cc.clone(), new.bcc.clone(), new.subject.clone());
+        (d.attachments, d.reply) = (new.attachments.clone(), new.reply.clone());
+        return;
+    }
+}
+
 /// Replies open in their own window (Settings › Composing › Replies).
 pub fn reply_window_mode() -> bool {
     crate::prefs::get().reply_mode == "window"
@@ -886,17 +955,19 @@ fn SignaturePreview() -> Element {
 /// frame keeps the original's layout); an edited quote is read back into
 /// `draft.html` on autosave, fold, close and send.
 #[component]
-fn QuotedOriginal(html: String) -> Element {
+fn QuotedOriginal(html: String, #[props(default)] forward: bool) -> Element {
     let s = use_context::<AppState>();
     let slot = use_context::<ComposeSlot>();
     // The frame's document, fixed while it's open: re-rendering it from a
     // just-autosaved `html` would reload the frame under the caret.
-    let mut doc = use_signal(|| None::<(bool, String)>);
+    // A frame opened on a reply's quote is put away when the reply becomes
+    // a forward (or back): its quote is a different one.
+    let mut doc = use_signal(|| None::<(bool, String, bool)>);
     if html.is_empty() {
         return rsx! {};
     }
     let editor = slot.draft.read().as_ref().map(editor_id).unwrap_or_default();
-    let shown = doc.read().is_some();
+    let shown = doc.read().as_ref().is_some_and(|d| d.2 == forward);
     let toggle = {
         let editor = editor.clone();
         move |_| {
@@ -913,6 +984,7 @@ fn QuotedOriginal(html: String) -> Element {
                 doc.set(Some((
                     adapted,
                     super::mailframe::srcdoc(&html, &s.palette.read(), s.dark(), adapted, remote, ""),
+                    forward,
                 )));
             }
         }
@@ -923,7 +995,7 @@ fn QuotedOriginal(html: String) -> Element {
             onclick: toggle,
             "•••"
         }
-        if let Some((adapted, d)) = doc() {
+        if let Some((adapted, d, _)) = doc().filter(|_| shown) {
             div { class: "composer-quote",
                 iframe { class: "mail-frame mail-frame--edit", id: "{editor}-quote", "data-edit-for": "{editor}",
                     "data-render": if adapted { "adapted" } else { "paper" },
@@ -934,6 +1006,10 @@ fn QuotedOriginal(html: String) -> Element {
             }
         }
     }
+}
+
+fn is_forward(d: &Draft) -> bool {
+    d.reply.as_ref().is_some_and(|r| r.kind == pigeon_core::compose::ReplyKind::Forward)
 }
 
 /// Fold an edited quote (if any) back into the open draft.
@@ -1086,6 +1162,8 @@ pub fn InlineReply(draft: Draft) -> Element {
     });
     use_drop(move || keep_on_leave(slot));
     let current = state.read().clone().unwrap_or(draft.clone());
+    // Reply all, picked after the reply opened, fills Cc: show it.
+    let cc_open = *show_cc.read() || !current.cc.is_empty();
     let hint = cross_hint(&s, &current);
     let dragging = use_signal(|| false);
     let (over, leave, drop) = drop_handlers(s, slot, dragging);
@@ -1106,7 +1184,7 @@ pub fn InlineReply(draft: Draft) -> Element {
                 span { class: "t-3", style: "font-size:12.5px", "to" }
                 RecipientInput { id: to_id.clone(), value: current.to.clone(), placeholder: "Name or address",
                     on_change: move |l| set_field(slot, Field::To, l) }
-                if !*show_cc.read() {
+                if !cc_open {
                     button { class: "btn btn--ghost btn--sm", r#type: "button", title: "Add Cc or Bcc recipients",
                         onclick: move |_| show_cc.set(true), "Cc Bcc" }
                 }
@@ -1125,7 +1203,7 @@ pub fn InlineReply(draft: Draft) -> Element {
                     Icon { name: "x" }
                 }
             }
-            if *show_cc.read() {
+            if cc_open {
                 div { class: "inline-reply__head", style: "height:auto;min-height:40px",
                     span { class: "t-3", style: "font-size:12.5px;padding-left:4px", "cc" }
                     RecipientInput { id: "reply-cc-{current.id}", value: current.cc.clone(),
@@ -1146,7 +1224,7 @@ pub fn InlineReply(draft: Draft) -> Element {
                 dangerous_inner_html: "{body}",
             }
             div { style: "padding:0 16px", SignaturePreview {} }
-            QuotedOriginal { html: current.html.clone() }
+            QuotedOriginal { html: current.html.clone(), forward: is_forward(&current) }
             if !attachments_on_top() { Attachments {} }
             super::drive::DriveWaiting {}
             super::drive::DriveSheet { editor: id.clone() }
@@ -1279,7 +1357,6 @@ pub fn Composer(draft: Draft, #[props(default)] docked: bool) -> Element {
         }
     });
     let mut state = slot.draft;
-    let mut subject = use_signal(|| draft.subject.clone());
     let debug = use_hook(|| {
         static USED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
         let d = debug_compose().filter(|_| !USED.swap(true, std::sync::atomic::Ordering::Relaxed));
@@ -1297,6 +1374,7 @@ pub fn Composer(draft: Draft, #[props(default)] docked: bool) -> Element {
         move || bridge::focus(if focus_to { &to_id } else { &id })
     });
     let current = state.read().clone().unwrap_or(draft.clone());
+    let cc_open = *show_cc_bcc.read() || !current.cc.is_empty();
     let hint = cross_hint(&s, &current);
     let title = if current.subject.is_empty() { "New message".to_string() } else { current.subject.clone() };
     let dragging = use_signal(|| false);
@@ -1328,12 +1406,12 @@ pub fn Composer(draft: Draft, #[props(default)] docked: bool) -> Element {
                         RecipientInput { id: "composer-to-{current.id}", value: current.to.clone(),
                             placeholder: "Name or address", initial_text: debug.clone(),
                             on_change: move |l| set_field(slot, Field::To, l) }
-                        if !*show_cc_bcc.read() {
+                        if !cc_open {
                             button { class: "btn btn--ghost btn--sm composer-field__aside", r#type: "button",
                                 onclick: move |_| show_cc_bcc.set(true), "Cc Bcc" }
                         }
                     }
-                    if *show_cc_bcc.read() {
+                    if cc_open {
                         div { class: "composer-field",
                             span { class: "composer-field__label", "Cc" }
                             RecipientInput { id: "composer-cc-{current.id}", value: current.cc.clone(),
@@ -1346,9 +1424,8 @@ pub fn Composer(draft: Draft, #[props(default)] docked: bool) -> Element {
                         }
                     }
                     div { class: "composer-field composer-field--subject",
-                        input { class: "input--bare", dir: "auto", value: "{subject}", placeholder: "Subject",
+                        input { class: "input--bare", dir: "auto", value: "{current.subject}", placeholder: "Subject",
                             oninput: move |e| {
-                                subject.set(e.value());
                                 if let Some(d) = state.write().as_mut() { d.subject = e.value(); }
                             }
                         }
@@ -1366,7 +1443,7 @@ pub fn Composer(draft: Draft, #[props(default)] docked: bool) -> Element {
                         dangerous_inner_html: "{body}" }
                     SignaturePreview {}
                     if !current.html.is_empty() {
-                        div { class: "composer__quote", QuotedOriginal { html: current.html.clone() } }
+                        div { class: "composer__quote", QuotedOriginal { html: current.html.clone(), forward: is_forward(&current) } }
                     }
                 }
                 if !attachments_on_top() { Attachments {} }

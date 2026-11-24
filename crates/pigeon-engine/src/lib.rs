@@ -742,6 +742,29 @@ impl Pigeon {
         Ok(draft)
     }
 
+    /// Turn an open reply into another kind (Reply, Reply all, Forward),
+    /// keeping its id and what was written; see
+    /// [`pigeon_core::compose::change_reply`]. Saved here; the caller syncs it.
+    pub async fn change_reply(&self, draft: Draft, kind: ReplyKind) -> Result<Draft> {
+        let Some(ctx) = draft.reply.clone() else {
+            return Err(Error::Other("this message isn't a reply".into()));
+        };
+        let account = self.account(&ctx.account_id)?;
+        let original = self
+            .store()
+            .message(&account.id, &ctx.message_id)?
+            .ok_or_else(|| Error::Other(format!("message {} is not synced", ctx.message_id)))?;
+        let body = self.body(&account, &ctx.message_id).await?;
+        let senders = self.senders().await?;
+        let mine: Vec<String> = senders.iter().map(|s| s.address.email.clone()).collect();
+        let now = pigeon_core::now_ms();
+        let made = |k| reply_draft(k, &account.id, &original, &body, draft.from.clone(), &mine, now);
+        let (old, new) = (made(ctx.kind), made(kind));
+        let mut d = pigeon_core::compose::change_reply(draft, &old, new);
+        self.save_draft(&mut d)?;
+        Ok(d)
+    }
+
     /// Send a draft from whichever account its From belongs to, then drop
     /// it here and on the server. Returns the Message-ID.
     ///

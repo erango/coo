@@ -74,6 +74,11 @@ pub fn open(s: AppState, draft: Draft) {
     let _ = dioxus::desktop::window().new_window(dom, cfg);
 }
 
+/// Each open compose window's draft slot and window.
+pub fn slots() -> Vec<(ComposeSlot, DesktopContext)> {
+    OPEN.with(|o| o.borrow().iter().map(|w| (w.slot, w.window.clone())).collect())
+}
+
 /// Any compose window open (keeps the Dock icon while the main window hides).
 pub fn any_open() -> bool {
     OPEN.with(|o| !o.borrow().is_empty())

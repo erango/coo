@@ -427,6 +427,46 @@ pub fn reply_draft(
     d
 }
 
+/// Turn an open reply into another kind (Reply, Reply all, Forward) in
+/// place, keeping what the user wrote. `old` and `new` are what
+/// [`reply_draft`] makes for the draft's current kind and for the new one.
+/// To and Cc become the new kind's, plus anyone the user added by hand;
+/// Bcc and the typed text stay. The subject and the quote follow the new
+/// kind unless the user changed them (a quote is only swapped between a
+/// reply and a forward, which quote differently). Attached files the user
+/// added stay; the ones the original brought follow the new kind.
+pub fn change_reply(mut d: Draft, old: &Draft, new: Draft) -> Draft {
+    let added = |mine: &[Address], made: &[Address]| -> Vec<Address> {
+        mine.iter().filter(|a| !made.iter().any(|m| m.email.eq_ignore_ascii_case(&a.email))).cloned().collect()
+    };
+    let (extra_to, extra_cc) = (added(&d.to, &old.to), added(&d.cc, &old.cc));
+    let mut seen: Vec<String> = Vec::new();
+    let mut keep = |a: &Address| {
+        let e = a.email.to_lowercase();
+        let fresh = !seen.contains(&e);
+        if fresh {
+            seen.push(e);
+        }
+        fresh
+    };
+    d.to = new.to.iter().chain(&extra_to).filter(|a| keep(a)).cloned().collect();
+    d.cc = new.cc.iter().chain(&extra_cc).filter(|a| keep(a)).cloned().collect();
+    d.bcc.retain(|a| keep(a));
+    if d.subject.trim() == old.subject.trim() {
+        d.subject = new.subject.clone();
+    }
+    let forward = |x: &Draft| x.reply.as_ref().is_some_and(|r| r.kind == ReplyKind::Forward);
+    if forward(old) != forward(&new) {
+        d.html = new.html.clone();
+    }
+    let by_user: Vec<DraftAttachment> =
+        d.attachments.iter().filter(|a| !old.attachments.contains(a)).cloned().collect();
+    d.attachments = new.attachments.into_iter().chain(by_user).collect();
+    d.reply = new.reply;
+    d.updated_at = new.updated_at;
+    d
+}
+
 fn strip_brackets(id: &str) -> &str {
     id.trim().trim_start_matches('<').trim_end_matches('>')
 }
@@ -777,6 +817,53 @@ mod tests {
         assert_eq!(r.references, ["<root@cust.com>", "<orig@cust.com>"]);
         assert_eq!(d.thread_hint(), Some("t1"));
         assert!(!d.crosses_accounts());
+    }
+
+    #[test]
+    fn an_open_reply_changes_kind_keeping_what_was_written() {
+        let mine = vec!["support@biz.com".to_string(), "me@work.com".to_string()];
+        let make = |kind| {
+            reply_draft(kind, "google:main", &original(), &body(), sender("google:main", "support@biz.com"), &mine, 0)
+        };
+        let emails = |v: &[Address]| v.iter().map(|a| a.email.clone()).collect::<Vec<_>>();
+        let mut d = make(ReplyKind::Reply);
+        d.body_html = "<div>typed</div>".into();
+        d.bcc.push(Address { name: None, email: "hidden@x.com".into() });
+        d.cc.push(Address { name: None, email: "added@x.com".into() });
+        let file = DraftAttachment {
+            name: "a.pdf".into(),
+            content_type: None,
+            source: AttachmentSource::File { path: "/tmp/a.pdf".into() },
+        };
+        d.attachments.push(file.clone());
+        let id = d.id.clone();
+
+        let all = change_reply(d, &make(ReplyKind::Reply), make(ReplyKind::ReplyAll));
+        assert_eq!(all.id, id);
+        assert_eq!(all.reply.as_ref().unwrap().kind, ReplyKind::ReplyAll);
+        assert_eq!(emails(&all.to), ["c@cust.com"]);
+        assert_eq!(emails(&all.cc), ["boss@biz.com", "added@x.com"]);
+        assert_eq!(emails(&all.bcc), ["hidden@x.com"]);
+        assert_eq!(all.body_html, "<div>typed</div>");
+        assert!(all.attachments.contains(&file));
+
+        // And back: the reply-all Cc goes, the one added by hand stays.
+        let back = change_reply(all, &make(ReplyKind::ReplyAll), make(ReplyKind::Reply));
+        assert_eq!(emails(&back.to), ["c@cust.com"]);
+        assert_eq!(emails(&back.cc), ["added@x.com"]);
+
+        // Forward: nobody from the original, its quote and subject.
+        let mut edited = back.clone();
+        edited.subject = "My own subject".into();
+        let fwd = change_reply(edited, &make(ReplyKind::Reply), make(ReplyKind::Forward));
+        assert!(fwd.to.is_empty());
+        assert_eq!(emails(&fwd.cc), ["added@x.com"]);
+        assert_eq!(fwd.subject, "My own subject");
+        assert!(fwd.html.contains("Forwarded message"));
+        assert_eq!(fwd.body_html, "<div>typed</div>");
+        assert!(fwd.attachments.contains(&file));
+        let fwd = change_reply(back, &make(ReplyKind::Reply), make(ReplyKind::Forward));
+        assert_eq!(fwd.subject, "Fwd: Order שלום");
     }
 
     #[test]

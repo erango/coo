@@ -241,7 +241,7 @@ fn run(mut s: AppState, action: Action) {
         Action::Zoom(step) => super::zoom::change(s, step),
         Action::Reply(k) => {
             if let Some(it) = selected_item(&s) {
-                reply(&it, k);
+                reply(s, &it, k);
             }
         }
     }

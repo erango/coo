@@ -338,6 +338,12 @@ pub enum Cmd {
         message_id: String,
         kind: ReplyKind,
     },
+    /// Turn an open reply (or forward) into another kind, in place.
+    /// Answered with `Delta::ReplyChanged`.
+    ChangeReply {
+        draft: Draft,
+        kind: ReplyKind,
+    },
     /// A blank draft from `from_account`'s own address (the UI passes the
     /// default account for new messages); `None` or an account that's gone:
     /// the first sending address.
@@ -653,6 +659,10 @@ pub enum Delta {
         uri: Option<String>,
     },
     Draft(Draft),
+    /// An open reply turned into another kind (`Cmd::ChangeReply`): the
+    /// composer holding that draft id takes its recipients, subject, quote
+    /// and files.
+    ReplyChanged(Draft),
     /// A draft's latest version reached the server's Drafts.
     DraftSaved {
         draft_id: String,
@@ -1713,6 +1723,11 @@ impl Service {
                 let account = self.app.account(&account_id)?;
                 let draft = self.app.reply(&account, &message_id, kind, None).await?;
                 self.send(Delta::Draft(draft));
+            }
+            Cmd::ChangeReply { draft, kind } => {
+                let draft = self.app.change_reply(draft, kind).await?;
+                self.schedule_draft_sync(draft.id.clone());
+                self.send(Delta::ReplyChanged(draft));
             }
             Cmd::NewDraft { from_account, mailto } => {
                 let from = match from_account.and_then(|id| self.app.account(&id).ok()) {

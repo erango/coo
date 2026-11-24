@@ -101,8 +101,16 @@ pub fn take_reply(d: &Draft) -> bool {
     }
 }
 
+/// Each message window's inline reply slot and window.
+pub fn slots() -> Vec<(ComposeSlot, DesktopContext)> {
+    OPEN.with(|o| o.borrow().iter().map(|w| (w.slot, w.window.clone())).collect())
+}
+
 /// Start a reply from a message window.
 pub fn reply_here(s: AppState, account_id: String, message_id: String, kind: ReplyKind) {
+    if super::compose::change_open_reply(s, &account_id, &message_id, kind) {
+        return;
+    }
     let mut pending = s.reply_to_window;
     pending.set(Some((account_id.clone(), message_id.clone())));
     send_cmd(Cmd::StartReply { account_id, message_id, kind });

@@ -157,11 +157,11 @@ fn ThreadReader() -> Element {
                 ColorsButton { view: view.clone() }
                 if total > 0 { span { class: "reader-toolbar__pos", "{pos} of {total}" } }
                 span { class: "reader-toolbar__sep" }
-                button { class: "icon-btn", "aria-label": tip("Reply", Do::Reply), onclick: move |_| if let Some(i) = &i4 { reply(i, ReplyKind::Reply) }, Icon { name: "reply", class: "icon--lg" } }
-                button { class: "icon-btn", "aria-label": tip("Reply all", Do::ReplyAll), onclick: move |_| if let Some(i) = &i5 { reply(i, ReplyKind::ReplyAll) }, Icon { name: "replyall", class: "icon--lg" } }
-                button { class: "icon-btn", "aria-label": tip("Forward", Do::Forward), onclick: move |_| if let Some(i) = &i6 { reply(i, ReplyKind::Forward) }, Icon { name: "forward", class: "icon--lg" } }
+                button { class: "icon-btn", "aria-label": tip("Reply", Do::Reply), onclick: move |_| if let Some(i) = &i4 { reply(s, i, ReplyKind::Reply) }, Icon { name: "reply", class: "icon--lg" } }
+                button { class: "icon-btn", "aria-label": tip("Reply all", Do::ReplyAll), onclick: move |_| if let Some(i) = &i5 { reply(s, i, ReplyKind::ReplyAll) }, Icon { name: "replyall", class: "icon--lg" } }
+                button { class: "icon-btn", "aria-label": tip("Forward", Do::Forward), onclick: move |_| if let Some(i) = &i6 { reply(s, i, ReplyKind::Forward) }, Icon { name: "forward", class: "icon--lg" } }
                 button { class: "icon-btn", "aria-label": "Reuse message: send it again to the same people, editable", title: "Reuse message",
-                    onclick: move |_| if let Some(i) = &i9 { reply(i, ReplyKind::Reuse) }, Icon { name: "repeat", class: "icon--lg" } }
+                    onclick: move |_| if let Some(i) = &i9 { reply(s, i, ReplyKind::Reuse) }, Icon { name: "repeat", class: "icon--lg" } }
             }
             Thread { key: "{view.account_id}|{view.thread_id}|{view.focus}", view: view.clone() }
         }
@@ -433,7 +433,7 @@ pub(super) fn Thread(view: ReaderView, #[props(default)] windowed: bool) -> Elem
                         if windowed {
                             super::reader_window::reply_here(s, account_id, message_id, kind)
                         } else {
-                            send_cmd(Cmd::StartReply { account_id, message_id, kind })
+                            super::start_reply(Some(s), account_id, message_id, kind)
                         }
                     };
                     let (s1, s2, s3) = (start.clone(), start.clone(), start.clone());
@@ -582,7 +582,7 @@ fn Message(
                                     if windowed {
                                         super::reader_window::reply_here(s, account_id, message_id, ReplyKind::Reply)
                                     } else {
-                                        send_cmd(Cmd::StartReply { account_id, message_id, kind: ReplyKind::Reply })
+                                        super::start_reply(Some(s), account_id, message_id, ReplyKind::Reply)
                                     }
                                 },
                                 Icon { name: "reply" }

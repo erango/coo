@@ -1079,7 +1079,7 @@ async fn click_loop(s: AppState) {
                 let mut sel = s.selected;
                 sel.set(Some(format!("{account}|{thread}")));
                 send_cmd(Cmd::OpenThread { account_id: account.clone(), thread_id: thread });
-                send_cmd(Cmd::StartReply { account_id: account, message_id: message, kind: ReplyKind::Reply });
+                start_reply(Some(s), account, message, ReplyKind::Reply);
             }
             Click::Mail { account, message, action, .. } => {
                 let (mail_action, label) = match action {
@@ -1546,8 +1546,17 @@ fn contextual_from(s: &AppState) -> Option<String> {
     here.filter(|id| s.accounts.read().iter().any(|a| &a.account.id == id)).or_else(|| s.default_from())
 }
 
-pub fn reply(item: &ListItem, kind: ReplyKind) {
-    send_cmd(Cmd::StartReply { account_id: item.account_id().to_string(), message_id: item.header().id.clone(), kind });
+pub fn reply(s: AppState, item: &ListItem, kind: ReplyKind) {
+    start_reply(Some(s), item.account_id().to_string(), item.header().id.clone(), kind);
+}
+
+/// Start a reply, or change the one already open for that message (Reply
+/// all after Reply keeps what's written: compose::change_open_reply).
+pub fn start_reply(s: Option<AppState>, account_id: String, message_id: String, kind: ReplyKind) {
+    if s.is_some_and(|s| compose::change_open_reply(s, &account_id, &message_id, kind)) {
+        return;
+    }
+    send_cmd(Cmd::StartReply { account_id, message_id, kind });
 }
 
 /// The meeting joinable right now, if any: (title, url).
@@ -1797,10 +1806,10 @@ pub fn run(s: AppState, what: Do) {
                 Do::Flag => act(s, &item, if h.is_flagged { MailAction::Unflag } else { MailAction::Flag }),
                 Do::MarkRead => act(s, &item, MailAction::MarkRead),
                 Do::MarkUnread => act(s, &item, MailAction::MarkUnread),
-                Do::Reply => reply(&item, ReplyKind::Reply),
-                Do::ReplyAll => reply(&item, ReplyKind::ReplyAll),
-                Do::Forward => reply(&item, ReplyKind::Forward),
-                Do::Reuse => reply(&item, ReplyKind::Reuse),
+                Do::Reply => reply(s, &item, ReplyKind::Reply),
+                Do::ReplyAll => reply(s, &item, ReplyKind::ReplyAll),
+                Do::Forward => reply(s, &item, ReplyKind::Forward),
+                Do::Reuse => reply(s, &item, ReplyKind::Reuse),
                 _ => {}
             }
         }

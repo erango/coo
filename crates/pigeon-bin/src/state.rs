@@ -1060,6 +1060,7 @@ fn apply(s: &mut AppState, delta: Delta) {
                 s.compose_notice.set(None);
                 s.draft.set(Some(d))
             }
+            Delta::ReplyChanged(d) => crate::ui::compose::reply_changed(s, d),
             Delta::DraftSaved { draft_id } => {
                 s.draft_saved.write().insert(draft_id, pigeon_core::now_ms());
             }
