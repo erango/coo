@@ -35,6 +35,27 @@ const AFTER_AGENT_SYNC: Duration = Duration::from_secs(2);
 /// Done Needs-you items stay visible (crossed off) this long.
 const NEEDS_RECENT_DONE_MS: i64 = 24 * 3_600_000;
 
+/// A command's variant name, e.g. `StartReply`, for the debug log.
+fn cmd_name(cmd: &Cmd) -> String {
+    // Stops formatting at the end of the name, so fields are never
+    // formatted at all (a draft's HTML can be large).
+    struct Name(String);
+    impl std::fmt::Write for Name {
+        fn write_str(&mut self, s: &str) -> std::fmt::Result {
+            for c in s.chars() {
+                if !(c.is_alphanumeric() || c == '_') {
+                    return Err(std::fmt::Error);
+                }
+                self.0.push(c);
+            }
+            Ok(())
+        }
+    }
+    let mut n = Name(String::new());
+    let _ = std::fmt::write(&mut n, format_args!("{cmd:?}"));
+    n.0
+}
+
 /// A password that never shows up in `Debug` output (commands get logged).
 #[derive(Clone)]
 pub struct Secret(pub String);
@@ -1209,7 +1230,17 @@ impl Service {
     }
 
     async fn handle(self: Arc<Self>, cmd: Cmd) {
-        if let Err(e) = self.clone().handle_inner(cmd).await {
+        // The command's name only (its fields can hold drafts and passwords).
+        let name = cmd_name(&cmd);
+        let started = std::time::Instant::now();
+        tracing::debug!(cmd = name, "command");
+        let result = self.clone().handle_inner(cmd).await;
+        let ms = started.elapsed().as_millis() as u64;
+        match &result {
+            Ok(()) => tracing::debug!(cmd = name, ms, "command done"),
+            Err(e) => tracing::info!(cmd = name, ms, error = %e, "command failed"),
+        }
+        if let Err(e) = result {
             self.fail("Something went wrong", &e);
         }
     }
@@ -2754,6 +2785,12 @@ async fn save_image(url: &str, path: &std::path::Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn command_names_leave_out_their_fields() {
+        let cmd = super::Cmd::DiscardDraft { draft_id: "secret".into() };
+        assert_eq!(super::cmd_name(&cmd), "DiscardDraft");
+    }
+
     #[test]
     fn eml_names_come_from_the_subject() {
         assert_eq!(super::eml_name("Q4 plan: draft/v2"), "Q4-plan-draft-v2.eml");

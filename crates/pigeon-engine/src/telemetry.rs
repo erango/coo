@@ -7,7 +7,9 @@
 //! never logged in the first place.
 
 use std::borrow::Cow;
-use std::sync::Arc;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use sentry::protocol::{Breadcrumb, Event, Value};
 use tracing_subscriber::layer::SubscriberExt;
@@ -75,7 +77,82 @@ pub fn report_event(r: &BugReport) -> Event<'static> {
     e
 }
 
-/// Send a report on a one-off client (blocking; run off the UI thread).
+/// Each log file is cut at this size; the one before is kept as `.1.log`.
+const LOG_MAX_BYTES: u64 = 4 * 1024 * 1024;
+
+/// Debug detail for Coo's own code in the log file; everything else at info.
+const LOG_FILTER: &str = "info,pigeon=debug,pigeon_app=debug,pigeon_bin=debug,pigeon_core=debug,pigeon_engine=debug,\
+     pigeon_graph=debug,pigeon_google=debug,pigeon_imap=debug,pigeon_caldav=debug,pigeon_zoom=debug,coo=debug";
+
+/// Where `release` (e.g. `coo-app@0.1.60`) keeps its log: `logs/coo-app.log`
+/// in the data folder.
+fn log_path(release: &str) -> Option<PathBuf> {
+    let name = release.split('@').next().filter(|n| !n.is_empty()).unwrap_or("coo");
+    let dir = pigeon_core::paths::data_dir().ok()?.join("logs");
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir.join(format!("{name}.log")))
+}
+
+fn previous(path: &Path) -> PathBuf {
+    path.with_extension("1.log")
+}
+
+/// The log file. Every line is scrubbed like a Sentry event before it's
+/// written, so the file never holds addresses or URL query strings, and it
+/// only leaves the Mac attached to a bug report the user sends.
+struct LogFile {
+    path: PathBuf,
+    file: Mutex<Option<std::fs::File>>,
+}
+
+impl LogFile {
+    fn open(path: PathBuf) -> Self {
+        let file = std::fs::OpenOptions::new().create(true).append(true).open(&path).ok();
+        LogFile { path, file: Mutex::new(file) }
+    }
+
+    fn write_line(&self, buf: &[u8]) {
+        let text = String::from_utf8_lossy(buf);
+        let clean = scrub(&text);
+        let mut f = self.file.lock().unwrap_or_else(|p| p.into_inner());
+        if f.as_ref().and_then(|f| f.metadata().ok()).is_some_and(|m| m.len() > LOG_MAX_BYTES) {
+            *f = None;
+            let _ = std::fs::rename(&self.path, previous(&self.path));
+            *f = std::fs::OpenOptions::new().create(true).append(true).open(&self.path).ok();
+        }
+        if let Some(f) = f.as_mut() {
+            let _ = f.write_all(clean.as_bytes());
+        }
+    }
+}
+
+struct LogWriter(Arc<LogFile>);
+
+impl Write for LogWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.write_line(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// The debug log to attach to a bug report: the previous file, then the
+/// current one, scrubbed again (older builds wrote unscrubbed lines).
+pub fn debug_log(release: &str) -> Option<Vec<u8>> {
+    let path = log_path(release)?;
+    let mut out = String::new();
+    for p in [previous(&path), path] {
+        if let Ok(bytes) = std::fs::read(&p) {
+            out.push_str(&scrub(&String::from_utf8_lossy(&bytes)));
+        }
+    }
+    (!out.is_empty()).then(|| out.into_bytes())
+}
+
+/// Send a report on a one-off client (blocking; run off the UI thread),
+/// with the debug log attached when there is one.
 pub fn send_report(release: &'static str, r: &BugReport) -> Result<(), String> {
     let dsn = report_dsn().ok_or("Bug reports aren't set up in this build.")?;
     let mut opts = sentry::ClientOptions::default();
@@ -83,7 +160,16 @@ pub fn send_report(release: &'static str, r: &BugReport) -> Result<(), String> {
     opts.environment = Some(Cow::Borrowed(if cfg!(debug_assertions) { "development" } else { "production" }));
     opts.send_default_pii = false;
     let client = sentry::Client::from((dsn, opts));
-    client.capture_event(report_event(r), None);
+    let mut scope = sentry::Scope::default();
+    if let Some(log) = debug_log(release) {
+        scope.add_attachment(sentry::protocol::Attachment {
+            buffer: log,
+            filename: "coo-debug.log".into(),
+            content_type: Some("text/plain".into()),
+            ty: None,
+        });
+    }
+    client.capture_event(report_event(r), Some(&scope));
     if client.flush(Some(std::time::Duration::from_secs(10))) {
         Ok(())
     } else {
@@ -131,7 +217,18 @@ pub fn init(release: &'static str, default_filter: &str) -> Option<Guard> {
                 "pigeon=info,pigeon_core=info,pigeon_engine=info,pigeon_graph=info,pigeon_google=info,pigeon_bin=info",
             ))
     });
-    let _ = tracing_subscriber::registry().with(fmt).with(sentry_layer).try_init();
+    // Everything Coo does, in detail, to a local file (scrubbed); sent only
+    // with a bug report.
+    let file_layer = log_path(release).map(|path| {
+        let file = Arc::new(LogFile::open(path));
+        tracing_subscriber::fmt::layer()
+            .with_ansi(false)
+            .with_thread_names(true)
+            .with_writer(move || LogWriter(file.clone()))
+            .with_filter(EnvFilter::new(LOG_FILTER))
+    });
+    let _ = tracing_subscriber::registry().with(fmt).with(sentry_layer).with(file_layer).try_init();
+    tracing::info!(release, "started");
 
     if guard.is_some() {
         tracing::info!(release, "crash reporting on");
@@ -173,7 +270,9 @@ pub fn scrub(s: &str) -> Cow<'_, str> {
             }
             let domain: String = chars[i + 1..end].iter().collect();
             let domain = domain.trim_end_matches('.');
-            if start < out.len() && domain.contains('.') {
+            // A real domain ends in letters; `coo-app@0.1.60` is a version.
+            let tld = domain.rsplit('.').next().unwrap_or_default();
+            if start < out.len() && domain.contains('.') && tld.chars().any(char::is_alphabetic) {
                 out.truncate(start);
                 out.push_str("<email>");
                 i += 1 + domain.chars().count();
@@ -289,6 +388,25 @@ pub fn scrub_breadcrumb(b: &mut Breadcrumb) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_log_file_is_scrubbed_and_cut() {
+        let dir = std::env::temp_dir().join(format!("coo-log-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("coo-test.log");
+        let log = LogFile::open(path.clone());
+        log.write_line(b"sync done for google:someone@example.com https://x.com/a?token=abc\n");
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("someone@example.com") && !text.contains("token=abc"), "{text}");
+        assert!(text.contains("<email>"));
+        assert_eq!(scrub("release=coo-app@0.1.60"), "release=coo-app@0.1.60");
+        let big = vec![b'x'; LOG_MAX_BYTES as usize + 1];
+        log.write_line(&big);
+        log.write_line(b"after\n");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "after\n");
+        assert!(previous(&path).exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn scrubs_emails() {

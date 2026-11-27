@@ -1,7 +1,7 @@
 //! Help › Report a Bug…: a short form sent to the developer through Sentry
 //! (`Cmd::ReportBug`). It lists exactly what goes with the description:
-//! versions and a few settings, never mail content or addresses (other
-//! than a reply address the user types in).
+//! versions, a few settings and the debug log (telemetry.rs), never mail
+//! content or addresses (other than a reply address the user types in).
 
 use dioxus::prelude::*;
 use pigeon_engine::service::Cmd;
@@ -88,6 +88,7 @@ pub fn BugReportDialog() -> Element {
                                 }
                                 li { span { class: "t-3", "accounts: " } "the kinds connected (Google, Microsoft, iCloud)" }
                                 li { span { class: "t-3", "macOS: " } "its version" }
+                                li { span { class: "t-3", "debug log: " } "what Coo did lately (requests to the mail servers, errors, timings), with addresses and link details removed" }
                             }
                             p { class: "t-3", "No messages, subjects, names or addresses, other than an email you add above." }
                         }
