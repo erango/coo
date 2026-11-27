@@ -492,7 +492,7 @@ async fn run(cli: Cli) -> pigeon_core::Result<()> {
         if !pigeon_engine::telemetry::enabled() {
             return Err(pigeon_core::Error::Other("telemetry is off: set PIGEON_SENTRY_DSN".into()));
         }
-        // The address below must arrive as <email> in Sentry.
+        // The address below must arrive anonymized (<email:…>) in Sentry.
         tracing::error!(
             account = "microsoft:test@example.com",
             "telemetry test from pigeon-cli (scrub check: test@example.com)"

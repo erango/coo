@@ -7,6 +7,8 @@ license.workspace = true
 [dependencies]
 chrono.workspace = true
 pigeon-core.workspace = true
+sha2.workspace = true
+getrandom.workspace = true
 pigeon-google.workspace = true
 pigeon-graph.workspace = true
 pigeon-imap.workspace = true

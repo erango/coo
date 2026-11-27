@@ -244,7 +244,67 @@ fn is_domain(c: char) -> bool {
     c.is_alphanumeric() || matches!(c, '.' | '-')
 }
 
-/// Replace email addresses with `<email>` and drop URL query strings.
+/// Mail services whose domain says nothing about who someone is: kept in
+/// an anonymized address, since it helps (Gmail vs Outlook vs iCloud).
+const PUBLIC_DOMAINS: [&str; 10] = [
+    "gmail.com",
+    "googlemail.com",
+    "outlook.com",
+    "hotmail.com",
+    "live.com",
+    "icloud.com",
+    "me.com",
+    "mac.com",
+    "yahoo.com",
+    "msn.com",
+];
+
+/// This Mac's secret for anonymizing (`logs/.salt` in the data folder,
+/// made once): the same address gets the same stand-in in every log line
+/// and report, and without the salt it can't be guessed back.
+fn salt() -> &'static [u8] {
+    static SALT: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    SALT.get_or_init(|| {
+        // Tests never touch the real data folder.
+        if cfg!(test) {
+            return b"coo-test-salt-0123456789".to_vec();
+        }
+        let path = pigeon_core::paths::data_dir().ok().map(|d| d.join("logs").join(".salt"));
+        if let Some(saved) = path.as_ref().and_then(|p| std::fs::read(p).ok()).filter(|s| s.len() >= 16) {
+            return saved;
+        }
+        let mut fresh = vec![0u8; 32];
+        if getrandom::fill(&mut fresh).is_err() {
+            fresh = std::process::id().to_le_bytes().to_vec();
+        }
+        if let Some(p) = path {
+            let _ = p.parent().map(std::fs::create_dir_all);
+            let _ = std::fs::write(p, &fresh);
+        }
+        fresh
+    })
+}
+
+/// An address's stand-in: `<email:3fa9c1>`, or `<email:3fa9c1@gmail.com>`
+/// for a public mail service. Same address, same stand-in.
+pub fn anonymize_email(email: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let lower = email.to_lowercase();
+    let mut h = Sha256::new();
+    h.update(salt());
+    h.update(lower.as_bytes());
+    let digest = h.finalize();
+    let tag: String = digest.iter().take(3).map(|b| format!("{b:02x}")).collect();
+    match lower.rsplit_once('@').map(|(_, d)| d).filter(|d| PUBLIC_DOMAINS.contains(d)) {
+        Some(domain) => format!("<email:{tag}@{domain}>"),
+        None => format!("<email:{tag}>"),
+    }
+}
+
+/// Anonymize, never delete: each email address becomes a stable stand-in
+/// (`anonymize_email`), and a URL query keeps its parameter names with the
+/// values hidden (`?$skiptoken=…&x=…`). Everything else, error text
+/// included, stays as it is.
 pub fn scrub(s: &str) -> Cow<'_, str> {
     if !s.contains('@') && !s.contains('?') {
         return Cow::Borrowed(s);
@@ -273,21 +333,38 @@ pub fn scrub(s: &str) -> Cow<'_, str> {
             // A real domain ends in letters; `coo-app@0.1.60` is a version.
             let tld = domain.rsplit('.').next().unwrap_or_default();
             if start < out.len() && domain.contains('.') && tld.chars().any(char::is_alphabetic) {
+                let local = out[start..].to_string();
                 out.truncate(start);
-                out.push_str("<email>");
+                out.push_str(&anonymize_email(&format!("{local}@{domain}")));
                 i += 1 + domain.chars().count();
                 continue;
             }
         }
         if c == '?' {
-            // Query string of a URL: drop until whitespace/quote/bracket.
+            // Query string of a URL: keep the names, hide the values.
             let tail: String = out.chars().rev().take_while(|ch| !ch.is_whitespace()).collect();
             if tail.contains("//") || tail.starts_with('/') || tail.ends_with('/') {
-                out.push_str("?<redacted>");
-                while i < chars.len() && !(chars[i].is_whitespace() || matches!(chars[i], '"' | '\'' | ')' | ']' | '>'))
+                let mut end = i + 1;
+                while end < chars.len()
+                    && !(chars[end].is_whitespace() || matches!(chars[end], '"' | '\'' | ')' | ']' | '>'))
                 {
-                    i += 1;
+                    end += 1;
                 }
+                // Punctuation closing the sentence isn't part of the URL.
+                while end > i + 1 && matches!(chars[end - 1], ':' | ',' | ';' | '.') {
+                    end -= 1;
+                }
+                let query: String = chars[i + 1..end].iter().collect();
+                let hidden: Vec<String> = query
+                    .split('&')
+                    .map(|pair| match pair.split_once('=') {
+                        Some((k, _)) => format!("{k}=…"),
+                        None => "…".to_string(),
+                    })
+                    .collect();
+                out.push('?');
+                out.push_str(&hidden.join("&"));
+                i = end;
                 continue;
             }
         }
@@ -398,7 +475,7 @@ mod tests {
         log.write_line(b"sync done for google:someone@example.com https://x.com/a?token=abc\n");
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(!text.contains("someone@example.com") && !text.contains("token=abc"), "{text}");
-        assert!(text.contains("<email>"));
+        assert!(text.contains(&anonymize_email("someone@example.com")));
         assert_eq!(scrub("release=coo-app@0.1.60"), "release=coo-app@0.1.60");
         let big = vec![b'x'; LOG_MAX_BYTES as usize + 1];
         log.write_line(&big);
@@ -410,19 +487,33 @@ mod tests {
 
     #[test]
     fn scrubs_emails() {
-        assert_eq!(scrub("sync failed for sam@halyard.co: 503"), "sync failed for <email>: 503");
-        assert_eq!(scrub("google:dana.cohen+x@mail.co.il"), "google:<email>");
-        assert_eq!(scrub("<a@b.com>, c.d@e.org"), "<<email>>, <email>");
+        let a = |e: &str| anonymize_email(e);
+        assert_eq!(
+            scrub("sync failed for sam@halyard.co: 503"),
+            format!("sync failed for {}: 503", a("sam@halyard.co"))
+        );
+        assert_eq!(scrub("google:dana.cohen+x@mail.co.il"), format!("google:{}", a("dana.cohen+x@mail.co.il")));
+        assert_eq!(scrub("<a@b.com>, c.d@e.org"), format!("<{}>, {}", a("a@b.com"), a("c.d@e.org")));
         assert_eq!(scrub("price @ 5pm"), "price @ 5pm");
         assert_eq!(scrub("user@localhost"), "user@localhost");
         assert!(matches!(scrub("nothing here"), Cow::Borrowed(_)));
     }
 
     #[test]
+    fn the_same_address_gets_the_same_stand_in() {
+        let one = anonymize_email("Dana@Gmail.com");
+        assert_eq!(one, anonymize_email("dana@gmail.com"));
+        assert_ne!(one, anonymize_email("dan@gmail.com"));
+        assert!(one.starts_with("<email:") && one.ends_with("@gmail.com>") && !one.contains("dana"), "{one}");
+        let work = anonymize_email("dana@acme.co.il");
+        assert!(!work.contains("acme"), "{work}");
+    }
+
+    #[test]
     fn scrubs_url_queries() {
         assert_eq!(
             scrub("503 from https://graph.microsoft.com/v1.0/me/messages/delta?$skiptoken=abc&x=1: busy"),
-            "503 from https://graph.microsoft.com/v1.0/me/messages/delta?<redacted> busy"
+            "503 from https://graph.microsoft.com/v1.0/me/messages/delta?$skiptoken=…&x=…: busy"
         );
         assert_eq!(scrub("what? really?"), "what? really?");
     }
@@ -459,9 +550,10 @@ mod tests {
         e.extra.insert("account".into(), Value::String("google:me@x.com".into()));
         e.breadcrumbs.values.push(Breadcrumb { message: Some("to a@b.io".into()), ..Default::default() });
         scrub_event(&mut e);
-        assert_eq!(e.message.as_deref(), Some("failed for <email>"));
-        assert_eq!(e.extra["account"], Value::String("google:<email>".into()));
-        assert_eq!(e.breadcrumbs.values[0].message.as_deref(), Some("to <email>"));
+        let (me, a) = (anonymize_email("me@x.com"), anonymize_email("a@b.io"));
+        assert_eq!(e.message.as_deref(), Some(format!("failed for {me}").as_str()));
+        assert_eq!(e.extra["account"], Value::String(format!("google:{me}")));
+        assert_eq!(e.breadcrumbs.values[0].message.as_deref(), Some(format!("to {a}").as_str()));
     }
 
     #[test]
